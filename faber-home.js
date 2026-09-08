@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.21.0";
+const FH_VERSION = "0.22.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -21,6 +21,7 @@ const FH_DEFAULTS = {
   appearance: {
     pageBackground: { mode: "gradient", color: "", from: "", mid: "", to: "" },
     weatherAnimation: true,
+    sidebar: "mai",
     autoTheme: { enabled: true, dayStart: "07:00", nightStart: "21:00" },
   },
   header: { clock: true, seconds: false, weather: "", temperature: "", chips: [] },
@@ -289,6 +290,7 @@ class FaberHome extends HTMLElement {
       appearance: {
         pageBackground: Object.assign({}, FH_DEFAULTS.appearance.pageBackground, ap.pageBackground || {}),
         weatherAnimation: ap.weatherAnimation !== false,
+        sidebar: ap.sidebar || "mai",
         autoTheme: Object.assign({}, FH_DEFAULTS.appearance.autoTheme, ap.autoTheme || {}),
       },
       header: Object.assign({}, FH_DEFAULTS.header, src.header || {},
@@ -517,6 +519,43 @@ class FaberHome extends HTMLElement {
     this._renderPage();
   }
 
+  // La barra laterale di Home Assistant e una preferenza dell'UTENTE, non
+  // della dashboard: si chiede col suo stesso evento, quello che usa il
+  // pulsante dell'hamburger. Si rimette com'era uscendo dal pannello, senno
+  // uno se la ritroverebbe sparita anche altrove senza sapere perche.
+  _dockSidebar(come) {
+    this.dispatchEvent(new CustomEvent("hass-dock-sidebar", {
+      detail: { dock: come }, bubbles: true, composed: true,
+    }));
+  }
+
+  _applySidebar() {
+    const modo = (this._cfg.appearance || {}).sidebar || "mai";
+    const stretto = (this._larghezza || this.clientWidth || window.innerWidth || 400) < 1100;
+    const nascondere = modo === "sempre" || (modo === "stretti" && stretto);
+    if (nascondere === this._sidebarNascosta) return;
+    if (nascondere) {
+      // Si ricorda com'era prima di toccarla.
+      if (this._sidebarPrima == null && this._hass) {
+        this._sidebarPrima = this._hass.dockedSidebar || "auto";
+      }
+      this._dockSidebar("always_hidden");
+      this._sidebarNascosta = true;
+    } else {
+      this._dockSidebar(this._sidebarPrima || "auto");
+      this._sidebarNascosta = false;
+    }
+  }
+
+  disconnectedCallback() {
+    // Uscendo dal pannello la barra torna come l'utente l'aveva.
+    if (this._sidebarNascosta) {
+      this._dockSidebar(this._sidebarPrima || "auto");
+      this._sidebarNascosta = false;
+    }
+    if (this._ro) { this._ro.disconnect(); this._ro = null; this._roTarget = null; }
+  }
+
   _renderNav() {
     const nav = this.querySelector("[data-nav]");
     if (!nav) return;
@@ -603,6 +642,7 @@ class FaberHome extends HTMLElement {
     const main = this.querySelector("[data-main]");
     if (!main) return;
     this._watchFascia();
+    this._applySidebar();
     const page = this._cfg.pages[this._page];
     this._cardEls.clear();
     main.innerHTML = "";
@@ -649,7 +689,7 @@ class FaberHome extends HTMLElement {
           slot.className = "fh-slot";
           slot.dataset.slot = `${ri}.${ci}.${di}`;
           const h = this._altezzaCard(cardCfg);
-          if (h) { slot.style.height = h + "px"; slot.classList.add("fissa"); }
+          if (h) { slot.style.setProperty("--fh-h", h + "px"); slot.classList.add("fissa"); }
           if (this._edit) {
             slot.classList.add("editing");
             slot.appendChild(this._cardToolsEl(ri, ci, di));
@@ -784,11 +824,11 @@ class FaberHome extends HTMLElement {
     const hAtt = this._altezzaCard(this._cfg.pages[this._page].rows[ri].cols[ci].cards[di]);
     el.innerHTML = `<button type="button" class="fh-grip" data-grip title="Trascina per spostare"><ha-icon icon="mdi:drag"></ha-icon></button>
       <select class="fh-hsel" data-forma title="Forma della card">
-        <option value="">${hAtt ? hAtt + " px" : "forma auto"}</option>
-        <option value="auto">Auto (si adatta)</option>
-        <option value="quadrata">Quadrata</option>
-        <option value="larga">Rettangolo largo</option>
-        <option value="alta">Alta</option>
+        <option value="">${hAtt ? "almeno " + hAtt + " px" : "altezza auto"}</option>
+        <option value="auto">Auto (quanto serve)</option>
+        <option value="quadrata">Almeno quadrata</option>
+        <option value="larga">Almeno rettangolare</option>
+        <option value="alta">Almeno alta</option>
       </select>
       ${this._btn("mdi:cog-outline", "Configura", "cfg")}
       ${this._btn(haPop ? "mdi:dock-window" : "mdi:dock-window", "Popup al tocco", "pop")}
@@ -936,13 +976,13 @@ class FaberHome extends HTMLElement {
       const etichetta = document.createElement("div");
       etichetta.className = "fh-misura";
       slot.appendChild(etichetta);
-      const mostra = () => { etichetta.textContent = Math.round(hNuova) + " px · " + spanNuovo + (spanNuovo === 1 ? " colonna" : " colonne"); };
+      const mostra = () => { etichetta.textContent = "almeno " + Math.round(hNuova) + " px · " + spanNuovo + (spanNuovo === 1 ? " colonna" : " colonne"); };
 
       const onMove = e => {
         hNuova = Math.max(80, Math.min(900, h0 + (e.clientY - y0)));
         const passi = Math.round((e.clientX - x0) / larghezzaTraccia);
         spanNuovo = Math.max(1, Math.min(tracce, span0 + passi));
-        slot.style.height = hNuova + "px";
+        slot.style.setProperty("--fh-h", hNuova + "px");
         slot.classList.add("fissa");
         col.style.gridColumn = "span " + spanNuovo;
         mostra();
@@ -1104,7 +1144,7 @@ class FaberHome extends HTMLElement {
       { g: "Faber", n: "Smart Card (tela)", i: "mdi:palette-swatch-outline", c: { type: "custom:smart-card", name: "Smart Card", canvas: { w: 100, h: 50 }, elements: [] } },
       { g: "Faber", n: "Meteo", i: "mdi:weather-partly-cloudy", c: { type: "custom:faber-weather", entity: "", days: 4 } },
       { g: "Faber", n: "Persona (avatar animato)", i: "mdi:account-heart", c: { type: "custom:faber-persona",
-        person: "", name: "", avatars: "", forma: "cerchio", grandezza: "media",
+        person: "", name: "", avatars: "", forma: "cerchio", grandezza: "media", disposizione: "colonna",
         mostra_distanza: true, mostra_indirizzo: true, mostra_batteria: true } },
       { g: "Faber", n: "Clima / condizionatore", i: "mdi:air-conditioner", c: { type: "custom:faber-clima",
         climate: "", name: "", temp: "", humidity: "", power: "", presa: "", aspetto: "auto",
@@ -2021,6 +2061,16 @@ class FaberHome extends HTMLElement {
           <input class="fh-input" id="stColor" type="color" value="${fhEsc(/^#[0-9a-f]{6}$/i.test(pb.color || "") ? pb.color : "#0d1420")}"></div></div>` : ""}
 
         <div class="fh-sgroup">Intestazione</div>
+        <div class="fh-sgroup">Barra laterale di Home Assistant</div>
+        <div class="fh-sfield"><label class="fh-slab">Nascondila</label>
+          <select class="fh-input" id="stSide">
+            <option value="mai"${(ap.sidebar || "mai") === "mai" ? " selected" : ""}>Mai — la lascio com'e</option>
+            <option value="stretti"${ap.sidebar === "stretti" ? " selected" : ""}>Su telefono e tablet</option>
+            <option value="sempre"${ap.sidebar === "sempre" ? " selected" : ""}>Sempre</option>
+          </select>
+          <span class="fh-note">Torna come prima quando esci da Faber Home. Da nascosta si riapre dal bordo sinistro dello schermo.</span>
+        </div>
+
         ${this._entityListHTML("stWeather", h.weather, "weather.", "Meteo")}
         ${this._entityListHTML("stTemp", h.temperature, "sensor.", "Temperatura mostrata", "temperature")}
         <label class="fh-check"><input type="checkbox" id="stSec"${h.seconds ? " checked" : ""}>
@@ -2055,6 +2105,11 @@ class FaberHome extends HTMLElement {
       this._wireEntityLists(box);
       const q = id => box.querySelector(id);
       const ap = this._cfg.appearance, h = this._cfg.header;
+      q("#stSide").addEventListener("change", e => {
+        this._cfg.appearance.sidebar = e.target.value;
+        this._sidebarNascosta = undefined;
+        this._applySidebar();
+      });
       q("#stAuto").addEventListener("change", e => { ap.autoTheme.enabled = e.target.checked; apply(); });
       q("#stDay").addEventListener("change", e => { ap.autoTheme.dayStart = e.target.value || "07:00"; apply(); });
       q("#stNight").addEventListener("change", e => { ap.autoTheme.nightStart = e.target.value || "21:00"; apply(); });
@@ -2254,16 +2309,24 @@ const FH_CSS = `
      larghezza (--fh-n, scritto dal JS). Prima era un flex con min-width 240px
      per colonna: sul telefono nessuna colonna ci stava accanto a un'altra e
      tutto finiva impilato, senza possibilita di scelta. */
+  /* stretch, non start: due card affiancate devono finire alla stessa
+     altezza, senno la riga resta sfalsata e sotto si vede il buco. */
   .fh-row{display:grid;grid-template-columns:repeat(var(--fh-n,1),minmax(0,1fr));
-    gap:14px;align-items:start}
+    gap:14px;align-items:stretch}
   .fh-col{display:flex;flex-direction:column;gap:14px;min-width:0}
   /* L'alloggiamento della card: qui vive l'altezza scelta. Con un'altezza
      fissa la card dentro deve riempirlo tutto, altrimenti resta appesa in
      alto dentro un riquadro vuoto. */
-  .fh-slot{display:flex;flex-direction:column;min-width:0;position:relative}
-  .fh-slot.fissa{overflow:hidden}
-  .fh-slot.fissa>.fh-cardwrap{flex:1;min-height:0}
-  .fh-slot.fissa>.fh-cardwrap>*{height:100%;box-sizing:border-box}
+  /* Le card di una colonna si dividono l'altezza della riga: cosi quelle
+     affiancate combaciano invece di sfalsarsi. */
+  .fh-slot{display:flex;flex-direction:column;min-width:0;position:relative;flex:1 1 auto}
+  /* L'altezza scelta e un MINIMO, non un tetto. Prima era un'altezza fissa con
+     overflow nascosto: il contenuto che non ci stava veniva tagliato, in alto
+     e ai lati, e non c'era modo di recuperarlo. Un contenuto non si taglia:
+     o si adatta, o la card cresce. */
+  .fh-slot.fissa{min-height:var(--fh-h,auto)}
+  .fh-slot>.fh-cardwrap{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
+  .fh-slot>.fh-cardwrap>*{flex:1 1 auto;min-height:100%;box-sizing:border-box}
   .fh-slot.editing.fissa>.fh-cardwrap{flex:1}
   /* trascinamento */
   .fh-grip{width:30px;height:30px;border-radius:9px;cursor:grab;touch-action:none;flex:0 0 auto;
@@ -2328,7 +2391,7 @@ const FH_CSS = `
   .fh-navcircle ha-icon{--mdc-icon-size:27px;color:#1c1400}
 
   /* ---- modalita modifica ---- */
-  .fh-editbar{position:sticky;top:0;z-index:4;display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  .fh-editbar{position:sticky;top:0;z-index:8;position:sticky;top:0;z-index:4;display:flex;align-items:center;gap:8px;flex-wrap:wrap;
     padding:10px 12px;border-radius:16px;margin-bottom:4px;
     background:var(--fh-panel,rgba(30,38,48,.9));border:1px solid rgba(255,176,32,.45);
     backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
@@ -4438,9 +4501,12 @@ const FP_DEFAULTS = {
   mostra_batteria: true,
   forma: "cerchio",
   grandezza: "media",
+  disposizione: "colonna",
 };
 
-const FP_GRANDEZZE = { piccola: 64, media: 88, grande: 124 };
+// In colonna la foto non deve piu spartirsi la larghezza col testo, quindi le
+// misure possono essere quelle vere. "Piena" la fa larga quanto la card.
+const FP_GRANDEZZE = { piccola: 90, media: 140, grande: 200, piena: 9999 };
 
 const FP_TONI = {
   casa: { c: "#38e08a", t: "A casa" },
@@ -4638,8 +4704,9 @@ class FaberPersona extends HTMLElement {
       righe.push({ i: "mdi:map-marker-outline", t: corto });
     }
 
+    this._body.className = "fp-body" + (c.disposizione === "fianco" ? " fianco" : "");
     this._body.innerHTML = `
-      <div class="fp-avatar ${c.forma === "quadrato" ? "quad" : ""}${aCasa ? "" : " via"}" style="--fp-c:${tono.c};--fp-d:${FP_GRANDEZZE[c.grandezza] || 88}px">
+      <div class="fp-avatar ${c.forma === "quadrato" ? "quad" : ""}${aCasa ? "" : " via"}" style="--fp-c:${tono.c};--fp-d:${FP_GRANDEZZE[c.grandezza] || 140}px">
         ${gif ? `<img src="${fhEsc(gif)}" alt="">` : `<div class="fp-noimg"><ha-icon icon="mdi:account"></ha-icon></div>`}
         <span class="fp-pallino"></span>
       </div>
@@ -4666,13 +4733,16 @@ const FP_CSS = `
     backdrop-filter:blur(18px) saturate(140%);-webkit-backdrop-filter:blur(18px) saturate(140%);
     color:#eaf1f8;box-shadow:0 10px 30px rgba(0,0,0,.28);
     transition:background-image .5s ease,border-color .5s ease}
-  .fp-body{padding:16px;display:flex;align-items:center;gap:15px;
+  /* Avatar in alto a sinistra e informazioni sotto: cosi la foto puo essere
+     grande davvero, invece di doversi spartire la larghezza col testo. */
+  .fp-body{padding:16px;display:flex;flex-direction:column;align-items:flex-start;gap:12px;
     font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  .fp-body.fianco{flex-direction:row;align-items:center;gap:15px}
   .fp-vuoto{padding:22px 8px;text-align:center;font-size:12.5px;font-weight:600;opacity:.6;width:100%}
   /* In una colonna stretta l'avatar cede spazio al testo invece di
      schiacciarlo: "A CASA" andava a capo su due righe. Resta quadrato grazie
      ad aspect-ratio, senza doverne fissare l'altezza. */
-  .fp-avatar{position:relative;width:var(--fp-d,88px);max-width:40%;aspect-ratio:1;height:auto;
+  .fp-avatar{position:relative;width:var(--fp-d,88px);max-width:100%;aspect-ratio:1;height:auto;
     flex:0 0 auto;border-radius:50%;
     overflow:hidden;border:2.5px solid var(--fp-c,#7a8896);
     box-shadow:0 0 0 4px color-mix(in srgb,var(--fp-c) 18%,transparent),0 8px 20px rgba(0,0,0,.35)}
@@ -4694,7 +4764,8 @@ const FP_CSS = `
      meta dal bordo. Percio e un fratello dell'immagine, non un figlio. */
   .fp-pallino{position:absolute;right:4px;bottom:4px;width:15px;height:15px;border-radius:50%;
     background:var(--fp-c);border:2.5px solid rgba(16,18,24,.9);z-index:2}
-  .fp-testo{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+  .fp-body.fianco .fp-avatar{max-width:40%}
+  .fp-testo{flex:1;min-width:0;width:100%;display:flex;flex-direction:column;gap:2px}
   .fp-nome{font-size:18px;font-weight:900;letter-spacing:-.2px;
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .fp-stato{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;margin-top:2px}
@@ -4798,9 +4869,15 @@ class FaberPersonaEditor extends HTMLElement {
           </details>
         </div>
 
-        <div class="fpe-f"><label>Grandezza</label>
+        <div class="fpe-f"><label>Disposizione</label>
           <div class="fpe-scelta">
-            ${[["piccola", "Piccola"], ["media", "Media"], ["grande", "Grande"]].map(([k, t]) =>
+            <button type="button" class="fpe-b${(c.disposizione || "colonna") === "colonna" ? " sel" : ""}" data-disp="colonna">Foto sopra</button>
+            <button type="button" class="fpe-b${c.disposizione === "fianco" ? " sel" : ""}" data-disp="fianco">Foto di fianco</button>
+          </div></div>
+
+        <div class="fpe-f"><label>Grandezza della foto</label>
+          <div class="fpe-scelta">
+            ${[["piccola", "Piccola"], ["media", "Media"], ["grande", "Grande"], ["piena", "Piena"]].map(([k, t]) =>
               `<button type="button" class="fpe-b${(c.grandezza || "media") === k ? " sel" : ""}" data-gr="${k}">${t}</button>`).join("")}
           </div></div>
         <div class="fpe-f"><label>Forma</label>
@@ -4821,6 +4898,9 @@ class FaberPersonaEditor extends HTMLElement {
     q("#fpN").addEventListener("input", e => this._set("name", e.target.value));
     const ta = q("#fpA");
     if (ta) ta.addEventListener("input", e => this._set("avatars", e.target.value));
+    this.querySelectorAll("[data-disp]").forEach(b => b.addEventListener("click", () => {
+      this._set("disposizione", b.dataset.disp); this._render();
+    }));
     this.querySelectorAll("[data-gr]").forEach(b => b.addEventListener("click", () => {
       this._set("grandezza", b.dataset.gr); this._render();
     }));
