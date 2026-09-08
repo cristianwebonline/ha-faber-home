@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.34.0";
+const FH_VERSION = "0.35.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -640,6 +640,10 @@ class FaberHome extends HTMLElement {
       if (i === this._page) return;
       this._vaiPagina(i);
     }));
+    // La barra e appena stata ridisegnata e puo aver cambiato altezza (una
+    // pagina in piu, una nascosta): rimisuro, senno lo spazio sotto resta
+    // tarato su quella di prima e l'ultima card finisce coperta.
+    this._misuraNav();
   }
 
 
@@ -655,6 +659,19 @@ class FaberHome extends HTMLElement {
   // di un numero inventato.
   // La fascia scritta sull'elemento: prende il posto delle container query,
   // che qui costavano troppo (vedi il commento su .fh-app).
+  // Quanto e alta davvero la barra in basso, bordo dello schermo compreso.
+  // Si scrive in una variabile CSS, cosi il contenuto sa di quanto tirarsi su.
+  _misuraNav() {
+    const app = this.querySelector(".fh-app");
+    const nav = this.querySelector(".fh-nav");
+    if (!app || !nav) return;
+    const h = Math.ceil(nav.getBoundingClientRect().height);
+    if (h > 0 && h !== this._navh) {
+      this._navh = h;
+      app.style.setProperty("--fh-navh", h + "px");
+    }
+  }
+
   _segnaFascia() {
     const app = this.querySelector(".fh-app");
     if (!app) return;
@@ -664,6 +681,7 @@ class FaberHome extends HTMLElement {
     app.classList.toggle("desk", f === "desk");
     app.classList.toggle("vetro", (this._cfg.appearance || {}).cardStyle === "vetro");
     app.classList.toggle("chiaro", !this._isDark());
+    this._misuraNav();
   }
 
   _fasciaOra() { return this._fascia || this._fasciaDa(this.clientWidth || window.innerWidth || 400); }
@@ -2636,7 +2654,15 @@ const FH_CSS = `
      si vedevano le card tagliate a destra. */
   .fh-app{max-width:100%;overflow-x:hidden}
   .fh-main.editing{padding-top:74px}
-  .fh-main{position:relative;flex:1;max-width:100%;padding:8px 16px 110px;display:flex;flex-direction:column;gap:14px}
+  /* Lo spazio sotto NON e un numero fisso: e l'altezza vera della barra,
+     misurata e scritta in --fh-navh (vedi _misuraNav). Con un numero fisso
+     l'ultima card finiva sotto la barra proprio sul telefono, perche la barra
+     si aggiunge il bordo inferiore dello schermo (env(safe-area-inset-bottom))
+     mentre il contenuto no: bastavano quei venti pixel di troppo. E se un
+     giorno le pagine diventano tante e la barra va a capo, il conto si
+     aggiusta da solo invece di scoprire di nuovo lo stesso difetto. */
+  .fh-main{position:relative;flex:1;max-width:100%;display:flex;flex-direction:column;gap:14px;
+    padding:8px 16px calc(var(--fh-navh,110px) + 18px)}
   .fh-cardwrap{min-width:0;max-width:100%}
   .fh-rowwrap{min-width:0;max-width:100%}
   /* La riga e una griglia con un numero di tracce deciso dalla fascia di
@@ -2914,7 +2940,7 @@ const FH_CSS = `
     border:1px solid var(--divider-color);background:var(--card-background-color)}
   .fh-chiptools{display:flex;gap:6px;justify-content:flex-end}
   .fh-app.tel .fh-head{padding:14px 14px 6px}
-  .fh-app.tel .fh-main{padding:6px 12px 108px}
+  .fh-app.tel .fh-main{padding:6px 12px calc(var(--fh-navh,108px) + 16px)}
   .fh-app.tel .fh-clock{font-size:34px}
   .fh-app.tel .fh-catlist{grid-template-columns:1fr}
 `;
