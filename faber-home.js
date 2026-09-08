@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.20.1";
+const FH_VERSION = "0.20.2";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -4105,21 +4105,32 @@ const FK_CSS = `
   .fk-modo{display:flex;align-items:center;gap:5px;font-size:11px;font-weight:800;
     text-transform:uppercase;letter-spacing:.09em;margin-top:3px}
   .fk-modo ha-icon{--mdc-icon-size:14px}
-  .fk-power{width:42px;height:42px;border-radius:14px;cursor:pointer;flex:0 0 auto;
+  .fk-power{width:44px;height:44px;border-radius:14px;cursor:pointer;flex:0 0 auto;
     display:flex;align-items:center;justify-content:center;
     border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:#93a1b0;
     transition:background .25s,color .25s,border-color .25s}
   .fk-power ha-icon{--mdc-icon-size:21px}
   .fk-power.on{background:rgba(56,224,138,.18);border-color:rgba(56,224,138,.5);color:#38e08a}
   .fk-power[disabled]{opacity:.35;cursor:not-allowed}
-  .fk-comandi{display:flex;gap:7px;flex:0 0 auto}
-  .fk-presa{width:42px;height:42px;border-radius:14px;cursor:pointer;flex:0 0 auto;
+  /* Uno stacco in piu fra la presa e l'accensione: sono le due che si
+     confondono, e sbagliare significa togliere corrente invece di spegnere. */
+  .fk-comandi .fk-power{margin-left:5px}
+  @media (max-width:560px){
+    .fk-comandi{gap:13px}
+    .fk-comandi .fk-power{margin-left:7px}
+    .fk-power,.fk-presa,.fk-timerb{width:46px;height:46px}
+  }
+  /* Tre tastini in fila su un telefono si sbagliano: e il tasto di mezzo
+     stacca la CORRENTE. Piu grandi (44px, la misura minima per un dito) e piu
+     distanti, con uno stacco in piu prima dell'accensione. */
+  .fk-comandi{display:flex;gap:11px;flex:0 0 auto;align-items:center}
+  .fk-presa{width:44px;height:44px;border-radius:14px;cursor:pointer;flex:0 0 auto;
     display:flex;align-items:center;justify-content:center;
     border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:#93a1b0;
     transition:background .25s,color .25s,border-color .25s}
   .fk-presa ha-icon{--mdc-icon-size:20px}
   .fk-presa.on{background:rgba(255,176,32,.16);border-color:rgba(255,176,32,.45);color:#ffb020}
-  .fk-timerb{width:42px;height:42px;border-radius:14px;cursor:pointer;flex:0 0 auto;
+  .fk-timerb{width:44px;height:44px;border-radius:14px;cursor:pointer;flex:0 0 auto;
     display:flex;align-items:center;justify-content:center;
     border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:#93a1b0;
     transition:background .25s,color .25s,border-color .25s}
