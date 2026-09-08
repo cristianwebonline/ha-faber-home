@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.8.0";
+const FH_VERSION = "0.9.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -644,7 +644,9 @@ class FaberHome extends HTMLElement {
     // Le frecce spostano la card fra le colonne: su schermo tattile sono molto
     // piu affidabili del trascinamento, che sul telefono litiga con lo
     // scorrimento della pagina (lezione della Smart Card).
+    const haPop = !!(this._cfg.pages[this._page].rows[ri].cols[ci].cards[di].fh_popup || {}).cards;
     el.innerHTML = `${this._btn("mdi:cog-outline", "Configura", "cfg")}
+      ${this._btn(haPop ? "mdi:dock-window" : "mdi:dock-window", "Popup al tocco", "pop")}
       ${this._btn("mdi:content-copy", "Duplica", "dup")}
       ${this._btn("mdi:arrow-left", "Colonna precedente", "left")}
       ${this._btn("mdi:arrow-right", "Colonna successiva", "right")}
@@ -654,6 +656,7 @@ class FaberHome extends HTMLElement {
       const a = b.dataset.act;
       const cards = cols[ci].cards;
       if (a === "cfg") { this._openCardEditor(ri, ci, di); return; }
+      if (a === "pop") { this._openPopupEditor(ri, ci, di); return; }
       if (a === "dup") cards.splice(di + 1, 0, JSON.parse(JSON.stringify(cards[di])));
       else if (a === "del") cards.splice(di, 1);
       else if (a === "left" && ci > 0) { const [c] = cards.splice(di, 1); cols[ci - 1].cards.push(c); }
@@ -969,6 +972,160 @@ class FaberHome extends HTMLElement {
     this._sheet("Configura la card", box);
   }
 
+
+  // ------------------------------------------------------------- popup card
+  // In Oikos e questo a far sembrare tutto un'app: la pagina resta pulita e
+  // il dettaglio si apre solo quando lo chiedi. Dentro ci vanno card vere,
+  // quindi il popup e una pagina in miniatura, non una scheda fissa.
+  async _openCardPopup(cardCfg) {
+    const pop = cardCfg.fh_popup || {};
+    const prev = this.querySelector(".fh-popscrim");
+    if (prev) prev.remove();
+    const scrim = document.createElement("div");
+    scrim.className = "fh-popscrim";
+    const panel = document.createElement("div");
+    panel.className = "fh-popup";
+    panel.innerHTML = `<div class="fh-pophead">
+        <div class="fh-poptitle">${fhEsc(pop.title || cardCfg.name || "Dettaglio")}</div>
+        <button type="button" class="fh-ic" data-close><ha-icon icon="mdi:close"></ha-icon></button>
+      </div>`;
+    const body = document.createElement("div");
+    body.className = "fh-popbody";
+    panel.appendChild(body);
+    scrim.appendChild(panel);
+    scrim.addEventListener("click", e => { if (e.target === scrim) scrim.remove(); });
+    panel.querySelector("[data-close]").addEventListener("click", () => scrim.remove());
+    this.querySelector(".fh-app").appendChild(scrim);
+
+    const helpers = await this._helpers();
+    (pop.cards || []).forEach(c => {
+      const el = this._createCard(c, helpers);
+      if (el) body.appendChild(el);
+    });
+  }
+
+  // Editor del popup: stessa logica della pagina (catalogo, editor vero,
+  // duplica, elimina), ma su un elenco piu corto.
+  _openPopupEditor(ri, ci, di) {
+    const cards = this._cfg.pages[this._page].rows[ri].cols[ci].cards;
+    const cardCfg = cards[di];
+    if (!cardCfg.fh_popup) cardCfg.fh_popup = { title: "", cards: [] };
+    const pop = cardCfg.fh_popup;
+    const box = document.createElement("div");
+    const draw = () => {
+      box.innerHTML = `
+        <div class="fh-note">Quando tocchi questa card si apre un pannello con dentro le card che scegli qui. Se lo lasci vuoto, la card mantiene il suo comportamento normale.</div>
+        <div class="fh-sfield"><label class="fh-slab">Titolo del popup</label>
+          <input class="fh-input" id="popTitle" value="${fhEsc(pop.title || "")}" placeholder="${fhEsc(cardCfg.name || "Dettaglio")}"></div>
+        <div class="fh-sgroup">Contenuto</div>
+        ${(pop.cards || []).length ? pop.cards.map((c, i) => `
+          <div class="fh-pcrow" data-i="${i}">
+            <div class="fh-pcname">${fhEsc(c.name || c.title || c.type)}</div>
+            <button type="button" class="fh-tool" data-act="cfg"><ha-icon icon="mdi:cog-outline"></ha-icon></button>
+            <button type="button" class="fh-tool" data-act="up"><ha-icon icon="mdi:arrow-up"></ha-icon></button>
+            <button type="button" class="fh-tool" data-act="down"><ha-icon icon="mdi:arrow-down"></ha-icon></button>
+            <button type="button" class="fh-tool" data-act="del"><ha-icon icon="mdi:delete-outline"></ha-icon></button>
+          </div>`).join("") : `<div class="fh-note">Ancora nessuna card nel popup.</div>`}
+        <button type="button" class="fh-btn primary" id="popAdd">+ Aggiungi card al popup</button>`;
+      box.querySelector("#popTitle").addEventListener("input", e => { pop.title = e.target.value; });
+      box.querySelector("#popAdd").addEventListener("click", () => {
+        this._pickCardInto(pop.cards, () => draw());
+      });
+      box.querySelectorAll(".fh-pcrow").forEach(row => {
+        const i = parseInt(row.dataset.i, 10);
+        row.querySelectorAll("[data-act]").forEach(b => b.addEventListener("click", () => {
+          const a = b.dataset.act;
+          if (a === "cfg") { this._editCardConfig(pop.cards, i, () => draw()); return; }
+          if (a === "up" && i > 0) { const [x] = pop.cards.splice(i, 1); pop.cards.splice(i - 1, 0, x); }
+          else if (a === "down" && i < pop.cards.length - 1) { const [x] = pop.cards.splice(i, 1); pop.cards.splice(i + 1, 0, x); }
+          else if (a === "del") pop.cards.splice(i, 1);
+          draw();
+        }));
+      });
+    };
+    draw();
+    this._sheet("Popup della card", box);
+  }
+
+  // Catalogo riusabile: aggiunge una card a un elenco qualunque (pagina o
+  // popup), passando anche dal collegamento al dispositivo.
+  _pickCardInto(list, done) {
+    const box = document.createElement("div");
+    const cat = this._catalog();
+    const groups = [...new Set(cat.map(x => x.g))];
+    box.innerHTML = groups.map(g => `<div class="fh-catgroup">${fhEsc(g)}</div>
+      <div class="fh-catlist">${cat.map((x, i) => x.g !== g ? "" :
+        `<button type="button" class="fh-catitem" data-i="${i}">
+           <ha-icon icon="${x.i}"></ha-icon><span>${fhEsc(x.n)}</span>
+         </button>`).join("")}</div>`).join("");
+    const scrim = this._sheet("Aggiungi al popup", box);
+    box.querySelectorAll("[data-i]").forEach(b => b.addEventListener("click", () => {
+      const fresh = JSON.parse(JSON.stringify(cat[parseInt(b.dataset.i, 10)].c));
+      if ((fresh.type === "weather-forecast" || fresh.type === "custom:faber-weather") && !fresh.entity) {
+        const w = Object.keys(this._hass.states).filter(e => e.startsWith("weather."));
+        if (w.length) fresh.entity = w[0];
+      }
+      list.push(fresh);
+      scrim.remove();
+      const idx = list.length - 1;
+      if (this._wantsDevice(fresh)) {
+        const sh = this._openDeviceStep(fresh, dev => {
+          if (dev) this._fillFromDevice(fresh, dev);
+          sh.remove();
+          this._editCardConfig(list, idx, done);
+        });
+      } else {
+        this._editCardConfig(list, idx, done);
+      }
+    }));
+  }
+
+  // Editor vero della card, su un elenco qualunque.
+  async _editCardConfig(list, i, done) {
+    const cardCfg = list[i];
+    if (!cardCfg) return;
+    const box = document.createElement("div");
+    let editor = null;
+    try {
+      const helpers = await this._helpers();
+      let klass = null;
+      if (cardCfg.type.startsWith("custom:")) klass = customElements.get(cardCfg.type.slice(7));
+      else if (helpers && helpers.createCardElement) {
+        const tmp = helpers.createCardElement(cardCfg);
+        if (tmp && tmp.tagName && tmp.tagName.toLowerCase() !== "hui-error-card") klass = tmp.constructor;
+        if (!klass || !klass.getConfigElement) {
+          klass = customElements.get("hui-" + cardCfg.type.replace(/_/g, "-") + "-card") || klass;
+        }
+      }
+      if (klass && klass.getConfigElement) editor = await klass.getConfigElement();
+    } catch (e) { editor = null; }
+
+    if (editor) {
+      editor.hass = this._hass;
+      try { editor.setConfig(cardCfg); } catch (e) { /* editor schizzinoso */ }
+      editor.addEventListener("config-changed", ev => {
+        if (ev.detail && ev.detail.config) { list[i] = ev.detail.config; if (done) done(); }
+      });
+      box.appendChild(editor);
+    } else {
+      const ta = document.createElement("textarea");
+      ta.className = "fh-json";
+      ta.value = JSON.stringify(cardCfg, null, 2);
+      const btn = document.createElement("button");
+      btn.type = "button"; btn.className = "fh-btn primary"; btn.textContent = "Applica";
+      const msg = document.createElement("div");
+      msg.className = "fh-note";
+      msg.textContent = "Questa card non ha un editor grafico: si configura col codice.";
+      btn.addEventListener("click", () => {
+        try { list[i] = JSON.parse(ta.value); } catch (e) { msg.textContent = "JSON non valido: " + e.message; return; }
+        if (done) done();
+        msg.textContent = "Applicato.";
+      });
+      box.appendChild(msg); box.appendChild(ta); box.appendChild(btn);
+    }
+    this._sheet("Configura la card", box);
+  }
+
   _openPageSheet() {
     const box = document.createElement("div");
     const draw = () => {
@@ -1180,11 +1337,15 @@ class FaberHome extends HTMLElement {
 
   _createCard(cardCfg, helpers) {
     let el = null;
+    // fh_popup e una chiave nostra: si toglie prima di passare la
+    // configurazione alla card, che potrebbe rifiutare cio che non conosce.
+    const pulita = Object.assign({}, cardCfg);
+    delete pulita.fh_popup;
     try {
-      if (helpers && helpers.createCardElement) el = helpers.createCardElement(cardCfg);
-      else if (cardCfg.type && cardCfg.type.startsWith("custom:")) {
-        el = document.createElement(cardCfg.type.slice(7));
-        el.setConfig(cardCfg);
+      if (helpers && helpers.createCardElement) el = helpers.createCardElement(pulita);
+      else if (pulita.type && pulita.type.startsWith("custom:")) {
+        el = document.createElement(pulita.type.slice(7));
+        el.setConfig(pulita);
       }
     } catch (e) {
       el = null;
@@ -1199,6 +1360,16 @@ class FaberHome extends HTMLElement {
     const wrap = document.createElement("div");
     wrap.className = "fh-cardwrap";
     wrap.appendChild(el);
+    const pop = cardCfg.fh_popup;
+    if (!this._edit && pop && (pop.cards || []).length) {
+      // Uno strato trasparente sopra la card: senza, il tocco finirebbe ai
+      // comandi della card (accendere una presa) invece di aprire il popup.
+      const tap = document.createElement("div");
+      tap.className = "fh-tap";
+      tap.addEventListener("click", e => { e.stopPropagation(); this._openCardPopup(cardCfg); });
+      wrap.appendChild(tap);
+      wrap.classList.add("has-popup");
+    }
     this._cardEls.set(el, el);
     return wrap;
   }
@@ -1365,6 +1536,24 @@ const FH_CSS = `
   .fh-input.small{flex:0 0 110px}
 
 
+
+  .fh-cardwrap{position:relative}
+  .fh-tap{position:absolute;inset:0;cursor:pointer;border-radius:18px}
+  .fh-cardwrap.has-popup:hover .fh-tap{background:rgba(255,255,255,.04)}
+  .fh-popscrim{position:fixed;inset:0;z-index:25;background:rgba(5,8,13,.62);backdrop-filter:blur(7px);
+    display:flex;align-items:flex-end;justify-content:center}
+  .fh-popup{width:100%;max-width:620px;max-height:88vh;display:flex;flex-direction:column;
+    background:var(--fh-panel,rgba(24,30,40,.97));border:1px solid var(--fh-stroke,rgba(255,255,255,.1));
+    border-bottom:none;border-radius:26px 26px 0 0;box-shadow:0 -18px 54px rgba(0,0,0,.55);
+    animation:fhPopUp .22s ease-out}
+  @keyframes fhPopUp{from{transform:translateY(20px);opacity:.5}to{transform:translateY(0);opacity:1}}
+  .fh-pophead{display:flex;align-items:center;gap:10px;padding:16px 18px 8px}
+  .fh-poptitle{flex:1;font-size:17px;font-weight:800;color:var(--fh-ink,#eaf1f8)}
+  .fh-popbody{overflow-y:auto;padding:4px 16px 24px;display:flex;flex-direction:column;gap:14px}
+  .fh-pcrow{display:flex;align-items:center;gap:6px;padding:9px 11px;border-radius:12px;
+    border:1px solid var(--divider-color);background:var(--card-background-color)}
+  .fh-pcname{flex:1;min-width:0;font-size:12.5px;font-weight:700;color:var(--primary-text-color);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .fh-dvlist{display:flex;flex-direction:column;gap:6px;max-height:46vh;overflow-y:auto}
   .fh-dv{display:flex;flex-direction:column;gap:2px;padding:11px 13px;border-radius:14px;cursor:pointer;
     text-align:left;font:inherit;border:1px solid var(--divider-color);background:var(--card-background-color)}
