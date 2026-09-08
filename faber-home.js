@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.30.0";
+const FH_VERSION = "0.31.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -648,6 +648,17 @@ class FaberHome extends HTMLElement {
 
   // Finche non si e misurato davvero, si parte dalla finestra: e sempre meglio
   // di un numero inventato.
+  // La fascia scritta sull'elemento: prende il posto delle container query,
+  // che qui costavano troppo (vedi il commento su .fh-app).
+  _segnaFascia() {
+    const app = this.querySelector(".fh-app");
+    if (!app) return;
+    const f = this._fascia || this._fasciaDa(this.clientWidth || window.innerWidth || 400);
+    app.classList.toggle("tel", f === "tel");
+    app.classList.toggle("tab", f === "tab");
+    app.classList.toggle("desk", f === "desk");
+  }
+
   _fasciaOra() { return this._fascia || this._fasciaDa(this.clientWidth || window.innerWidth || 400); }
 
   _watchFascia() {
@@ -671,6 +682,7 @@ class FaberHome extends HTMLElement {
         const f = this._fasciaDa(w);
         const cambiata = f !== this._fascia;
         this._fascia = f;
+        this._segnaFascia();
         // La PRIMA misura vera fa sempre ridisegnare, anche se la fascia
         // sembra la stessa: quella di partenza era una supposizione, non una
         // misura, e il numero di colonne poteva gia essere sbagliato.
@@ -680,6 +692,7 @@ class FaberHome extends HTMLElement {
     }
     const w = main.clientWidth;
     if (w) { this._larghezza = w; this._fascia = this._fasciaDa(w); this._misurato = true; }
+    this._segnaFascia();
   }
 
   // Quante colonne mostrare in questa riga, adesso. "auto" (0) vuol dire:
@@ -2552,7 +2565,14 @@ class FaberHome extends HTMLElement {
 }
 
 const FH_CSS = `
-  .fh-app{container-type:inline-size;container-name:fh;
+  /* NIENTE container-type qui. Un elemento con container-type diventa il
+     riferimento per i position:fixed di TUTTI i suoi discendenti: le finestre
+     a schermo intero delle card dentro (l'archivio dei mesi, i popup, il
+     pannello del timer) restavano imprigionate in questo riquadro invece di
+     coprire lo schermo. Misurato: velo 1270x551 dentro una finestra 1280x551.
+     La larghezza la misuriamo gia in JavaScript, quindi la fascia diventa una
+     classe su questo elemento e le regole guardano quella. */
+  .fh-app{
     position:relative;min-height:100vh;display:flex;flex-direction:column;
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
     color:var(--fh-ink,#eaf1f8);transition:background .6s ease,color .6s ease}
@@ -2845,17 +2865,10 @@ const FH_CSS = `
   .fh-chiprow{display:flex;flex-direction:column;gap:8px;padding:11px;border-radius:14px;
     border:1px solid var(--divider-color);background:var(--card-background-color)}
   .fh-chiptools{display:flex;gap:6px;justify-content:flex-end}
-  @container fh (max-width: 560px){
-    .fh-head{padding:14px 14px 6px}
-    .fh-main{padding:6px 12px 108px}
-    /* NIENTE min-width qui. Era rimasta dal layout vecchio a flex, dove
-       serviva a mandare una colonna per riga. Con la griglia diventa una
-       bomba: min-width:100% su tre colonne rende la riga larga tre schermi,
-       la pagina scorre di lato e le card si vedono tagliate a destra.
-       Adesso quante colonne stanno in riga lo decide --fh-n. */
-    .fh-clock{font-size:clamp(30px,13cqw,44px)}
-    .fh-catlist{grid-template-columns:1fr}
-  }
+  .fh-app.tel .fh-head{padding:14px 14px 6px}
+  .fh-app.tel .fh-main{padding:6px 12px 108px}
+  .fh-app.tel .fh-clock{font-size:34px}
+  .fh-app.tel .fh-catlist{grid-template-columns:1fr}
 `;
 
 customElements.define("faber-home", FaberHome);
