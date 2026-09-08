@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.9.1";
+const FH_VERSION = "0.10.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -676,15 +676,24 @@ class FaberHome extends HTMLElement {
   }
 
   _addRowEl() {
-    const el = document.createElement("button");
-    el.type = "button";
-    el.className = "fh-addrow";
-    el.innerHTML = `<ha-icon icon="mdi:plus"></ha-icon> Aggiungi riga`;
-    el.addEventListener("click", () => {
+    const wrap = document.createElement("div");
+    wrap.className = "fh-addbar";
+    const riga = document.createElement("button");
+    riga.type = "button";
+    riga.className = "fh-addrow";
+    riga.innerHTML = `<ha-icon icon="mdi:plus"></ha-icon> Aggiungi riga`;
+    riga.addEventListener("click", () => {
       this._cfg.pages[this._page].rows.push({ cols: [{ span: 1, cards: [] }] });
       this._renderPage();
     });
-    return el;
+    const stanza = document.createElement("button");
+    stanza.type = "button";
+    stanza.className = "fh-addrow";
+    stanza.innerHTML = `<ha-icon icon="mdi:sofa-outline"></ha-icon> Aggiungi una stanza`;
+    stanza.addEventListener("click", () => this._openRoomSheet());
+    wrap.appendChild(riga);
+    wrap.appendChild(stanza);
+    return wrap;
   }
 
 
@@ -861,21 +870,157 @@ class FaberHome extends HTMLElement {
     return this._sheet("Quale dispositivo?", box);
   }
 
+
+  // --------------------------------------------------------- stanza intera
+  // Comporre una pagina un pezzo alla volta e' lungo: qui si sceglie la
+  // stanza e si mette dentro una card per ogni dispositivo che ha qualcosa
+  // da dire, gia collegata. Poi si ritocca — ma si parte da qualcosa.
+
+  // L'icona si indovina dal nome del dispositivo. E' una scorciatoia onesta:
+  // se sbaglia si cambia in due tocchi, e nel 90% dei casi in casa il nome
+  // dice gia cos'e.
+  _guessIcon(nome) {
+    const n = (nome || "").toLowerCase();
+    const mappa = [
+      [/lavatric/, "washer"], [/asciugatric/, "dryer"], [/lavastovigl/, "dishwasher"],
+      [/forno|piano.*induz/, "oven"], [/frigo|congelat/, "fridge"],
+      [/condizionat|clima|split|termost|pellet|stufa|caldaia/, "climate"],
+      [/tv|televis|soundbar|fire.?tv|chromecast/, "tv"],
+      [/router|modem|deco|wifi|switch.*rete/, "router"],
+      [/allarm|sirena|ialarm/, "alarm"], [/cancello|garage|portone/, "gate"],
+      [/aspirapolv|robot|roborock|xiaomi.*vacuum/, "vacuum"],
+      [/ventilat|fan|purificat/, "fan"],
+      [/bagno|doccia|scaldabagn|boiler/, "bathroom"],
+      [/cucina|microond|bollitor|caffe/, "kitchen"],
+      [/camera|letto|comodino/, "bedroom"],
+      [/sala|salotto|soggiorno|divano/, "livingroom"],
+      [/ufficio|scrivania|pc|stampante/, "office"],
+      [/giardin|esterno|irrigaz|piscina/, "garden"],
+      [/porta|serratur|nuki|blindat/, "security"],
+    ];
+    const hit = mappa.find(([re]) => re.test(n));
+    return hit ? hit[1] : "generic";
+  }
+
+  // Un dispositivo entra nella stanza solo se ha qualcosa da mostrare.
+  _cardForDevice(dev) {
+    const r = this._rolesOfDevice(dev.id);
+    const nome = dev.name_by_user || dev.name || "Dispositivo";
+    if (r.lock) {
+      return { type: "custom:centro-sicurezza-card", name: nome, lock: r.lock,
+        door_sensor: r.door_sensor || "", battery: r.battery || "", sensors: "" };
+    }
+    if (!r.switch && !r.power && !r.temp && !r.climate && !r.humidity) return null;
+    return {
+      type: "custom:mini-card", name: nome, mode: "device", icon_type: this._guessIcon(nome),
+      custom_icon_svg: "", switch: r.switch || "", power: r.power || "", energy: r.energy || "",
+      temp: r.temp || "", humidity: r.humidity || "", climate: r.climate || "",
+      device_id: dev.id, path: "", group: "",
+      soglia: 10, soglia_freddo: 18, soglia_caldo: 26, prezzo_kwh: 0.30, storico_giorni: 14,
+    };
+  }
+
+  _openRoomSheet() {
+    const areas = Object.values(this._hass.areas || {});
+    const devs = Object.values(this._hass.devices || {}).filter(d => !d.disabled_by);
+    const box = document.createElement("div");
+    let scelta = null;      // area scelta
+    let selezione = {};     // device_id -> bool
+
+    const drawAree = () => {
+      const conta = a => devs.filter(d => d.area_id === a.area_id).length;
+      const lista = areas.map(a => ({ a, n: conta(a) })).filter(x => x.n).sort((x, y) => x.a.name.localeCompare(y.a.name));
+      box.innerHTML = `<div class="fh-note">Scegli una stanza: metto una card per ogni dispositivo che ha qualcosa da mostrare, gia collegata ai suoi sensori.</div>
+        <div class="fh-dvlist">
+          ${lista.map(x => `<button type="button" class="fh-dv" data-area="${fhEsc(x.a.area_id)}">
+            <div class="fh-dvname">${fhEsc(x.a.name)}</div>
+            <div class="fh-dvmeta">${x.n} dispositiv${x.n === 1 ? "o" : "i"}</div>
+          </button>`).join("")}
+        </div>`;
+      box.querySelectorAll("[data-area]").forEach(b => b.addEventListener("click", () => {
+        scelta = areas.find(a => a.area_id === b.dataset.area);
+        selezione = {};
+        drawDispositivi();
+      }));
+    };
+
+    const drawDispositivi = () => {
+      const inArea = devs.filter(d => d.area_id === scelta.area_id);
+      const proposte = inArea.map(d => ({ d, card: this._cardForDevice(d) })).filter(x => x.card);
+      proposte.forEach(x => { if (!(x.d.id in selezione)) selezione[x.d.id] = true; });
+      box.innerHTML = `
+        <div class="fh-note">In <b>${fhEsc(scelta.name)}</b> ho trovato ${proposte.length} dispositiv${proposte.length === 1 ? "o" : "i"} con qualcosa da mostrare. Togli la spunta a quelli che non vuoi.</div>
+        ${proposte.map(x => {
+          const c = x.card;
+          const val = ["switch", "power", "energy", "temp", "humidity", "climate", "lock"].filter(k => c[k]);
+          return `<label class="fh-roomrow">
+            <input type="checkbox" data-dev="${fhEsc(x.d.id)}"${selezione[x.d.id] ? " checked" : ""}>
+            <span class="fh-roominfo">
+              <span class="fh-dvname">${fhEsc(c.name)}</span>
+              <span class="fh-dvmeta">${fhEsc(val.join(", ") || "solo stato")}</span>
+            </span>
+          </label>`;
+        }).join("") || `<div class="fh-note">Nessun dispositivo utile in questa stanza.</div>`}
+        <div class="fh-srow" style="margin-top:12px">
+          <button type="button" class="fh-btn" id="rmBack">Indietro</button>
+          <button type="button" class="fh-btn primary" id="rmAdd">Aggiungi alla pagina</button>
+        </div>`;
+      box.querySelectorAll("[data-dev]").forEach(cb => cb.addEventListener("change", () => {
+        selezione[cb.dataset.dev] = cb.checked;
+      }));
+      box.querySelector("#rmBack").addEventListener("click", drawAree);
+      box.querySelector("#rmAdd").addEventListener("click", () => {
+        const scelte = proposte.filter(x => selezione[x.d.id]).map(x => x.card);
+        if (!scelte.length) return;
+        // Distribuite su tre colonne, cosi su schermo largo respirano e sul
+        // telefono si impilano da sole.
+        const cols = [[], [], []];
+        scelte.forEach((c, i) => cols[i % 3].push(c));
+        this._cfg.pages[this._page].rows.push({
+          cols: cols.filter(c => c.length).map(c => ({ span: 1, cards: c })),
+        });
+        const sc = this.querySelector(".fh-scrim");
+        if (sc) sc.remove();
+        this._renderPage();
+      });
+    };
+
+    drawAree();
+    this._sheet("Aggiungi una stanza", box);
+  }
+
+  // Il catalogo e cresciuto: senza ricerca sul telefono diventa un rotolo.
+  _catalogHTML(filtro) {
+    const cat = this._catalog();
+    const words = (filtro || "").toLowerCase().trim().split(/\s+/).filter(Boolean);
+    const ok = x => !words.length || words.every(w => (x.n + " " + x.g).toLowerCase().includes(w));
+    const visibili = cat.map((x, i) => ({ x, i })).filter(o => ok(o.x));
+    if (!visibili.length) return `<div class="fh-note">Nessuna card con questo nome.</div>`;
+    const groups = [...new Set(visibili.map(o => o.x.g))];
+    return groups.map(g => `<div class="fh-catgroup">${fhEsc(g)}</div>
+      <div class="fh-catlist">${visibili.filter(o => o.x.g === g).map(o =>
+        `<button type="button" class="fh-catitem" data-i="${o.i}">
+           <ha-icon icon="${o.x.i}"></ha-icon><span>${fhEsc(o.x.n)}</span>
+         </button>`).join("")}</div>`).join("");
+  }
+
   _openPicker(ri, ci) {
     const box = document.createElement("div");
     const cat = this._catalog();
-    const groups = [...new Set(cat.map(x => x.g))];
-    box.innerHTML = groups.map(g => `<div class="fh-catgroup">${fhEsc(g)}</div>
-      <div class="fh-catlist">${cat.map((x, i) => x.g !== g ? "" :
-        `<button type="button" class="fh-catitem" data-i="${i}">
-           <ha-icon icon="${x.i}"></ha-icon><span>${fhEsc(x.n)}</span>
-         </button>`).join("")}</div>`).join("") +
+    box.innerHTML = `<input class="fh-input" id="catQ" placeholder="Cerca una card...">
+      <div id="catList">${this._catalogHTML("")}</div>` +
       `<div class="fh-catgroup">Oppure incolla il codice di una card</div>
        <textarea class="fh-json" data-paste placeholder='{"type": "tile", "entity": "light.salotto"}'></textarea>
        <div class="fh-note" data-msg>Accetta JSON. Utile per copiare una card da un'altra dashboard.</div>
        <button type="button" class="fh-btn primary" data-addjson>Aggiungi dal codice</button>`;
     const scrim = this._sheet("Aggiungi una card", box);
-    box.querySelectorAll("[data-i]").forEach(b => b.addEventListener("click", () => {
+    const wireItems = () => box.querySelectorAll("[data-i]").forEach(b => b.addEventListener("click", () => onPick(b)));
+    const q = box.querySelector("#catQ");
+    q.addEventListener("input", () => {
+      box.querySelector("#catList").innerHTML = this._catalogHTML(q.value);
+      wireItems();
+    });
+    const onPick = (b) => {
       const item = cat[parseInt(b.dataset.i, 10)];
       const cards = this._cfg.pages[this._page].rows[ri].cols[ci].cards;
       const fresh = JSON.parse(JSON.stringify(item.c));
@@ -901,7 +1046,8 @@ class FaberHome extends HTMLElement {
       } else {
         this._openCardEditor(ri, ci, di);
       }
-    }));
+    };
+    wireItems();
     box.querySelector("[data-addjson]").addEventListener("click", () => {
       const ta = box.querySelector("[data-paste]");
       const msg = box.querySelector("[data-msg]");
@@ -1581,6 +1727,13 @@ const FH_CSS = `
     border:1px solid var(--divider-color);background:var(--card-background-color)}
   .fh-pcname{flex:1;min-width:0;font-size:12.5px;font-weight:700;color:var(--primary-text-color);
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+  .fh-addbar{display:flex;gap:8px;flex-wrap:wrap;margin-top:4px}
+  .fh-addbar .fh-addrow{flex:1;min-width:150px;margin-top:0}
+  .fh-roomrow{display:flex;align-items:center;gap:11px;padding:11px 13px;border-radius:14px;cursor:pointer;
+    border:1px solid var(--divider-color);background:var(--card-background-color)}
+  .fh-roomrow input{width:auto;flex:0 0 auto}
+  .fh-roominfo{display:flex;flex-direction:column;gap:2px;min-width:0}
   .fh-dvlist{display:flex;flex-direction:column;gap:6px;max-height:46vh;overflow-y:auto}
   .fh-dv{display:flex;flex-direction:column;gap:2px;padding:11px 13px;border-radius:14px;cursor:pointer;
     text-align:left;font:inherit;border:1px solid var(--divider-color);background:var(--card-background-color)}
