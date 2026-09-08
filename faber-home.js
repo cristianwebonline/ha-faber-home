@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.14.0";
+const FH_VERSION = "0.14.1";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -3135,7 +3135,16 @@ class FaberClima extends HTMLElement {
   getCardSize() { return 6; }
 
   _st() { return this._cfg.climate ? this._hass.states[this._cfg.climate] : null; }
-  _num(id) { const s = id && this._hass.states[id]; const v = s && parseFloat(s.state); return isFinite(v) ? v : null; }
+  // Attenzione a isFinite: con l'entita non configurata la catena restituiva
+  // stringa vuota, e isFinite("") e VERO (Number("") vale 0). Risultato:
+  // comparivano "0%" di umidita e "0 W" per sensori che non esistono.
+  _num(id) {
+    if (!id) return null;
+    const s = this._hass.states[id];
+    if (!s) return null;
+    const v = parseFloat(s.state);
+    return isFinite(v) ? v : null;
+  }
 
   _srv(servizio, dati) {
     this._hass.callService("climate", servizio, Object.assign({ entity_id: this._cfg.climate }, dati));
@@ -3201,8 +3210,15 @@ class FaberClima extends HTMLElement {
       </div>
 
       <div class="fk-centro">
-        <div class="fk-aria${acceso ? " viva" : ""}" style="--fk-c:${m.c}">
-          <span></span><span></span><span></span>
+        <div class="fk-split${acceso ? " viva" : ""}" style="--fk-c:${m.c}">
+          <svg viewBox="0 0 72 58" aria-hidden="true">
+            <rect class="fk-corpo" x="4" y="6" width="64" height="22" rx="7"/>
+            <rect class="fk-griglia" x="9" y="20" width="54" height="3.4" rx="1.7"/>
+            <circle class="fk-spia" cx="60" cy="13" r="2.2"/>
+            <path class="fk-onda o1" d="M14 38 q7 -6 14 0 t14 0"/>
+            <path class="fk-onda o2" d="M18 46 q7 -6 14 0 t14 0"/>
+            <path class="fk-onda o3" d="M22 54 q7 -6 14 0 t14 0"/>
+          </svg>
         </div>
         <div class="fk-lettura">
           <div class="fk-ora">${ora != null ? Math.round(ora * 10) / 10 : "--"}<span>&deg;</span></div>
@@ -3286,22 +3302,27 @@ const FK_CSS = `
   .fk-power ha-icon{--mdc-icon-size:21px}
   .fk-power.on{background:rgba(56,224,138,.18);border-color:rgba(56,224,138,.5);color:#38e08a}
   .fk-centro{display:flex;align-items:center;gap:14px;padding:2px 0}
-  /* Il soffio: tre striscie che scorrono solo quando l'apparecchio e acceso.
-     Ferme non consumano nulla e non distraggono. */
-  .fk-aria{position:relative;width:56px;height:52px;flex:0 0 auto;opacity:.3}
-  .fk-aria span{position:absolute;left:0;height:4px;border-radius:3px;background:var(--fk-c,#93a1b0);opacity:.5}
-  .fk-aria span:nth-child(1){top:12px;width:70%}
-  .fk-aria span:nth-child(2){top:24px;width:100%}
-  .fk-aria span:nth-child(3){top:36px;width:55%}
-  .fk-aria.viva{opacity:1}
-  .fk-aria.viva span{animation:fk-soffio 2.4s ease-in-out infinite}
-  .fk-aria.viva span:nth-child(2){animation-delay:.3s}
-  .fk-aria.viva span:nth-child(3){animation-delay:.6s}
+  /* Lo split disegnato: le onde d'aria scorrono solo quando e acceso. Prima
+     erano tre trattini nudi, che spenti sembravano un disegno rotto. */
+  .fk-split{width:74px;height:60px;flex:0 0 auto}
+  .fk-split svg{width:100%;height:100%;display:block;overflow:visible}
+  .fk-corpo{fill:rgba(255,255,255,.10);stroke:rgba(255,255,255,.22);stroke-width:1.2}
+  .fk-griglia{fill:rgba(255,255,255,.22)}
+  .fk-spia{fill:rgba(255,255,255,.25)}
+  .fk-onda{fill:none;stroke:rgba(255,255,255,.16);stroke-width:2.6;stroke-linecap:round}
+  .fk-split.viva .fk-corpo{fill:color-mix(in srgb,var(--fk-c) 16%,transparent);
+    stroke:color-mix(in srgb,var(--fk-c) 55%,transparent)}
+  .fk-split.viva .fk-griglia{fill:color-mix(in srgb,var(--fk-c) 70%,transparent)}
+  .fk-split.viva .fk-spia{fill:var(--fk-c);filter:drop-shadow(0 0 4px var(--fk-c))}
+  .fk-split.viva .fk-onda{stroke:var(--fk-c);animation:fk-soffio 2.6s ease-in-out infinite}
+  .fk-split.viva .o2{animation-delay:.35s}
+  .fk-split.viva .o3{animation-delay:.7s}
   @keyframes fk-soffio{
-    0%{transform:translateX(-14px) scaleX(.4);opacity:0}
-    35%{opacity:.85}
-    100%{transform:translateX(16px) scaleX(1);opacity:0}}
-  @media (prefers-reduced-motion:reduce){.fk-aria.viva span{animation:none;opacity:.7}}
+    0%{opacity:0;transform:translateY(-7px) scaleX(.75)}
+    40%{opacity:.95}
+    100%{opacity:0;transform:translateY(6px) scaleX(1.1)}}
+  @media (prefers-reduced-motion:reduce){
+    .fk-split.viva .fk-onda{animation:none;opacity:.75}}
   .fk-lettura{flex:1;min-width:0;text-align:right}
   .fk-ora{font-size:42px;font-weight:900;line-height:1;font-variant-numeric:tabular-nums}
   .fk-ora span{font-size:20px;font-weight:800;opacity:.6}
