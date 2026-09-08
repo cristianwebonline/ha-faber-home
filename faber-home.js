@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.14.2";
+const FH_VERSION = "0.15.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -295,7 +295,19 @@ class FaberHome extends HTMLElement {
         { chips: ((src.header && src.header.chips) || []).map(c => Object.assign({}, c)) }),
       pages: (src.pages && src.pages.length ? src.pages : FH_DEFAULTS.pages).map(p => Object.assign({}, p)),
     });
-    this._page = 0;
+    // Dopo un salvataggio Home Assistant riconsegna la configurazione e
+    // richiama questo metodo: azzerando la pagina qui, si finiva sbalzati
+    // sulla Home ogni volta che si salvava qualcosa. Si torna dov'eri,
+    // ritrovando la pagina per NOME e non per numero (le pagine si possono
+    // spostare o cancellare mentre modifichi).
+    const pagine = this._cfg.pages;
+    let torna = 0;
+    if (this._pageId) {
+      const i = pagine.findIndex(pg => pg.id === this._pageId);
+      if (i >= 0) torna = i;
+    }
+    this._page = torna;
+    this._pageId = pagine[torna] ? pagine[torna].id : null;
     this._built = false;
     this._cardEls = new Map();
   }
@@ -483,6 +495,16 @@ class FaberHome extends HTMLElement {
     return out.join("");
   }
 
+  // Il numero della pagina da solo non basta a ritrovarla dopo un
+  // salvataggio: le pagine si spostano. Si tiene anche il nome.
+  _vaiPagina(i) {
+    this._page = i;
+    const pg = this._cfg.pages[i];
+    this._pageId = pg ? pg.id : null;
+    this._renderNav();
+    this._renderPage();
+  }
+
   _renderNav() {
     const nav = this.querySelector("[data-nav]");
     if (!nav) return;
@@ -501,9 +523,7 @@ class FaberHome extends HTMLElement {
     nav.querySelectorAll("[data-page]").forEach(b => b.addEventListener("click", () => {
       const i = parseInt(b.dataset.page, 10);
       if (i === this._page) return;
-      this._page = i;
-      this._renderNav();
-      this._renderPage();
+      this._vaiPagina(i);
     }));
   }
 
@@ -658,9 +678,8 @@ class FaberHome extends HTMLElement {
       if (a === "salva") this._save();
       else if (a === "annulla") {
         if (this._snapshot) this._cfg = JSON.parse(this._snapshot);
-        this._page = Math.min(this._page, this._cfg.pages.length - 1);
         this._edit = false;
-        this._renderNav(); this._renderPage();
+        this._vaiPagina(Math.min(this._page, this._cfg.pages.length - 1));
       } else if (a === "pagine") this._openPageSheet();
     }));
     return el;
@@ -962,8 +981,11 @@ class FaberHome extends HTMLElement {
         soglia: 10, soglia_freddo: 18, soglia_caldo: 26, prezzo_kwh: 0.30, storico_giorni: 14 } },
       { g: "Faber", n: "Smart Card (tela)", i: "mdi:palette-swatch-outline", c: { type: "custom:smart-card", name: "Smart Card", canvas: { w: 100, h: 50 }, elements: [] } },
       { g: "Faber", n: "Meteo", i: "mdi:weather-partly-cloudy", c: { type: "custom:faber-weather", entity: "", days: 4 } },
+      { g: "Faber", n: "Persona (avatar animato)", i: "mdi:account-heart", c: { type: "custom:faber-persona",
+        person: "", name: "", avatars: "", forma: "cerchio",
+        mostra_distanza: true, mostra_indirizzo: true, mostra_batteria: true } },
       { g: "Faber", n: "Clima / condizionatore", i: "mdi:air-conditioner", c: { type: "custom:faber-clima",
-        climate: "", name: "", temp: "", humidity: "", power: "",
+        climate: "", name: "", temp: "", humidity: "", power: "", presa: "",
         mostra_ventola: true, mostra_alette: true, mostra_programmi: true } },
       { g: "Faber", n: "Carichi reali", i: "mdi:gauge", c: { type: "custom:faber-carichi", title: "Carichi reali",
         totale: "", gruppo: "", prezzo_kwh: 0.30, soglia_media: 1500, soglia_alta: 2500, top: 5, soglia_acceso: 5, naviga: "" } },
@@ -3083,6 +3105,7 @@ const FK_DEFAULTS = {
   temp: "",
   humidity: "",
   power: "",
+  presa: "",
   mostra_ventola: true,
   mostra_alette: true,
   mostra_programmi: true,
@@ -3126,7 +3149,7 @@ class FaberClima extends HTMLElement {
   static getStubConfig(hass) {
     const c = Object.keys(hass && hass.states ? hass.states : {})
       .filter(id => id.startsWith("climate.") && hass.states[id].state !== "unavailable");
-    return Object.assign({}, FK_DEFAULTS, { climate: c[0] || "" });
+    return Object.assign({}, FK_DEFAULTS, { climate: c[0] || "", presa: "" });
   }
 
   setConfig(config) {
@@ -3178,6 +3201,13 @@ class FaberClima extends HTMLElement {
     const acceso = modo !== "off" && modo !== "unavailable";
     const f = a.supported_features || 0;
 
+    // La presa e un'altra cosa dal telecomando: staccare la corrente non
+    // "spegne" il condizionatore, lo lascia senza alimentazione. Sono due
+    // comandi distinti, e col filo staccato il telecomando non serve a nulla.
+    const presaSt = this._cfg.presa ? this._hass.states[this._cfg.presa] : null;
+    const presaOn = presaSt ? presaSt.state === "on" : true;
+    const senzaCorrente = !!presaSt && !presaOn;
+
     // La tinta della card segue il modo, sovrapposta al pannello.
     this._card.style.backgroundImage = acceso
       ? `linear-gradient(160deg, ${m.c}26, ${m.c}0d)` : "";
@@ -3201,15 +3231,24 @@ class FaberClima extends HTMLElement {
     // modi (ventola, deumidifica) non ha senso: si nasconde invece di mentire.
     const puoTemp = (f & 1) && obiettivo != null && !["fan_only", "dry", "off"].includes(modo);
 
+    this._card.classList.toggle("staccato", senzaCorrente);
+
     this._body.innerHTML = `
       <div class="fk-top">
         <div class="fk-titolo">
           <div class="fk-nome">${fhEsc(nome)}</div>
           <div class="fk-modo" style="color:${m.c}"><ha-icon icon="${m.i}"></ha-icon>${fhEsc(m.t)}</div>
         </div>
-        <button type="button" class="fk-power${acceso ? " on" : ""}" data-power title="Accendi o spegni">
-          <ha-icon icon="mdi:power"></ha-icon>
-        </button>
+        <div class="fk-comandi">
+          ${presaSt ? `<button type="button" class="fk-presa${presaOn ? " on" : ""}" data-presa
+            title="${presaOn ? "Stacca la corrente" : "Dai corrente"}">
+            <ha-icon icon="mdi:power-plug${presaOn ? "" : "-off"}"></ha-icon>
+          </button>` : ""}
+          <button type="button" class="fk-power${acceso ? " on" : ""}" data-power
+            ${senzaCorrente ? "disabled" : ""} title="Accendi o spegni il condizionatore">
+            <ha-icon icon="mdi:power"></ha-icon>
+          </button>
+        </div>
       </div>
 
       <div class="fk-centro">
@@ -3235,6 +3274,11 @@ class FaberClima extends HTMLElement {
         <button type="button" class="fk-tbtn" data-t="+">+</button>
       </div>` : ""}
 
+      ${senzaCorrente ? `<div class="fk-staccato">
+        <ha-icon icon="mdi:power-plug-off"></ha-icon>
+        Corrente staccata &mdash; il condizionatore non risponde al telecomando.
+      </div>` : ""}
+
       <div class="fk-modi">
         ${modi.map(k => {
           const mm = FK_MODI[k] || { t: k, i: "mdi:circle-outline", c: "#93a1b0" };
@@ -3255,7 +3299,13 @@ class FaberClima extends HTMLElement {
     `;
 
     const q = sel => this._body.querySelectorAll(sel);
+    const bp = this._body.querySelector("[data-presa]");
+    if (bp) bp.addEventListener("click", () => {
+      const dom = this._cfg.presa.split(".")[0];
+      this._hass.callService(dom, presaOn ? "turn_off" : "turn_on", { entity_id: this._cfg.presa });
+    });
     this._body.querySelector("[data-power]").addEventListener("click", () => {
+      if (senzaCorrente) return;
       if (acceso) this._srv("set_hvac_mode", { hvac_mode: "off" });
       else this._srv("set_hvac_mode", { hvac_mode: modi.includes("cool") ? "cool" : modi[0] });
     });
@@ -3304,6 +3354,21 @@ const FK_CSS = `
     transition:background .25s,color .25s,border-color .25s}
   .fk-power ha-icon{--mdc-icon-size:21px}
   .fk-power.on{background:rgba(56,224,138,.18);border-color:rgba(56,224,138,.5);color:#38e08a}
+  .fk-power[disabled]{opacity:.35;cursor:not-allowed}
+  .fk-comandi{display:flex;gap:7px;flex:0 0 auto}
+  .fk-presa{width:42px;height:42px;border-radius:14px;cursor:pointer;flex:0 0 auto;
+    display:flex;align-items:center;justify-content:center;
+    border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:#93a1b0;
+    transition:background .25s,color .25s,border-color .25s}
+  .fk-presa ha-icon{--mdc-icon-size:20px}
+  .fk-presa.on{background:rgba(255,176,32,.16);border-color:rgba(255,176,32,.45);color:#ffb020}
+  .fk-staccato{display:flex;align-items:center;gap:8px;padding:9px 11px;border-radius:13px;
+    font-size:11.5px;font-weight:700;line-height:1.4;
+    background:rgba(255,92,92,.12);border:1px solid rgba(255,92,92,.32);color:#ffb0a3}
+  .fk-staccato ha-icon{--mdc-icon-size:17px;flex:0 0 auto}
+  /* Senza corrente i comandi restano visibili ma spenti: nasconderli
+     farebbe sembrare la card rotta invece che l'apparecchio staccato. */
+  .fk.staccato .fk-modi,.fk.staccato .fk-riga,.fk.staccato .fk-target{opacity:.4;pointer-events:none}
   .fk-centro{display:flex;align-items:center;gap:14px;padding:2px 0}
   /* Lo split disegnato: le onde d'aria scorrono solo quando e acceso. Prima
      erano tre trattini nudi, che spenti sembravano un disegno rotto. */
@@ -3408,6 +3473,7 @@ class FaberClimaEditor extends HTMLElement {
         ${this._picker("temp", "Sensore temperatura — opzionale", "Molti split non misurano la temperatura, o la misurano dove soffiano. Un sensore in stanza dice il vero.", "sensor.", "temperature")}
         ${this._picker("humidity", "Sensore umidita — opzionale", "", "sensor.", "humidity")}
         ${this._picker("power", "Sensore potenza — opzionale", "Per vedere quanto sta consumando adesso.", "sensor.", "power")}
+        ${this._picker("presa", "Presa di corrente — opzionale", "La presa che alimenta il condizionatore. Diventa un secondo tasto: staccare la corrente non e spegnere, e togliere l'alimentazione. Con la presa staccata i comandi restano visibili ma spenti.", "switch.")}
         <div class="fke-f"><label>Cosa mostrare</label>
           <label class="fke-ck"><input type="checkbox" id="fkV"${c.mostra_ventola !== false ? " checked" : ""}> Velocita della ventola</label>
           <label class="fke-ck"><input type="checkbox" id="fkA"${c.mostra_alette !== false ? " checked" : ""}> Alette</label>
@@ -3477,11 +3543,357 @@ const FKE_CSS = `
 customElements.define("faber-clima-editor", FaberClimaEditor);
 
 
+
+/* ======================================================================== */
+/* CARD: PERSONA                                                            */
+/* L'avatar e una GIF che cambia con lo stato: una per quando e a casa, una  */
+/* per quando e fuori, una per ogni zona. Il resto (batteria, dov'e, da      */
+/* quanto) lo trova da solo partendo dal telefono collegato alla persona:    */
+/* non si scrive niente a mano.                                             */
+/* ======================================================================== */
+
+const FP_DEFAULTS = {
+  person: "",
+  name: "",
+  avatars: "",
+  battery: "",
+  address: "",
+  mostra_distanza: true,
+  mostra_indirizzo: true,
+  mostra_batteria: true,
+  forma: "cerchio",
+};
+
+const FP_TONI = {
+  casa: { c: "#38e08a", t: "A casa" },
+  zona: { c: "#ffb020", t: "In zona" },
+  fuori: { c: "#7a8896", t: "Fuori casa" },
+  ignoto: { c: "#7a8896", t: "Non so dov'e" },
+};
+
+// Distanza in linea d'aria fra due punti (formula dell'emisenoverso).
+function fpDistanza(la1, lo1, la2, lo2) {
+  if ([la1, lo1, la2, lo2].some(v => typeof v !== "number" || !isFinite(v))) return null;
+  const R = 6371, r = Math.PI / 180;
+  const dla = (la2 - la1) * r, dlo = (lo2 - lo1) * r;
+  const a = Math.sin(dla / 2) ** 2 + Math.cos(la1 * r) * Math.cos(la2 * r) * Math.sin(dlo / 2) ** 2;
+  return R * 2 * Math.asin(Math.sqrt(a));
+}
+
+// "da 2 ore", "da 3 giorni": la durata detta come la direbbe una persona.
+function fpDa(iso) {
+  if (!iso) return "";
+  const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  if (!isFinite(s) || s < 0) return "";
+  if (s < 90) return "da poco";
+  const m = Math.round(s / 60);
+  if (m < 60) return "da " + m + " min";
+  const h = Math.floor(s / 3600);
+  if (h < 24) return "da " + h + (h === 1 ? " ora" : " ore");
+  const g = Math.round(s / 86400);
+  return "da " + g + (g === 1 ? " giorno" : " giorni");
+}
+
+class FaberPersona extends HTMLElement {
+  static getConfigElement() { return document.createElement("faber-persona-editor"); }
+  static getStubConfig(hass) {
+    const p = Object.keys(hass && hass.states ? hass.states : {}).filter(id => id.startsWith("person."));
+    return Object.assign({}, FP_DEFAULTS, { person: p[0] || "" });
+  }
+
+  setConfig(config) {
+    this._cfg = Object.assign({}, FP_DEFAULTS, JSON.parse(JSON.stringify(config || {})));
+    this._built = false;
+    if (this._hass) this._render();
+  }
+  set hass(h) { this._hass = h; this._render(); }
+  getCardSize() { return 4; }
+
+  // Righe "chiave|indirizzo". La chiave e "home", "not_home", il nome di una
+  // zona o il suo entity_id.
+  _avatarMap() {
+    const m = {};
+    (this._cfg.avatars || "").split("\n").map(r => r.trim()).filter(Boolean).forEach(riga => {
+      const i = riga.indexOf("|");
+      if (i < 0) return;
+      m[riga.slice(0, i).trim().toLowerCase()] = riga.slice(i + 1).trim();
+    });
+    return m;
+  }
+
+  // Le entita del telefono collegato alla persona: batteria e indirizzo si
+  // trovano da soli, invece di farglieli cercare a mano fra 1234 sensori.
+  _dalTelefono(st) {
+    if (this._cacheFor === this._cfg.person && this._cache) return this._cache;
+    const out = { battery: "", charging: "", address: "" };
+    const trackers = st.attributes.device_trackers || [];
+    const ents = Object.values(this._hass.entities || {});
+    const devs = new Set();
+    trackers.forEach(t => { const e = (this._hass.entities || {})[t]; if (e && e.device_id) devs.add(e.device_id); });
+    ents.forEach(e => {
+      if (!devs.has(e.device_id)) return;
+      const id = e.entity_id, s = this._hass.states[id];
+      if (!s) return;
+      const dc = s.attributes.device_class;
+      if (!out.battery && id.startsWith("sensor.") && dc === "battery") out.battery = id;
+      if (!out.charging && id.startsWith("binary_sensor.") && /is_charging|charging/.test(id)) out.charging = id;
+      if (!out.address && /geocoded_location/.test(id)) out.address = id;
+    });
+    this._cacheFor = this._cfg.person;
+    this._cache = out;
+    return out;
+  }
+
+  _render() {
+    if (!this._hass || !this._cfg) return;
+    const c = this._cfg;
+    const st = c.person ? this._hass.states[c.person] : null;
+
+    if (!this._built) {
+      this.innerHTML = `<style>${FP_CSS}</style><ha-card class="fp"><div class="fp-body"></div></ha-card>`;
+      this._card = this.querySelector(".fp");
+      this._body = this.querySelector(".fp-body");
+      this._card.addEventListener("click", e => {
+        if (e.target.closest("[data-stop]")) return;
+        if (this._cfg.person) this.dispatchEvent(new CustomEvent("hass-more-info", {
+          detail: { entityId: this._cfg.person }, bubbles: true, composed: true }));
+      });
+      this._built = true;
+    }
+
+    if (!st) {
+      this._card.style.backgroundImage = "";
+      this._body.innerHTML = `<div class="fp-vuoto">${c.person
+        ? "Non trovo " + fhEsc(c.person) : "Scegli una persona nelle impostazioni della card."}</div>`;
+      return;
+    }
+
+    const stato = st.state;
+    const aCasa = stato === "home";
+    const fuoriDelTutto = stato === "not_home";
+    const inZona = !aCasa && !fuoriDelTutto && stato !== "unknown" && stato !== "unavailable";
+    const tono = aCasa ? FP_TONI.casa : inZona ? FP_TONI.zona : fuoriDelTutto ? FP_TONI.fuori : FP_TONI.ignoto;
+    const dove = aCasa ? "A casa" : inZona ? stato : fuoriDelTutto ? "Fuori casa" : "Non so dov'e";
+
+    // L'avatar: prima la GIF per questo stato preciso, poi quella per il
+    // gruppo (in zona), poi la foto del profilo di Home Assistant.
+    const map = this._avatarMap();
+    const chiave = stato.toLowerCase();
+    const gif = map[chiave]
+      || (inZona ? (map["zona"] || map["zone"]) : null)
+      || (aCasa ? map["casa"] : map["fuori"])
+      || map["*"]
+      || st.attributes.entity_picture
+      || "";
+
+    const auto = this._dalTelefono(st);
+    const batId = c.battery || auto.battery;
+    const bat = batId && this._hass.states[batId] ? parseFloat(this._hass.states[batId].state) : null;
+    const inCarica = auto.charging && this._hass.states[auto.charging]
+      && this._hass.states[auto.charging].state === "on";
+    const indId = c.address || auto.address;
+    const ind = indId && this._hass.states[indId] ? this._hass.states[indId].state : "";
+
+    const casa = this._hass.states["zone.home"];
+    const km = (!aCasa && casa) ? fpDistanza(
+      st.attributes.latitude, st.attributes.longitude,
+      casa.attributes.latitude, casa.attributes.longitude) : null;
+
+    this._card.style.backgroundImage = `linear-gradient(165deg, ${tono.c}22, ${tono.c}08)`;
+    this._card.style.borderColor = tono.c + "45";
+
+    const nome = c.name || st.attributes.friendly_name || "Persona";
+    const righe = [];
+    if (c.mostra_distanza && km != null && km >= 0.15) {
+      righe.push({ i: "mdi:map-marker-distance", t: km < 1 ? Math.round(km * 1000) + " m da casa" : km.toFixed(km < 10 ? 1 : 0).replace(".", ",") + " km da casa" });
+    }
+    if (c.mostra_indirizzo && ind && !aCasa) {
+      // L'indirizzo completo e lungo e finisce sempre con "Italia": si tiene
+      // la parte che dice davvero dove, cioe via e comune.
+      const corto = ind.replace(/,\s*Italia\s*$/i, "").replace(/,\s*\d{5}\s+/, ", ");
+      righe.push({ i: "mdi:map-marker-outline", t: corto });
+    }
+
+    this._body.innerHTML = `
+      <div class="fp-avatar ${c.forma === "quadrato" ? "quad" : ""}" style="--fp-c:${tono.c}">
+        ${gif ? `<img src="${fhEsc(gif)}" alt="">` : `<div class="fp-noimg"><ha-icon icon="mdi:account"></ha-icon></div>`}
+        <span class="fp-pallino"></span>
+      </div>
+      <div class="fp-testo">
+        <div class="fp-nome">${fhEsc(nome)}</div>
+        <div class="fp-stato" style="color:${tono.c}">${fhEsc(dove)}</div>
+        <div class="fp-da">${fhEsc(fpDa(st.last_changed))}</div>
+        ${righe.length ? `<div class="fp-righe">
+          ${righe.map(r => `<span><ha-icon icon="${r.i}"></ha-icon>${fhEsc(r.t)}</span>`).join("")}
+        </div>` : ""}
+        ${(c.mostra_batteria && bat != null) ? `<div class="fp-bat${bat <= 20 && !inCarica ? " bassa" : ""}">
+          <span class="fp-bguscio"><span class="fp-blivello" style="width:${Math.max(0, Math.min(100, bat))}%"></span></span>
+          ${Math.round(bat)}%${inCarica ? ` <ha-icon icon="mdi:lightning-bolt"></ha-icon>` : ""}
+        </div>` : ""}
+      </div>`;
+  }
+}
+
+const FP_CSS = `
+  .fp{display:block;position:relative;overflow:hidden;border-radius:22px;cursor:pointer;
+    background-color:rgba(16,18,24,.82);border:1px solid rgba(255,255,255,.10);
+    backdrop-filter:blur(18px) saturate(140%);-webkit-backdrop-filter:blur(18px) saturate(140%);
+    color:#eaf1f8;box-shadow:0 10px 30px rgba(0,0,0,.28);
+    transition:background-image .5s ease,border-color .5s ease}
+  .fp-body{padding:16px;display:flex;align-items:center;gap:15px;
+    font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  .fp-vuoto{padding:22px 8px;text-align:center;font-size:12.5px;font-weight:600;opacity:.6;width:100%}
+  .fp-avatar{position:relative;width:88px;height:88px;flex:0 0 auto;border-radius:50%;
+    overflow:hidden;border:2.5px solid var(--fp-c,#7a8896);
+    box-shadow:0 0 0 4px color-mix(in srgb,var(--fp-c) 18%,transparent),0 8px 20px rgba(0,0,0,.35)}
+  .fp-avatar.quad{border-radius:20px}
+  /* La GIF riempie il tondo senza deformarsi: object-fit cover, non contain.
+     Un avatar schiacciato si nota subito. */
+  .fp-avatar img{width:100%;height:100%;object-fit:cover;display:block}
+  .fp-noimg{width:100%;height:100%;display:flex;align-items:center;justify-content:center;
+    background:rgba(255,255,255,.07)}
+  .fp-noimg ha-icon{--mdc-icon-size:40px;color:rgba(255,255,255,.35)}
+  /* Il pallino sta FUORI dal ritaglio del tondo: dentro verrebbe tagliato a
+     meta dal bordo. Percio e un fratello dell'immagine, non un figlio. */
+  .fp-pallino{position:absolute;right:4px;bottom:4px;width:15px;height:15px;border-radius:50%;
+    background:var(--fp-c);border:2.5px solid rgba(16,18,24,.9);z-index:2}
+  .fp-testo{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+  .fp-nome{font-size:18px;font-weight:900;letter-spacing:-.2px;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .fp-stato{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;margin-top:2px}
+  .fp-da{font-size:11.5px;font-weight:600;opacity:.55}
+  .fp-righe{display:flex;flex-direction:column;gap:3px;margin-top:6px}
+  .fp-righe span{display:flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;opacity:.8;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .fp-righe ha-icon{--mdc-icon-size:14px;flex:0 0 auto;opacity:.75}
+  .fp-bat{display:flex;align-items:center;gap:6px;margin-top:8px;font-size:11.5px;font-weight:800;
+    font-variant-numeric:tabular-nums;opacity:.85}
+  .fp-bat ha-icon{--mdc-icon-size:14px;color:#ffb020}
+  .fp-bguscio{width:34px;height:11px;border-radius:3px;padding:1.5px;flex:0 0 auto;
+    border:1.5px solid rgba(255,255,255,.35);position:relative}
+  .fp-bguscio::after{content:"";position:absolute;right:-4px;top:3px;width:2.5px;height:4px;
+    border-radius:0 2px 2px 0;background:rgba(255,255,255,.35)}
+  .fp-blivello{display:block;height:100%;border-radius:1.5px;background:#38e08a;transition:width .6s ease}
+  .fp-bat.bassa .fp-blivello{background:#ff5c5c}
+  .fp-bat.bassa{color:#ff8f8f}
+  @container (max-width:300px){
+    .fp-avatar{width:66px;height:66px}
+    .fp-nome{font-size:16px}
+  }
+`;
+
+customElements.define("faber-persona", FaberPersona);
+
+class FaberPersonaEditor extends HTMLElement {
+  setConfig(config) {
+    this._cfg = Object.assign({}, FP_DEFAULTS, JSON.parse(JSON.stringify(config || {})));
+    if (this._interno) { this._interno = false; return; }
+    if (this._hass) this._render();
+  }
+  set hass(h) { this._hass = h; if (this._cfg && !this._fatto) { this._fatto = true; this._render(); } }
+  _emit() {
+    this._interno = true;
+    this.dispatchEvent(new CustomEvent("config-changed", { detail: { config: this._cfg }, bubbles: true, composed: true }));
+  }
+  _set(k, v) { this._cfg = Object.assign({}, this._cfg, { [k]: v }); this._emit(); }
+
+  _render() {
+    if (!this._cfg || !this._hass) return;
+    const c = this._cfg;
+    const persone = Object.keys(this._hass.states).filter(e => e.startsWith("person."));
+    const zone = Object.keys(this._hass.states).filter(e => e.startsWith("zone.") && e !== "zone.home");
+    const nomeZona = z => (this._hass.states[z].attributes.friendly_name || z.slice(5));
+
+    this.innerHTML = `<style>${FPE_CSS}</style>
+      <div class="fpe">
+        <div class="fpe-f"><label>Persona</label>
+          <select class="fpe-in" id="fpP">
+            <option value="">— scegli —</option>
+            ${persone.map(p => `<option value="${p}"${p === c.person ? " selected" : ""}>${fhEsc(this._hass.states[p].attributes.friendly_name || p)}</option>`).join("")}
+          </select></div>
+
+        <div class="fpe-f"><label>Nome mostrato</label>
+          <span class="fpe-h">Vuoto = il nome della persona.</span>
+          <input class="fpe-in" id="fpN" value="${fhEsc(c.name || "")}"></div>
+
+        <div class="fpe-f"><label>Avatar animati</label>
+          <span class="fpe-h">Una riga per stato, nella forma <b>stato|indirizzo della GIF</b>. Metti le GIF in <code>config/www</code> e richiamale come <code>/local/...</code>. Stati validi: <b>casa</b>, <b>fuori</b>, <b>zona</b> (una qualsiasi), il nome di una zona precisa, oppure <b>*</b> per una GIF sempre valida. Se non trova niente usa la foto del profilo.</span>
+          <textarea class="fpe-in fpe-ta" id="fpA" placeholder="casa|/local/avatar/cristian-casa.gif&#10;fuori|/local/avatar/cristian-fuori.gif">${fhEsc(c.avatars || "")}</textarea>
+          <div class="fpe-zone">Zone che hai in casa: ${zone.length ? zone.map(z => `<button type="button" class="fpe-z" data-z="${fhEsc(nomeZona(z))}">${fhEsc(nomeZona(z))}</button>`).join("") : "<i>nessuna oltre Home</i>"}</div>
+        </div>
+
+        <div class="fpe-f"><label>Forma</label>
+          <div class="fpe-scelta">
+            <button type="button" class="fpe-b${c.forma !== "quadrato" ? " sel" : ""}" data-forma="cerchio">Tonda</button>
+            <button type="button" class="fpe-b${c.forma === "quadrato" ? " sel" : ""}" data-forma="quadrato">Quadrata</button>
+          </div></div>
+
+        <div class="fpe-f"><label>Cosa mostrare</label>
+          <label class="fpe-ck"><input type="checkbox" id="fpD"${c.mostra_distanza !== false ? " checked" : ""}> Quanto dista da casa</label>
+          <label class="fpe-ck"><input type="checkbox" id="fpI"${c.mostra_indirizzo !== false ? " checked" : ""}> Indirizzo dove si trova</label>
+          <label class="fpe-ck"><input type="checkbox" id="fpB"${c.mostra_batteria !== false ? " checked" : ""}> Batteria del telefono</label>
+          <span class="fpe-h">Batteria e indirizzo li trova da solo dal telefono collegato alla persona.</span></div>
+      </div>`;
+
+    const q = s => this.querySelector(s);
+    q("#fpP").addEventListener("change", e => { this._set("person", e.target.value); });
+    q("#fpN").addEventListener("input", e => this._set("name", e.target.value));
+    q("#fpA").addEventListener("input", e => this._set("avatars", e.target.value));
+    q("#fpD").addEventListener("change", e => this._set("mostra_distanza", e.target.checked));
+    q("#fpI").addEventListener("change", e => this._set("mostra_indirizzo", e.target.checked));
+    q("#fpB").addEventListener("change", e => this._set("mostra_batteria", e.target.checked));
+    this.querySelectorAll("[data-forma]").forEach(b => b.addEventListener("click", () => {
+      this._set("forma", b.dataset.forma); this._render();
+    }));
+    // Il nome della zona va scritto esatto: meglio darglielo con un tocco che
+    // farlo ricopiare a mano.
+    this.querySelectorAll("[data-z]").forEach(b => b.addEventListener("click", () => {
+      const ta = q("#fpA");
+      ta.value = (ta.value ? ta.value.replace(/\n$/, "") + "\n" : "") + b.dataset.z + "|/local/";
+      this._set("avatars", ta.value);
+      ta.focus();
+    }));
+  }
+}
+
+const FPE_CSS = `
+  .fpe{display:flex;flex-direction:column;gap:14px;padding:4px 2px;font-family:inherit}
+  .fpe-f{display:flex;flex-direction:column;gap:5px;min-width:0}
+  .fpe-f>label{font-size:13px;font-weight:700;color:var(--primary-text-color)}
+  .fpe-h{font-size:11.5px;line-height:1.5;color:var(--secondary-text-color)}
+  .fpe-h code{font-family:ui-monospace,monospace;font-size:11px;
+    background:rgba(127,127,127,.18);padding:1px 4px;border-radius:4px}
+  .fpe-in{padding:9px 10px;border-radius:9px;font-size:14px;width:100%;box-sizing:border-box;font-family:inherit;
+    border:1px solid var(--divider-color);background:var(--card-background-color);color:var(--primary-text-color)}
+  .fpe-ta{min-height:86px;font-family:ui-monospace,monospace;font-size:12.5px;resize:vertical}
+  .fpe-zone{font-size:11.5px;color:var(--secondary-text-color);display:flex;flex-wrap:wrap;gap:5px;align-items:center}
+  .fpe-z{padding:4px 9px;border-radius:14px;cursor:pointer;font:inherit;font-size:11.5px;font-weight:700;
+    border:1px solid var(--divider-color);background:var(--card-background-color);color:var(--primary-text-color)}
+  .fpe-z:hover{border-color:rgba(255,176,32,.6)}
+  .fpe-scelta{display:flex;gap:8px}
+  .fpe-b{flex:1;padding:9px;border-radius:10px;cursor:pointer;font:inherit;font-size:13px;font-weight:700;
+    border:1px solid var(--divider-color);background:var(--card-background-color);color:var(--primary-text-color)}
+  .fpe-b.sel{border-color:rgba(255,176,32,.7);background:rgba(255,176,32,.16)}
+  .fpe-ck{display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;font-weight:600;
+    color:var(--primary-text-color)}
+  .fpe-ck input{width:auto}
+`;
+
+customElements.define("faber-persona-editor", FaberPersonaEditor);
+
+
 window.customCards = window.customCards || [];
 window.customCards.push({
   type: "faber-weather",
   name: "Faber Meteo",
   description: "Meteo nello stile della famiglia: temperatura grande, condizione in italiano, umidita/pressione/vento/direzione e i prossimi giorni.",
+  preview: true,
+  documentationURL: "https://github.com/cristianwebonline/ha-faber-home",
+});
+window.customCards.push({
+  type: "faber-persona",
+  name: "Faber Persona",
+  description: "Chi c'e e dov'e, con un avatar animato che cambia con lo stato. Batteria del telefono, distanza da casa e indirizzo li trova da solo.",
   preview: true,
   documentationURL: "https://github.com/cristianwebonline/ha-faber-home",
 });
