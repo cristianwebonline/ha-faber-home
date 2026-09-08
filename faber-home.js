@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.28.0";
+const FH_VERSION = "0.29.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -918,34 +918,58 @@ class FaberHome extends HTMLElement {
     // scorrimento della pagina (lezione della Smart Card).
     const haPop = !!(this._cfg.pages[this._page].rows[ri].cols[ci].cards[di].fh_popup || {}).cards;
     const hAtt = this._altezzaCard(this._cfg.pages[this._page].rows[ri].cols[ci].cards[di]);
+    // Otto comandi in fila stavano bene su una card larga, ma su una card
+    // quadrata da 190px andavano a capo su tre righe e la barra diventava piu
+    // alta della card. Qui restano i tre che si usano davvero — sposta,
+    // sinistra, destra — e il resto entra in un menu.
     el.innerHTML = `<button type="button" class="fh-grip" data-grip title="Trascina per spostare"><ha-icon icon="mdi:drag"></ha-icon></button>
-      <select class="fh-hsel" data-forma title="Forma della card">
-        <option value="">${hAtt ? "almeno " + hAtt + " px" : "altezza auto"}</option>
-        <option value="auto">Auto (quanto serve)</option>
-        <option value="quadrata">Almeno quadrata</option>
-        <option value="larga">Almeno rettangolare</option>
-        <option value="alta">Almeno alta</option>
-      </select>
-      ${this._btn("mdi:cog-outline", "Configura", "cfg")}
-      ${this._btn(haPop ? "mdi:dock-window" : "mdi:dock-window", "Popup al tocco", "pop")}
-      ${this._btn("mdi:content-copy", "Duplica", "dup")}
       ${this._btn("mdi:arrow-left", "Colonna precedente", "left")}
       ${this._btn("mdi:arrow-right", "Colonna successiva", "right")}
-      ${this._btn("mdi:delete-outline", "Elimina", "del")}`;
-    el.querySelector("[data-forma]").addEventListener("change", e => {
-      if (e.target.value) this._formaCard(ri, ci, di, e.target.value);
+      <div class="fh-menu">
+        ${this._btn("mdi:dots-vertical", "Altro", "menu")}
+        <div class="fh-menupop" hidden>
+          <button type="button" class="fh-mi" data-act="cfg"><ha-icon icon="mdi:cog-outline"></ha-icon>Configura</button>
+          <button type="button" class="fh-mi" data-act="pop"><ha-icon icon="mdi:dock-window"></ha-icon>Popup al tocco${haPop ? " \u2713" : ""}</button>
+          <button type="button" class="fh-mi" data-act="dup"><ha-icon icon="mdi:content-copy"></ha-icon>Duplica</button>
+          <div class="fh-misep"></div>
+          <div class="fh-milab">Forma</div>
+          <button type="button" class="fh-mi" data-forma="auto"><ha-icon icon="mdi:arrow-expand-vertical"></ha-icon>Auto${!hAtt ? " \u2713" : ""}</button>
+          <button type="button" class="fh-mi" data-forma="quadrata"><ha-icon icon="mdi:square-outline"></ha-icon>Quadrata</button>
+          <button type="button" class="fh-mi" data-forma="larga"><ha-icon icon="mdi:rectangle-outline"></ha-icon>Rettangolare</button>
+          <button type="button" class="fh-mi" data-forma="alta"><ha-icon icon="mdi:rectangle-outline"></ha-icon>Alta</button>
+          <div class="fh-misep"></div>
+          <button type="button" class="fh-mi rosso" data-act="del"><ha-icon icon="mdi:delete-outline"></ha-icon>Elimina</button>
+        </div>
+      </div>`;
+    const pop = el.querySelector(".fh-menupop");
+    el.querySelector('[data-act="menu"]').addEventListener("click", e => {
+      e.stopPropagation();
+      // Un solo menu aperto alla volta, senno restano appesi in giro.
+      this.querySelectorAll(".fh-menupop").forEach(x => { if (x !== pop) x.hidden = true; });
+      pop.hidden = !pop.hidden;
+      if (!pop.hidden) {
+        const chiudi = () => { pop.hidden = true; document.removeEventListener("click", chiudi, true); };
+        setTimeout(() => document.addEventListener("click", chiudi, true), 0);
+      }
     });
+    el.querySelectorAll("[data-forma]").forEach(b => b.addEventListener("click", e => {
+      e.stopPropagation();
+      pop.hidden = true;
+      this._formaCard(ri, ci, di, b.dataset.forma);
+    }));
     this._wireDrag(el.querySelector("[data-grip]"), ri, ci, di);
     const cols = this._cfg.pages[this._page].rows[ri].cols;
     el.querySelectorAll("[data-act]").forEach(b => b.addEventListener("click", () => {
       const a = b.dataset.act;
+      if (a === "menu") return;
+      if (pop) pop.hidden = true;
       const cards = cols[ci].cards;
       if (a === "cfg") { this._openCardEditor(ri, ci, di); return; }
       if (a === "pop") { this._openPopupEditor(ri, ci, di); return; }
       if (a === "dup") cards.splice(di + 1, 0, JSON.parse(JSON.stringify(cards[di])));
       else if (a === "del") cards.splice(di, 1);
-      else if (a === "left" && ci > 0) { const [c] = cards.splice(di, 1); cols[ci - 1].cards.push(c); }
-      else if (a === "right" && ci < cols.length - 1) { const [c] = cards.splice(di, 1); cols[ci + 1].cards.push(c); }
+      else if (a === "left" && ci > 0) { const [c] = cards.splice(di, 1); cols[ci - 1].cards.push(c); this._puliscivuote(ri); }
+      else if (a === "right" && ci < cols.length - 1) { const [c] = cards.splice(di, 1); cols[ci + 1].cards.push(c); this._puliscivuote(ri); }
       this._renderPage();
     }));
     return el;
@@ -1116,6 +1140,17 @@ class FaberHome extends HTMLElement {
   // card sposta di uno tutte quelle che le stavano dietro nella stessa colonna,
   // e senza tenerne conto la card finirebbe un posto piu in la di dove l'hai
   // lasciata.
+  // Una colonna svuotata resta li e continua a prendersi il suo spazio: una
+  // fetta di pagina vuota che sposta tutto il resto.
+  _puliscivuote(ri) {
+    const riga = this._cfg.pages[this._page].rows[ri];
+    if (!riga) return;
+    riga.cols = (riga.cols || []).filter(c => (c.cards || []).length);
+    if (!riga.cols.length) {
+      this._cfg.pages[this._page].rows.splice(ri, 1);
+    }
+  }
+
   _sposta(ri, ci, di, bersaglio) {
     const rows = this._cfg.pages[this._page].rows;
     let dest;
@@ -1137,6 +1172,7 @@ class FaberHome extends HTMLElement {
     if (dest.ri === ri && dest.ci === ci && dest.i > di) i -= 1;
     const arr = rows[dest.ri].cols[dest.ci].cards;
     arr.splice(Math.max(0, Math.min(i, arr.length)), 0, card);
+    this._puliscivuote(ri);
     this._renderPage();
   }
 
@@ -2579,6 +2615,21 @@ const FH_CSS = `
     border:1px solid rgba(255,176,32,.45);background:rgba(255,176,32,.14);color:#ffb020}
   .fh-grip:active{cursor:grabbing}
   .fh-grip ha-icon{--mdc-icon-size:17px}
+  .fh-menu{position:relative;flex:0 0 auto}
+  .fh-menupop{position:absolute;right:0;top:34px;z-index:20;min-width:186px;padding:5px;
+    border-radius:14px;border:1px solid var(--fh-stroke,rgba(255,255,255,.14));
+    background:var(--ha-card-background,var(--card-background-color,#1a1d24));
+    box-shadow:0 14px 36px rgba(0,0,0,.5)}
+  .fh-mi{display:flex;align-items:center;gap:9px;width:100%;padding:8px 10px;border-radius:9px;
+    border:none;background:none;cursor:pointer;font:inherit;font-size:12.5px;font-weight:700;
+    text-align:left;color:var(--primary-text-color)}
+  .fh-mi ha-icon{--mdc-icon-size:16px;flex:0 0 auto;opacity:.75}
+  .fh-mi:hover{background:rgba(255,176,32,.14)}
+  .fh-mi.rosso{color:#ff8f8f}
+  .fh-mi.rosso:hover{background:rgba(255,92,92,.14)}
+  .fh-misep{height:1px;margin:4px 6px;background:var(--divider-color,rgba(255,255,255,.1))}
+  .fh-milab{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;
+    opacity:.5;padding:5px 10px 2px}
   .fh-hsel{height:30px;border-radius:9px;font:inherit;font-size:11px;font-weight:700;padding:0 4px;
     border:1px solid var(--fh-stroke,rgba(255,255,255,.12));background:var(--fh-panel,rgba(255,255,255,.06));
     color:var(--fh-muted,#93a1b0);cursor:pointer;max-width:104px}
