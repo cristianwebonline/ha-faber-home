@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.35.0";
+const FH_VERSION = "0.36.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -173,26 +173,44 @@ class FhSky {
     this.w = r.width; this.h = r.height;
     this.seed();
   }
-  _count(per) { return Math.max(8, Math.round((this.w * this.h) / per)); }
+  // Quante particelle: una ogni "per" pixel quadrati. I numeri di prima
+  // erano tarati troppo radi — su un telefono uscivano SEDICI stelle in tutto
+  // lo schermo, cioe un cielo vuoto. Un cielo stellato vero e fitto. Il conto
+  // gira nel browser (non sul Raspberry): duecento puntini non li sente
+  // nessuno, ma si vedono eccome. Il tetto serve su schermi molto grandi,
+  // dove l'area cresce col quadrato e i conti scapperebbero.
+  _count(per) { return Math.max(24, Math.min(900, Math.round((this.w * this.h) / per))); }
   seed() {
     if (!this.w) return;
     const R = Math.random;
     const p = [];
     if (this.mode === "rain" || this.mode === "storm") {
-      for (let i = 0, n = this._count(9000); i < n; i++)
+      for (let i = 0, n = this._count(3600); i < n; i++)
         p.push({ x: R() * this.w, y: R() * this.h, len: 8 + R() * 14, vy: 5 + R() * 5, a: .18 + R() * .3 });
     } else if (this.mode === "snow") {
-      for (let i = 0, n = this._count(14000); i < n; i++)
+      for (let i = 0, n = this._count(5200); i < n; i++)
         p.push({ x: R() * this.w, y: R() * this.h, r: 1 + R() * 2.2, vy: .35 + R() * .5, ph: R() * 6.28, amp: 6 + R() * 14, a: .35 + R() * .45 });
     } else if (this.mode === "clouds" || this.mode === "fog") {
-      for (let i = 0, n = this._count(90000); i < n; i++)
+      for (let i = 0, n = this._count(38000); i < n; i++)
         p.push({ x: R() * this.w, y: R() * this.h * .8, r: 60 + R() * 130, vx: (.06 + R() * .12) * (this.mode === "fog" ? .4 : 1), a: .05 + R() * .07 });
     } else if (this.mode === "motes") {
-      for (let i = 0, n = this._count(26000); i < n; i++)
+      for (let i = 0, n = this._count(7000); i < n; i++)
         p.push({ x: R() * this.w, y: R() * this.h, r: .8 + R() * 1.6, vy: -(.08 + R() * .14), vx: (R() - .5) * .08, a: .15 + R() * .35 });
     } else {
-      for (let i = 0, n = this._count(22000); i < n; i++)
-        p.push({ x: R() * this.w, y: R() * this.h, r: .6 + R() * 1.4, ph: R() * 6.28, sp: .6 + R() * 1.4, a: .25 + R() * .5 });
+      // Un cielo vero non ha stelle tutte uguali: tante piccole e fioche, e
+      // qualcuna grossa e luminosa che si nota. Una su dodici e "brillante" e
+      // si porta dietro un alone: sono quelle che danno profondita al cielo,
+      // senza di loro resta una spolverata di sale.
+      for (let i = 0, n = this._count(4200); i < n; i++) {
+        const brillante = R() < .085;
+        p.push({
+          x: R() * this.w, y: R() * this.h,
+          r: brillante ? 1.5 + R() * 1.3 : .5 + R() * 1.0,
+          ph: R() * 6.28, sp: .5 + R() * 1.3,
+          a: brillante ? .7 + R() * .3 : .22 + R() * .42,
+          big: brillante,
+        });
+      }
     }
     this.parts = p;
   }
@@ -287,6 +305,15 @@ class FhSky {
       const c = light ? "90,120,165" : "255,255,255";
       for (const d of this.parts) {
         const tw = .55 + .45 * Math.sin(t * d.sp + d.ph);
+        // L'alone delle brillanti si disegna prima, sotto: e quello che le fa
+        // sembrare luminose invece che solo piu grosse.
+        if (d.big) {
+          const grd = g.createRadialGradient(d.x, d.y, 0, d.x, d.y, d.r * 4.5);
+          grd.addColorStop(0, `rgba(${c},${d.a * tw * .5})`);
+          grd.addColorStop(1, `rgba(${c},0)`);
+          g.fillStyle = grd;
+          g.beginPath(); g.arc(d.x, d.y, d.r * 4.5, 0, 6.283); g.fill();
+        }
         g.fillStyle = `rgba(${c},${d.a * tw})`;
         g.beginPath(); g.arc(d.x, d.y, d.r, 0, 6.283); g.fill();
       }
