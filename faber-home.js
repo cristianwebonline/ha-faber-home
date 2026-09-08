@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.12.1";
+const FH_VERSION = "0.12.2";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -2564,7 +2564,10 @@ const FC_CSS = `
   .fc-leg i.ghost{background:rgba(255,255,255,.28)}
   .fc-costo{margin-left:auto;font-weight:800;opacity:.7;font-variant-numeric:tabular-nums}
   .fc-lista{display:flex;flex-direction:column;gap:2px;margin-top:2px}
-  .fc-riga{display:grid;grid-template-columns:minmax(0,1fr) 84px auto;align-items:center;gap:10px;
+  /* Il nome prende quel che gli serve fino a un terzo della card, la barra si
+     mangia tutto il resto: cosi su un tablet non resta un vuoto in mezzo con
+     le barre schiacciate a destra, e sul telefono il nome ha comunque spazio. */
+  .fc-riga{display:grid;grid-template-columns:minmax(88px,32%) minmax(0,1fr) auto;align-items:center;gap:12px;
     padding:7px 8px;border-radius:12px;border:none;background:transparent;color:inherit;
     font:inherit;text-align:left;cursor:pointer;transition:background .18s ease}
   .fc-riga:hover{background:rgba(255,255,255,.06)}
