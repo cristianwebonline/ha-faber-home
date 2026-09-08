@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.11.0";
+const FH_VERSION = "0.11.1";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -717,7 +717,15 @@ class FaberHome extends HTMLElement {
       const msg = foot.querySelector("[data-msg]");
       msg.textContent = "Salvo...";
       const ok = await this._save(true);
-      msg.textContent = ok ? "Salvato." : "Non sono riuscito a salvare.";
+      if (ok) {
+        // Chiudo io il foglio: dopo il salvataggio Home Assistant ricostruisce
+        // il pannello e il foglio sparirebbe comunque, ma di rimbalzo, come se
+        // fosse crollato qualcosa. Meglio che sia una scelta.
+        const sc = scrimGetter();
+        if (sc) sc.remove();
+      } else {
+        msg.textContent = "Non sono riuscito a salvare.";
+      }
     });
     return foot;
   }
