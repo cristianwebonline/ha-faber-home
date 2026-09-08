@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.27.0";
+const FH_VERSION = "0.27.1";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -711,7 +711,8 @@ class FaberHome extends HTMLElement {
         // Una colonna non puo occupare piu tracce di quante ne esistano: su
         // telefono con due colonne, una "larga 3" prenderebbe il posto di
         // colonne che non ci sono e sfonderebbe la griglia.
-        if (!piatta) colEl.style.gridColumn = `span ${Math.min(col.span || 1, n)}`;
+        const quante = Math.min(col.span || 1, n);
+        if (!piatta) colEl.style.gridColumn = `span ${quante}`;
         colEl.dataset.col = ci;
         if (this._edit) colEl.appendChild(this._colToolsEl(ri, ci));
         (col.cards || []).forEach((cardCfg, di) => {
@@ -722,6 +723,12 @@ class FaberHome extends HTMLElement {
           const slot = document.createElement("div");
           slot.className = "fh-slot";
           slot.dataset.slot = `${ri}.${ci}.${di}`;
+          // Smontando il gruppo la larghezza della colonna deve passare alle
+          // CARD, che diventano loro gli elementi della griglia. Senza questo
+          // una card larga due colonne si ritrovava stretta in una sola: era
+          // il meteo che tornava verticale appena salvato, mentre in modifica
+          // (dove il gruppo resta montato) si vedeva giusto.
+          if (piatta && quante > 1) slot.style.gridColumn = `span ${quante}`;
           const h = this._altezzaCard(cardCfg);
           if (h) { slot.style.setProperty("--fh-h", h + "px"); slot.classList.add("fissa"); }
           if (this._edit) {
@@ -2500,6 +2507,10 @@ const FH_CSS = `
      elementi della griglia della riga, e allora quelle affiancate stanno
      davvero sulla stessa linea invece di essere due pile indipendenti. */
   .fh-row.piatta>.fh-col{display:contents}
+  /* In griglia lo slot non e piu un elemento flessibile dentro una colonna:
+     deve riempire la cella, senno le card della stessa riga finiscono di
+     altezze diverse. */
+  .fh-row.piatta>.fh-col>.fh-slot{height:100%}
   /* L'altezza scelta e un MINIMO, non un tetto. Prima era un'altezza fissa con
      overflow nascosto: il contenuto che non ci stava veniva tagliato, in alto
      e ai lati, e non c'era modo di recuperarlo. Un contenuto non si taglia:
