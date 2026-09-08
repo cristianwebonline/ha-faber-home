@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.7.0";
+const FH_VERSION = "0.7.1";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -881,11 +881,15 @@ class FaberHome extends HTMLElement {
   _entityListHTML(id, value, prefix, label) {
     const ids = Object.keys(this._hass.states).filter(e => !prefix || e.startsWith(prefix));
     const nome = e => (this._hass.states[e].attributes.friendly_name || e);
-    return `<label class="fh-slab">${fhEsc(label)}</label>
+    // Etichetta e campo incolonnati: senza il contenitore scorrevano in linea
+    // e "Meteo" finiva accanto a "Temperatura" invece che sopra il suo campo.
+    return `<div class="fh-sfield">
+      <label class="fh-slab">${fhEsc(label)}</label>
       <input class="fh-input" id="${id}" list="${id}List" value="${fhEsc(value || "")}" placeholder="nessuna">
       <datalist id="${id}List">
         ${ids.slice(0, 400).map(e => `<option value="${e}">${fhEsc(nome(e))}</option>`).join("")}
-      </datalist>`;
+      </datalist>
+    </div>`;
   }
 
   _openSettings() {
