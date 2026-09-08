@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.2.1";
+const FH_VERSION = "0.2.2";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -19,7 +19,7 @@ const FH_DEFAULTS = {
   // di chi configura. Lo sfondo pagina è la tinta dietro le card; l'animazione
   // racconta che tempo fa; il tema automatico decide chiaro/scuro per orario.
   appearance: {
-    pageBackground: { mode: "gradient", color: "#0d1420", from: "", to: "" },
+    pageBackground: { mode: "gradient", color: "", from: "", mid: "", to: "" },
     weatherAnimation: true,
     autoTheme: { enabled: true, dayStart: "07:00", nightStart: "21:00" },
   },
@@ -314,8 +314,11 @@ class FaberHome extends HTMLElement {
     const sky = this._sky();
     if (pb.mode === "none") return "transparent";
     if (pb.mode === "solid") return pb.color || sky.mid;
-    const from = pb.from || sky.top, to = pb.to || sky.bot;
-    return `radial-gradient(120% 90% at 15% -10%,${from},${pb.color || sky.mid} 55%,${to})`;
+    // Le tre fermate arrivano dal tema se non sono state scelte a mano: usare
+    // qui `color` (che serve alla tinta unita) faceva passare il cielo chiaro
+    // per una fascia scura.
+    const from = pb.from || sky.top, mid = pb.mid || sky.mid, to = pb.to || sky.bot;
+    return `radial-gradient(140% 110% at 20% -20%,${from},${mid} 45%,${to})`;
   }
 
   // Il tema può cambiare da solo mentre il pannello è acceso (alle 07:00 o
