@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.12.0";
+const FH_VERSION = "0.12.1";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -1075,6 +1075,16 @@ class FaberHome extends HTMLElement {
 
   // Un'etichetta che dica davvero quale card e, senza aprirla.
   _etichettaCard(c) {
+    // Una griglia o uno stack non hanno un titolo proprio: dire "grid" non
+    // aiuta a riconoscerla. Meglio dire cosa contiene.
+    if (Array.isArray(c.cards) && c.cards.length && !c.title && !c.name) {
+      const dentro = c.cards.map(x => x && (x.name || x.heading || x.title)).filter(Boolean);
+      const tipo = String(c.type).replace(/^custom:/, "");
+      return {
+        titolo: (dentro.length ? dentro.slice(0, 3).join(", ") : c.cards.length + " card dentro").slice(0, 60),
+        tipo: tipo + " di " + c.cards.length,
+      };
+    }
     const t = c.title || c.name || c.heading || c.label ||
       (c.entity && this._hass.states[c.entity] && this._hass.states[c.entity].attributes.friendly_name) ||
       (Array.isArray(c.entities) && c.entities.length ? `${c.entities.length} entita` : "");
@@ -2375,6 +2385,37 @@ function fcNomeSensore(hass, id, nomiCustom) {
   return f.replace(/\s*(active power|apparent power|potenza attiva|potenza apparente|potenza|power|consumo)\s*\d*\s*$/i, "").trim() || f;
 }
 
+// Due canali della stessa presa doppia hanno lo STESSO nome di dispositivo:
+// in classifica comparivano due "Luce sala" indistinguibili. Quando succede si
+// aggiunge il distintivo dell'entita (il numero del canale, o il suo nome nel
+// registro). E' esattamente il motivo per cui la vecchia card teneva un elenco
+// di nomi scritto a mano - solo che qui si aggiorna da solo.
+function fcMaiuscola(t) { return t ? t.charAt(0).toUpperCase() + t.slice(1) : t; }
+
+function fcNomiUnivoci(hass, ids, nomiCustom) {
+  const base = {};
+  ids.forEach(id => { base[id] = fcNomeSensore(hass, id, nomiCustom); });
+  const conta = {};
+  ids.forEach(id => { conta[base[id]] = (conta[base[id]] || 0) + 1; });
+  const out = {};
+  ids.forEach(id => {
+    let n = base[id];
+    const suo = nomiCustom && nomiCustom[id];
+    if (!suo && conta[n] > 1) {
+      const coda = (id.match(/_(\d+)$/) || [])[1];
+      if (coda) {
+        n = n + " " + coda;
+      } else {
+        const reg = (hass.entities || {})[id];
+        const et = (reg && (reg.name || reg.original_name)) || "";
+        if (et) n = n + " \u00b7 " + et;
+      }
+    }
+    out[id] = fcMaiuscola(n);
+  });
+  return out;
+}
+
 function fcNum(v) { const n = parseFloat(v); return isFinite(n) ? n : 0; }
 function fcW(n) { return Math.round(n).toLocaleString("it-IT"); }
 
@@ -2453,6 +2494,7 @@ class FaberCarichi extends HTMLElement {
     const costo = (d.totale / 1000) * (c.prezzo_kwh || 0);
     const max = d.accesi.length ? d.accesi[0].w : 0;
     const lista = d.accesi.slice(0, c.top || 5);
+    const nomi = fcNomiUnivoci(this._hass, d.voci.map(v => v.id), c.nomi);
 
     this._body.innerHTML = `
       <div class="fc-top">
@@ -2479,14 +2521,14 @@ class FaberCarichi extends HTMLElement {
         ${lista.map(v => {
           const q = max > 0 ? Math.max(4, (v.w / max) * 100) : 0;
           return `<button type="button" class="fc-riga" data-riga="${fhEsc(v.id)}">
-            <span class="fc-nome">${fhEsc(fcNomeSensore(this._hass, v.id, c.nomi))}</span>
+            <span class="fc-nome">${fhEsc(nomi[v.id])}</span>
             <span class="fc-track"><span class="fc-q" style="width:${q}%;background:${t.forte}"></span></span>
             <span class="fc-w">${fcW(v.w)} W</span>
           </button>`;
         }).join("")}
       </div>` : `<div class="fc-vuoto">Nessun carico acceso in questo momento.</div>`}
 
-      ${d.accesi.length > lista.length ? `<div class="fc-altri">e altri ${d.accesi.length - lista.length} accesi, sotto i ${fcW(lista[lista.length - 1].w)} W</div>` : ""}
+      ${d.accesi.length > lista.length ? `<div class="fc-altri">${d.accesi.length - lista.length === 1 ? "e un altro acceso" : "e altri " + (d.accesi.length - lista.length) + " accesi"}, sotto i ${fcW(lista[lista.length - 1].w)} W</div>` : ""}
     `;
 
     this._body.querySelectorAll("[data-riga]").forEach(b => b.addEventListener("click", e => {
@@ -2657,11 +2699,11 @@ class FaberCarichiEditor extends HTMLElement {
           <summary>Nomi dei carichi (${membri.length})</summary>
           <div class="fce-h" style="margin:6px 0 10px">I nomi arrivano da soli dal dispositivo a cui il sensore appartiene. Scrivi qui dentro solo quelli che vuoi cambiare.</div>
           <div class="fce-nomi">
-            ${membri.length ? membri.map(id => `
+            ${membri.length ? (() => { const auto = fcNomiUnivoci(this._hass, membri, {}); return membri.map(id => `
               <div class="fce-nr">
-                <span class="fce-auto" title="${fhEsc(id)}">${fhEsc(fcNomeSensore(this._hass, id, {}))}</span>
+                <span class="fce-auto" title="${fhEsc(id)}">${fhEsc(auto[id])}</span>
                 <input class="fce-in fce-nome" data-ent="${fhEsc(id)}" placeholder="lascia vuoto" value="${fhEsc((c.nomi || {})[id] || "")}">
-              </div>`).join("") : `<div class="fce-h">Scegli prima il gruppo dei monitorati.</div>`}
+              </div>`).join(""); })() : `<div class="fce-h">Scegli prima il gruppo dei monitorati.</div>`}
           </div>
         </details>
       </div>`;
