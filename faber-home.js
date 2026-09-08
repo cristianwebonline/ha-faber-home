@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.6.1";
+const FH_VERSION = "0.7.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -419,6 +419,7 @@ class FaberHome extends HTMLElement {
               <div class="fh-date" data-date>${this._dateText()}</div>
             </div>
             <div class="fh-headicons">
+            <button type="button" class="fh-ic" data-act="cfg" title="Impostazioni"><ha-icon icon="mdi:cog-outline"></ha-icon></button>
             <button type="button" class="fh-ic" data-act="edit" title="Modifica"><ha-icon icon="mdi:pencil"></ha-icon></button>
             <button type="button" class="fh-ic" data-act="reload" title="Ricarica"><ha-icon icon="mdi:refresh"></ha-icon></button>
             <button type="button" class="fh-ic" data-act="ha" title="Home Assistant"><ha-icon icon="mdi:home-assistant"></ha-icon></button>
@@ -443,7 +444,8 @@ class FaberHome extends HTMLElement {
     this._applyScene(false);
     this._watchTheme();
     this.querySelectorAll(".fh-ic").forEach(b => b.addEventListener("click", () => {
-      if (b.dataset.act === "edit") this._toggleEdit();
+      if (b.dataset.act === "cfg") this._openSettings();
+      else if (b.dataset.act === "edit") this._toggleEdit();
       else if (b.dataset.act === "reload") location.reload();
       else if (b.dataset.act === "ha") {
         history.pushState(null, "", "/lovelace");
@@ -872,10 +874,135 @@ class FaberHome extends HTMLElement {
     this._sheet("Pagine", box);
   }
 
+
+  // --------------------------------------------------------- impostazioni
+  // Tutto quello che prima si poteva cambiare solo scrivendo la
+  // configurazione a mano: orari del tema, sfondo, animazione, e i chip.
+  _entityListHTML(id, value, prefix, label) {
+    const ids = Object.keys(this._hass.states).filter(e => !prefix || e.startsWith(prefix));
+    const nome = e => (this._hass.states[e].attributes.friendly_name || e);
+    return `<label class="fh-slab">${fhEsc(label)}</label>
+      <input class="fh-input" id="${id}" list="${id}List" value="${fhEsc(value || "")}" placeholder="nessuna">
+      <datalist id="${id}List">
+        ${ids.slice(0, 400).map(e => `<option value="${e}">${fhEsc(nome(e))}</option>`).join("")}
+      </datalist>`;
+  }
+
+  _openSettings() {
+    const box = document.createElement("div");
+    const draw = () => {
+      const ap = this._cfg.appearance, at = ap.autoTheme, pb = ap.pageBackground, h = this._cfg.header;
+      box.innerHTML = `
+        <div class="fh-sgroup">Aspetto</div>
+        <label class="fh-check"><input type="checkbox" id="stAuto"${at.enabled !== false ? " checked" : ""}>
+          Cambia tema da solo con l'ora</label>
+        <div class="fh-srow">
+          <div class="fh-sfield"><label class="fh-slab">Inizio giorno</label>
+            <input class="fh-input" id="stDay" type="time" value="${fhEsc(at.dayStart || "07:00")}"></div>
+          <div class="fh-sfield"><label class="fh-slab">Inizio notte</label>
+            <input class="fh-input" id="stNight" type="time" value="${fhEsc(at.nightStart || "21:00")}"></div>
+        </div>
+        <div class="fh-note">Da spento segue il tema di Home Assistant.</div>
+
+        <label class="fh-check"><input type="checkbox" id="stAnim"${ap.weatherAnimation !== false ? " checked" : ""}>
+          Sfondo animato col tempo che fa</label>
+        <div class="fh-note">Stelle, pioggia, neve, nuvole: si ferma da solo quando la pagina non è in vista.</div>
+
+        <label class="fh-slab">Sfondo della pagina</label>
+        <div class="fh-seg">
+          ${[["gradient", "Sfumatura"], ["solid", "Tinta unita"], ["none", "Nessuno"]].map(([v, n]) =>
+            `<button type="button" class="fh-segbtn${(pb.mode || "gradient") === v ? " sel" : ""}" data-bg="${v}">${n}</button>`).join("")}
+        </div>
+        ${pb.mode === "solid" ? `<div class="fh-srow">
+          <div class="fh-sfield"><label class="fh-slab">Colore</label>
+          <input class="fh-input" id="stColor" type="color" value="${fhEsc(/^#[0-9a-f]{6}$/i.test(pb.color || "") ? pb.color : "#0d1420")}"></div></div>` : ""}
+
+        <div class="fh-sgroup">Intestazione</div>
+        ${this._entityListHTML("stWeather", h.weather, "weather.", "Meteo")}
+        ${this._entityListHTML("stTemp", h.temperature, "sensor.", "Temperatura mostrata")}
+        <label class="fh-check"><input type="checkbox" id="stSec"${h.seconds ? " checked" : ""}>
+          Mostra anche i secondi nell'orologio</label>
+
+        <div class="fh-sgroup">Chip</div>
+        <div class="fh-note">Compaiono sotto l'orologio, su una riga che scorre. Al tocco accendono o spengono.</div>
+        ${(h.chips || []).map((c, i) => `
+          <div class="fh-chiprow" data-c="${i}">
+            <div class="fh-srow">
+              <div class="fh-sfield"><label class="fh-slab">Icona</label>
+                <input class="fh-input" data-f="icon" value="${fhEsc(c.icon || "")}" placeholder="mdi:lightbulb"></div>
+              <div class="fh-sfield"><label class="fh-slab">Etichetta</label>
+                <input class="fh-input" data-f="label" value="${fhEsc(c.label || "")}"></div>
+            </div>
+            ${this._entityListHTML("stChip" + i, c.entity, "", "Entità")}
+            <div class="fh-chiptools">
+              <button type="button" class="fh-tool" data-act="up"><ha-icon icon="mdi:arrow-up"></ha-icon></button>
+              <button type="button" class="fh-tool" data-act="down"><ha-icon icon="mdi:arrow-down"></ha-icon></button>
+              <button type="button" class="fh-tool" data-act="del"><ha-icon icon="mdi:delete-outline"></ha-icon></button>
+            </div>
+          </div>`).join("")}
+        <button type="button" class="fh-btn primary" id="stAddChip">+ Aggiungi chip</button>
+
+        <div class="fh-sgroup">&nbsp;</div>
+        <button type="button" class="fh-btn primary" id="stSave">Salva impostazioni</button>
+        <div class="fh-note" id="stMsg"></div>`;
+      wire();
+    };
+
+    const apply = () => { this._applyScene(true); this._renderNav(); this._renderPage(); };
+
+    const wire = () => {
+      const q = id => box.querySelector(id);
+      const ap = this._cfg.appearance, h = this._cfg.header;
+      q("#stAuto").addEventListener("change", e => { ap.autoTheme.enabled = e.target.checked; apply(); });
+      q("#stDay").addEventListener("change", e => { ap.autoTheme.dayStart = e.target.value || "07:00"; apply(); });
+      q("#stNight").addEventListener("change", e => { ap.autoTheme.nightStart = e.target.value || "21:00"; apply(); });
+      q("#stAnim").addEventListener("change", e => {
+        ap.weatherAnimation = e.target.checked;
+        if (this._skyfx) this._skyfx.setScene(this._weatherMode(), this._isDark());
+      });
+      box.querySelectorAll("[data-bg]").forEach(b => b.addEventListener("click", () => {
+        ap.pageBackground.mode = b.dataset.bg; draw(); apply();
+      }));
+      const col = q("#stColor");
+      if (col) col.addEventListener("input", e => { ap.pageBackground.color = e.target.value; apply(); });
+      q("#stWeather").addEventListener("change", e => { h.weather = e.target.value.trim(); apply(); });
+      q("#stTemp").addEventListener("change", e => { h.temperature = e.target.value.trim(); this._updateLive(); });
+      q("#stSec").addEventListener("change", e => { h.seconds = e.target.checked; this._startClock(); });
+      q("#stAddChip").addEventListener("click", () => {
+        h.chips.push({ entity: "", icon: "mdi:lightbulb", label: "" }); draw(); this._updateLive();
+      });
+      box.querySelectorAll(".fh-chiprow").forEach(row => {
+        const i = parseInt(row.dataset.c, 10);
+        const chip = h.chips[i];
+        row.querySelectorAll("[data-f]").forEach(inp => inp.addEventListener("input", () => {
+          chip[inp.dataset.f] = inp.value; this._updateLive();
+        }));
+        const ent = row.querySelector("#stChip" + i);
+        if (ent) ent.addEventListener("change", e => { chip.entity = e.target.value.trim(); this._updateLive(); });
+        row.querySelectorAll("[data-act]").forEach(b => b.addEventListener("click", () => {
+          const a = b.dataset.act;
+          if (a === "up" && i > 0) { const [x] = h.chips.splice(i, 1); h.chips.splice(i - 1, 0, x); }
+          else if (a === "down" && i < h.chips.length - 1) { const [x] = h.chips.splice(i, 1); h.chips.splice(i + 1, 0, x); }
+          else if (a === "del") h.chips.splice(i, 1);
+          draw(); this._updateLive();
+        }));
+      });
+      q("#stSave").addEventListener("click", async () => {
+        const msg = q("#stMsg");
+        msg.textContent = "Salvo...";
+        const ok = await this._save(true);
+        msg.textContent = ok ? "Salvato." : "Non sono riuscito a salvare.";
+      });
+    };
+
+    draw();
+    this._sheet("Impostazioni", box);
+  }
+
   // Salvataggio: si rilegge la configurazione fresca della dashboard, si
   // sostituisce SOLO la nostra card e si riscrive. Cosi non si calpesta
   // niente che sia cambiato nel frattempo.
-  async _save() {
+  async _save(quiet) {
     const urlPath = location.pathname.split("/").filter(Boolean)[0];
     const bar = this.querySelector(".fh-editbar");
     const say = t => { const l = bar && bar.querySelector(".fh-editlabel"); if (l) l.textContent = t; };
@@ -888,14 +1015,18 @@ class FaberHome extends HTMLElement {
           if (c && c.type === "custom:faber-home") { v.cards[i] = this._cfg; done = true; }
         });
       });
-      if (!done) { say("Non trovo questo pannello nella dashboard."); return; }
+      if (!done) { say("Non trovo questo pannello nella dashboard."); return false; }
       await this._hass.callWS({ type: "lovelace/config/save", url_path: urlPath, config: dash });
       this._snapshot = JSON.stringify(this._cfg);
-      this._edit = false;
-      this._renderNav();
-      this._renderPage();
+      if (!quiet) {
+        this._edit = false;
+        this._renderNav();
+        this._renderPage();
+      }
+      return true;
     } catch (e) {
       say("Errore nel salvataggio: " + (e && e.message ? e.message : e));
+      return false;
     }
   }
 
@@ -1095,6 +1226,22 @@ const FH_CSS = `
   .fh-input{flex:1;min-width:0;padding:8px 10px;border-radius:9px;font:inherit;font-size:13px;
     border:1px solid var(--divider-color);background:var(--card-background-color);color:var(--primary-text-color)}
   .fh-input.small{flex:0 0 110px}
+
+  .fh-sgroup{font-size:10.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
+    color:var(--secondary-text-color);margin-top:14px}
+  .fh-slab{font-size:12.5px;font-weight:700;color:var(--primary-text-color)}
+  .fh-srow{display:flex;gap:10px}
+  .fh-sfield{flex:1;min-width:0;display:flex;flex-direction:column;gap:5px}
+  .fh-check{display:flex;align-items:center;gap:9px;font-size:13px;font-weight:600;
+    color:var(--primary-text-color);cursor:pointer}
+  .fh-check input{width:auto}
+  .fh-seg{display:flex;gap:6px}
+  .fh-segbtn{flex:1;padding:9px 6px;border-radius:11px;cursor:pointer;font:inherit;font-size:12px;font-weight:700;
+    border:1px solid var(--divider-color);background:var(--card-background-color);color:var(--secondary-text-color)}
+  .fh-segbtn.sel{border-color:rgba(255,176,32,.6);background:rgba(255,176,32,.16);color:var(--primary-text-color)}
+  .fh-chiprow{display:flex;flex-direction:column;gap:8px;padding:11px;border-radius:14px;
+    border:1px solid var(--divider-color);background:var(--card-background-color)}
+  .fh-chiptools{display:flex;gap:6px;justify-content:flex-end}
   @container fh (max-width: 560px){
     .fh-head{padding:14px 14px 6px}
     .fh-main{padding:6px 12px 108px}
