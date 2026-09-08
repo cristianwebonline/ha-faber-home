@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.16.0";
+const FH_VERSION = "0.16.1";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -3332,7 +3332,7 @@ class FaberClima extends HTMLElement {
             <ha-icon icon="mdi:power-plug${presaOn ? "" : "-off"}"></ha-icon>
           </button>` : ""}
           <button type="button" class="fk-power${acceso ? " on" : ""}" data-power
-            ${senzaCorrente ? "disabled" : ""} title="Accendi o spegni il condizionatore">
+            ${senzaCorrente ? "disabled" : ""} title="Accendi o spegni">
             <ha-icon icon="mdi:power"></ha-icon>
           </button>
         </div>
@@ -3356,7 +3356,9 @@ class FaberClima extends HTMLElement {
 
       ${senzaCorrente ? `<div class="fk-staccato">
         <ha-icon icon="mdi:power-plug-off"></ha-icon>
-        Corrente staccata &mdash; il condizionatore non risponde al telecomando.
+        Corrente staccata &mdash; ${tipoDisegno === "stufa" ? "la stufa non riceve comandi"
+          : tipoDisegno === "radiatore" ? "il termosifone non riceve comandi"
+          : "il condizionatore non risponde al telecomando"}.
       </div>` : ""}
 
       <div class="fk-modi">
@@ -3467,7 +3469,7 @@ class FaberClima extends HTMLElement {
           <div class="fk-mt">Timer di spegnimento</div>
           <button type="button" class="fk-mx" data-chiudi>&times;</button>
         </div>
-        <div class="fk-mnota">Spegne <b>${fhEsc(nome)}</b> all'ora scelta. Non stacca la corrente: la presa resta com'e.</div>
+        <div class="fk-mnota">Spegne <b>${fhEsc(nome)}</b> all'ora scelta &mdash; il comando di spegnimento, non la presa: la corrente resta attaccata.</div>
 
         <div class="fk-mgruppo">Quando</div>
         <div class="fk-tipi">
@@ -3563,7 +3565,7 @@ class FaberClima extends HTMLElement {
     const corpo = {
       id: this._timerId(),
       alias: "Faber Home — spegni " + nome,
-      description: "Creato da Faber Home. Spegne il climatizzatore all'ora indicata. Non tocca la presa di corrente.",
+      description: "Creato da Faber Home. Spegne " + nome + " all'ora indicata. Non tocca la presa di corrente.",
       mode: "single",
       triggers: [{ trigger: "time", at: (ora.length === 5 ? ora + ":00" : ora) }],
       conditions: [],
