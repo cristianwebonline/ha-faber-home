@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.20.0";
+const FH_VERSION = "0.20.1";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -548,6 +548,10 @@ class FaberHome extends HTMLElement {
   // si cambia fascia - non a ogni pixel.
   _fasciaDa(w) { return w < 560 ? "tel" : w < 920 ? "tab" : "desk"; }
 
+  // Finche non si e misurato davvero, si parte dalla finestra: e sempre meglio
+  // di un numero inventato.
+  _fasciaOra() { return this._fascia || this._fasciaDa(this.clientWidth || window.innerWidth || 400); }
+
   _watchFascia() {
     const main = this.querySelector("[data-main]");
     if (!main) return;
@@ -559,28 +563,39 @@ class FaberHome extends HTMLElement {
     if (this._roTarget !== main) {
       if (this._ro) this._ro.disconnect();
       this._roTarget = main;
+      this._misurato = false;
       this._ro = new ResizeObserver(entries => {
         const w = entries[0].contentRect.width;
         if (!w) return;
+        const primaVolta = !this._misurato;
+        this._misurato = true;
         this._larghezza = w;
         const f = this._fasciaDa(w);
-        if (f !== this._fascia) { this._fascia = f; this._renderPage(); }
+        const cambiata = f !== this._fascia;
+        this._fascia = f;
+        // La PRIMA misura vera fa sempre ridisegnare, anche se la fascia
+        // sembra la stessa: quella di partenza era una supposizione, non una
+        // misura, e il numero di colonne poteva gia essere sbagliato.
+        if (primaVolta || cambiata) this._renderPage();
       });
       this._ro.observe(main);
     }
     const w = main.clientWidth;
-    if (w) { this._larghezza = w; this._fascia = this._fasciaDa(w); }
+    if (w) { this._larghezza = w; this._fascia = this._fasciaDa(w); this._misurato = true; }
   }
 
   // Quante colonne mostrare in questa riga, adesso. "auto" (0) vuol dire:
   // quante ce ne stanno larghe almeno quanto una card comoda.
   _colonneRiga(row) {
     const n = (row.cols || []).length || 1;
-    const f = this._fascia || "desk";
+    const f = this._fasciaOra();
     const scelto = f === "tel" ? row.n_tel : f === "tab" ? row.n_tab : row.n_desk;
     if (scelto) return Math.max(1, Math.min(n, scelto));
     const minima = f === "tel" ? 165 : 240;
-    const w = this._larghezza || 900;
+    // Se la larghezza vera non si conosce ancora, si chiede alla finestra
+    // invece di inventarne una: prima qui c'era 900, cioe uno schermo grande,
+    // e su un telefono usciva una pagina a tre colonne piu larga dello schermo.
+    const w = this._larghezza || this.clientWidth || window.innerWidth || 400;
     return Math.max(1, Math.min(n, Math.floor((w + 14) / (minima + 14))));
   }
 
@@ -2227,7 +2242,14 @@ const FH_CSS = `
      priorita 9). Risultato: la barra in basso, che sta fuori, ci finiva
      sopra. Senza z-index il popup di una card compete davvero con la barra
      e le passa davanti, come deve. */
-  .fh-main{position:relative;flex:1;padding:8px 16px 110px;display:flex;flex-direction:column;gap:14px}
+  /* Nessuna card puo allargare la pagina oltre lo schermo: se una ha dentro
+     qualcosa che non si stringe, si stringe lei. Senza questi limiti bastava
+     un contenuto rigido a rendere tutta la pagina piu larga del telefono, e
+     si vedevano le card tagliate a destra. */
+  .fh-app{max-width:100%;overflow-x:hidden}
+  .fh-main{position:relative;flex:1;max-width:100%;padding:8px 16px 110px;display:flex;flex-direction:column;gap:14px}
+  .fh-cardwrap{min-width:0;max-width:100%}
+  .fh-rowwrap{min-width:0;max-width:100%}
   /* La riga e una griglia con un numero di tracce deciso dalla fascia di
      larghezza (--fh-n, scritto dal JS). Prima era un flex con min-width 240px
      per colonna: sul telefono nessuna colonna ci stava accanto a un'altra e
@@ -2436,7 +2458,11 @@ const FH_CSS = `
   @container fh (max-width: 560px){
     .fh-head{padding:14px 14px 6px}
     .fh-main{padding:6px 12px 108px}
-    .fh-col{min-width:100%}
+    /* NIENTE min-width qui. Era rimasta dal layout vecchio a flex, dove
+       serviva a mandare una colonna per riga. Con la griglia diventa una
+       bomba: min-width:100% su tre colonne rende la riga larga tre schermi,
+       la pagina scorre di lato e le card si vedono tagliate a destra.
+       Adesso quante colonne stanno in riga lo decide --fh-n. */
     .fh-clock{font-size:clamp(30px,13cqw,44px)}
     .fh-catlist{grid-template-columns:1fr}
   }
@@ -4603,7 +4629,11 @@ const FP_CSS = `
   .fp-body{padding:16px;display:flex;align-items:center;gap:15px;
     font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
   .fp-vuoto{padding:22px 8px;text-align:center;font-size:12.5px;font-weight:600;opacity:.6;width:100%}
-  .fp-avatar{position:relative;width:var(--fp-d,88px);height:var(--fp-d,88px);flex:0 0 auto;border-radius:50%;
+  /* In una colonna stretta l'avatar cede spazio al testo invece di
+     schiacciarlo: "A CASA" andava a capo su due righe. Resta quadrato grazie
+     ad aspect-ratio, senza doverne fissare l'altezza. */
+  .fp-avatar{position:relative;width:var(--fp-d,88px);max-width:40%;aspect-ratio:1;height:auto;
+    flex:0 0 auto;border-radius:50%;
     overflow:hidden;border:2.5px solid var(--fp-c,#7a8896);
     box-shadow:0 0 0 4px color-mix(in srgb,var(--fp-c) 18%,transparent),0 8px 20px rgba(0,0,0,.35)}
   .fp-avatar.quad{border-radius:20px}
@@ -4643,10 +4673,10 @@ const FP_CSS = `
   .fp-blivello{display:block;height:100%;border-radius:1.5px;background:#38e08a;transition:width .6s ease}
   .fp-bat.bassa .fp-blivello{background:#ff5c5c}
   .fp-bat.bassa{color:#ff8f8f}
-  @container (max-width:300px){
-    .fp-avatar{width:66px;height:66px}
-    .fp-nome{font-size:16px}
-  }
+  /* Niente @container qui: dichiarare un contenitore porta con se
+     contain:layout, che creerebbe un contesto di impilamento e rimetterebbe i
+     popup prigionieri dentro la card. Lo spazio lo gestisce max-width. */
+
 `;
 
 customElements.define("faber-persona", FaberPersona);
