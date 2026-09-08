@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.16.1";
+const FH_VERSION = "0.17.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -1098,20 +1098,60 @@ class FaberHome extends HTMLElement {
     return riempiti;
   }
 
+  // Alcune card ruotano attorno a UNA entita precisa, non a un dispositivo:
+  // il climatizzatore, la persona, la serratura. E molte di quelle entita non
+  // appartengono ad alcun dispositivo — climate.stufa_pellet_sala, per dirne
+  // una, non ne ha nessuno — quindi cercandole fra i dispositivi non si
+  // trovavano affatto. Per queste card si cerca prima l'entita.
+  _dominioPrincipale(cardCfg) {
+    return ["climate", "person", "lock", "media_player", "vacuum", "cover", "water_heater"]
+      .find(d => d in cardCfg) || null;
+  }
+
+  _cercaEntita(dominio, q) {
+    const parole = (q || "").toLowerCase().trim().split(/\s+/).filter(Boolean);
+    const st = this._hass.states;
+    const aree = this._hass.areas || {};
+    const reg = this._hass.entities || {};
+    return Object.keys(st).filter(e => e.startsWith(dominio + "."))
+      .map(e => {
+        const r = reg[e];
+        const areaId = r && (r.area_id || ((this._hass.devices || {})[r.device_id] || {}).area_id);
+        const area = (areaId && aree[areaId]) ? aree[areaId].name : "";
+        const nome = st[e].attributes.friendly_name || e;
+        return { id: e, nome, area, hay: (e + " " + nome + " " + area).toLowerCase() };
+      })
+      .filter(x => !parole.length || parole.every(w => x.hay.includes(w)))
+      .sort((a, b) => a.nome.localeCompare(b.nome))
+      .slice(0, 40);
+  }
+
   // Il passo compare solo per le card che hanno davvero dei campi-entita.
   _wantsDevice(cardCfg) {
-    return ["switch", "power", "energy", "temp", "humidity", "climate", "lock", "battery", "door_sensor"]
-      .some(k => k in cardCfg);
+    return ["switch", "power", "energy", "temp", "humidity", "climate", "lock", "battery", "door_sensor",
+      "person", "media_player", "vacuum", "cover", "water_heater"].some(k => k in cardCfg);
   }
 
   _openDeviceStep(cardCfg, onDone) {
     const box = document.createElement("div");
+    const dom = this._dominioPrincipale(cardCfg);
+    const etichetteDom = { climate: "climatizzatori e stufe", person: "persone", lock: "serrature",
+      media_player: "lettori", vacuum: "aspirapolvere", cover: "tapparelle e tende", water_heater: "scaldabagni" };
     const draw = (q) => {
       const list = this._findDevices(q);
+      const ents = dom ? this._cercaEntita(dom, q) : [];
       box.innerHTML = `
-        <div class="fh-note">Cerca l'oggetto per nome o per stanza — per esempio "lavatrice" oppure "cucina". Collego io potenza, energia e interruttore.</div>
-        <input class="fh-input" id="dvQ" placeholder="Cerca dispositivo..." value="${fhEsc(q || "")}">
+        <div class="fh-note">${dom
+          ? `Cerca per nome o per stanza. In cima ci sono ${fhEsc(etichetteDom[dom] || dom)}; sotto i dispositivi, da cui collego anche potenza, energia e presa.`
+          : `Cerca l'oggetto per nome o per stanza — per esempio "lavatrice" oppure "cucina". Collego io potenza, energia e interruttore.`}</div>
+        <input class="fh-input" id="dvQ" placeholder="Cerca..." value="${fhEsc(q || "")}">
         <div class="fh-dvlist">
+          ${ents.length ? `<div class="fh-catgroup">${fhEsc((etichetteDom[dom] || dom).replace(/^./, c => c.toUpperCase()))}</div>` : ""}
+          ${ents.map(x => `<button type="button" class="fh-dv" data-ent="${fhEsc(x.id)}">
+              <div class="fh-dvname">${fhEsc(x.nome)}</div>
+              <div class="fh-dvmeta">${fhEsc(x.area || "senza stanza")} · ${fhEsc(x.id)}</div>
+            </button>`).join("")}
+          ${list.length ? `<div class="fh-catgroup">Dispositivi</div>` : ""}
           ${list.length ? list.map(x => {
             const r = this._rolesOfDevice(x.d.id);
             const trovati = ["switch", "power", "energy", "temp", "climate", "lock"].filter(k => k in cardCfg && r[k]);
@@ -1119,7 +1159,7 @@ class FaberHome extends HTMLElement {
               <div class="fh-dvname">${fhEsc(x.nome)}</div>
               <div class="fh-dvmeta">${fhEsc(x.area || "senza stanza")}${trovati.length ? " · " + trovati.join(", ") : " · nessun valore utile"}</div>
             </button>`;
-          }).join("") : `<div class="fh-note">Nessun dispositivo trovato.</div>`}
+          }).join("") : (ents.length ? "" : `<div class="fh-note">Non ho trovato niente.</div>`)}
         </div>
         <button type="button" class="fh-btn" id="dvSkip">Salta e configuro a mano</button>`;
       const inp = box.querySelector("#dvQ");
@@ -1130,6 +1170,19 @@ class FaberHome extends HTMLElement {
         nuovo.focus();
         nuovo.setSelectionRange(v.length, v.length);
       });
+      box.querySelectorAll("[data-ent]").forEach(b => b.addEventListener("click", () => {
+        const id = b.dataset.ent;
+        cardCfg[dom] = id;
+        if (!cardCfg.name) {
+          const s = this._hass.states[id];
+          if (s && s.attributes.friendly_name) cardCfg.name = s.attributes.friendly_name;
+        }
+        // Se quell'entita appartiene a un dispositivo, da li si prende anche
+        // il resto (potenza, presa...). Se non ne ha — capita spesso ai
+        // termostati — si e comunque scelto cio che conta.
+        const r = (this._hass.entities || {})[id];
+        onDone(r && r.device_id ? r.device_id : null);
+      }));
       box.querySelectorAll("[data-dev]").forEach(b => b.addEventListener("click", () => onDone(b.dataset.dev)));
       box.querySelector("#dvSkip").addEventListener("click", () => onDone(null));
     };
