@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.7.1";
+const FH_VERSION = "0.8.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -731,6 +731,111 @@ class FaberHome extends HTMLElement {
     ];
   }
 
+
+  // ------------------------------------------------- scelta per dispositivo
+  // Cercare le entita una per una e' il modo sbagliato: in casa si ragiona
+  // per oggetti ("la lavatrice"), non per sensori. Qui si cerca il
+  // DISPOSITIVO e i campi della card si riempiono da soli leggendo che
+  // mestiere fa ogni sua entita (device_class), non indovinando dai nomi.
+  _deviceEntities(deviceId) {
+    const ents = Object.values(this._hass.entities || {});
+    return ents.filter(e => e.device_id === deviceId && !e.disabled_by && !e.hidden_by)
+      .map(e => e.entity_id)
+      .filter(id => this._hass.states[id]);
+  }
+
+  _findDevices(q) {
+    const words = (q || "").toLowerCase().trim().split(/\s+/).filter(Boolean);
+    const areas = this._hass.areas || {};
+    const devs = Object.values(this._hass.devices || {}).filter(d => !d.disabled_by);
+    const scored = devs.map(d => {
+      const nome = d.name_by_user || d.name || "";
+      const area = (d.area_id && areas[d.area_id] ? areas[d.area_id].name : "") || "";
+      return { d, nome, area, hay: (nome + " " + area).toLowerCase() };
+    }).filter(x => !words.length || words.every(w => x.hay.includes(w)));
+    scored.sort((a, b) => a.nome.localeCompare(b.nome));
+    return scored.slice(0, 60);
+  }
+
+  // Assegna a ogni ruolo l'entita giusta del dispositivo. Per l'interruttore
+  // si scartano gli switch di servizio (blocco bambini, spia, accesso remoto):
+  // sono switch a tutti gli effetti ma non sono la presa che accende l'oggetto.
+  _rolesOfDevice(deviceId) {
+    const ids = this._deviceEntities(deviceId);
+    const dom = id => id.split(".")[0];
+    const dc = id => (this._hass.states[id].attributes.device_class || "");
+    const scarto = /child_lock|backlight|remote_access|identify|led|beep|lock_sound|power_on_state|indicator/i;
+    const byDc = (d, cls) => ids.find(id => dom(id) === d && dc(id) === cls);
+    const sw = ids.filter(id => dom(id) === "switch" && !scarto.test(id));
+    const lights = ids.filter(id => dom(id) === "light");
+    return {
+      switch: sw[0] || lights[0] || "",
+      power: byDc("sensor", "power") || "",
+      energy: byDc("sensor", "energy") || "",
+      temp: byDc("sensor", "temperature") || "",
+      humidity: byDc("sensor", "humidity") || "",
+      climate: ids.find(id => dom(id) === "climate") || "",
+      lock: ids.find(id => dom(id) === "lock") || "",
+      battery: byDc("sensor", "battery") || "",
+      door_sensor: ids.find(id => dom(id) === "binary_sensor" && ["door", "opening", "garage_door", "window"].includes(dc(id))) || "",
+      entity: byDc("sensor", "power") || byDc("sensor", "temperature") || sw[0] || lights[0] || ids[0] || "",
+    };
+  }
+
+  _fillFromDevice(cardCfg, deviceId) {
+    const roles = this._rolesOfDevice(deviceId);
+    const dev = (this._hass.devices || {})[deviceId];
+    const riempiti = [];
+    Object.keys(roles).forEach(k => {
+      // Si tocca solo un campo che la card prevede e che e ancora vuoto.
+      if (k in cardCfg && !cardCfg[k] && roles[k]) { cardCfg[k] = roles[k]; riempiti.push(k); }
+    });
+    if ("name" in cardCfg && dev && (dev.name_by_user || dev.name)) {
+      cardCfg.name = dev.name_by_user || dev.name;
+    }
+    cardCfg.device_id = deviceId in (this._hass.devices || {}) && "device_id" in cardCfg ? deviceId : cardCfg.device_id;
+    return riempiti;
+  }
+
+  // Il passo compare solo per le card che hanno davvero dei campi-entita.
+  _wantsDevice(cardCfg) {
+    return ["switch", "power", "energy", "temp", "humidity", "climate", "lock", "battery", "door_sensor"]
+      .some(k => k in cardCfg);
+  }
+
+  _openDeviceStep(cardCfg, onDone) {
+    const box = document.createElement("div");
+    const draw = (q) => {
+      const list = this._findDevices(q);
+      box.innerHTML = `
+        <div class="fh-note">Cerca l'oggetto per nome o per stanza — per esempio "lavatrice" oppure "cucina". Collego io potenza, energia e interruttore.</div>
+        <input class="fh-input" id="dvQ" placeholder="Cerca dispositivo..." value="${fhEsc(q || "")}">
+        <div class="fh-dvlist">
+          ${list.length ? list.map(x => {
+            const r = this._rolesOfDevice(x.d.id);
+            const trovati = ["switch", "power", "energy", "temp", "climate", "lock"].filter(k => k in cardCfg && r[k]);
+            return `<button type="button" class="fh-dv" data-dev="${fhEsc(x.d.id)}">
+              <div class="fh-dvname">${fhEsc(x.nome)}</div>
+              <div class="fh-dvmeta">${fhEsc(x.area || "senza stanza")}${trovati.length ? " · " + trovati.join(", ") : " · nessun valore utile"}</div>
+            </button>`;
+          }).join("") : `<div class="fh-note">Nessun dispositivo trovato.</div>`}
+        </div>
+        <button type="button" class="fh-btn" id="dvSkip">Salta e configuro a mano</button>`;
+      const inp = box.querySelector("#dvQ");
+      inp.addEventListener("input", () => {
+        const v = inp.value;
+        draw(v);
+        const nuovo = box.querySelector("#dvQ");
+        nuovo.focus();
+        nuovo.setSelectionRange(v.length, v.length);
+      });
+      box.querySelectorAll("[data-dev]").forEach(b => b.addEventListener("click", () => onDone(b.dataset.dev)));
+      box.querySelector("#dvSkip").addEventListener("click", () => onDone(null));
+    };
+    draw("");
+    return this._sheet("Quale dispositivo?", box);
+  }
+
   _openPicker(ri, ci) {
     const box = document.createElement("div");
     const cat = this._catalog();
@@ -758,9 +863,19 @@ class FaberHome extends HTMLElement {
       cards.push(fresh);
       scrim.remove();
       this._renderPage();
-      // Si apre subito la configurazione: una card appena messa e quasi
-      // sempre da collegare a un'entita, altrimenti resta vuota e sembra rotta.
-      this._openCardEditor(ri, ci, cards.length - 1);
+      const di = cards.length - 1;
+      // Se la card vive di entita, prima si sceglie l'OGGETTO e i campi si
+      // riempiono da soli; poi si apre comunque l'editor per ritoccare.
+      if (this._wantsDevice(fresh)) {
+        const sh = this._openDeviceStep(fresh, dev => {
+          if (dev) this._fillFromDevice(fresh, dev);
+          sh.remove();
+          this._renderPage();
+          this._openCardEditor(ri, ci, di);
+        });
+      } else {
+        this._openCardEditor(ri, ci, di);
+      }
     }));
     box.querySelector("[data-addjson]").addEventListener("click", () => {
       const ta = box.querySelector("[data-paste]");
@@ -832,6 +947,24 @@ class FaberHome extends HTMLElement {
         msg.textContent = "Applicato.";
       });
       box.appendChild(msg); box.appendChild(ta); box.appendChild(btn);
+    }
+    // Anche da qui si puo riagganciare tutto a un dispositivo, utile su una
+    // card gia esistente rimasta con i campi vuoti.
+    if (this._wantsDevice(cardCfg)) {
+      const link = document.createElement("button");
+      link.type = "button";
+      link.className = "fh-btn";
+      link.textContent = "Collega un dispositivo";
+      link.style.marginTop = "12px";
+      link.addEventListener("click", () => {
+        const sh = this._openDeviceStep(cardCfg, dev => {
+          if (dev) this._fillFromDevice(cardCfg, dev);
+          sh.remove();
+          this._renderPage();
+          this._openCardEditor(ri, ci, di);
+        });
+      });
+      box.appendChild(link);
     }
     this._sheet("Configura la card", box);
   }
@@ -1231,6 +1364,13 @@ const FH_CSS = `
     border:1px solid var(--divider-color);background:var(--card-background-color);color:var(--primary-text-color)}
   .fh-input.small{flex:0 0 110px}
 
+
+  .fh-dvlist{display:flex;flex-direction:column;gap:6px;max-height:46vh;overflow-y:auto}
+  .fh-dv{display:flex;flex-direction:column;gap:2px;padding:11px 13px;border-radius:14px;cursor:pointer;
+    text-align:left;font:inherit;border:1px solid var(--divider-color);background:var(--card-background-color)}
+  .fh-dv:hover{border-color:rgba(255,176,32,.55)}
+  .fh-dvname{font-size:13.5px;font-weight:700;color:var(--primary-text-color)}
+  .fh-dvmeta{font-size:11px;font-weight:600;color:var(--secondary-text-color)}
   .fh-sgroup{font-size:10.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
     color:var(--secondary-text-color);margin-top:14px}
   .fh-slab{font-size:12.5px;font-weight:700;color:var(--primary-text-color)}
