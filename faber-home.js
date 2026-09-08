@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.13.1";
+const FH_VERSION = "0.14.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -959,6 +959,9 @@ class FaberHome extends HTMLElement {
         soglia: 10, soglia_freddo: 18, soglia_caldo: 26, prezzo_kwh: 0.30, storico_giorni: 14 } },
       { g: "Faber", n: "Smart Card (tela)", i: "mdi:palette-swatch-outline", c: { type: "custom:smart-card", name: "Smart Card", canvas: { w: 100, h: 50 }, elements: [] } },
       { g: "Faber", n: "Meteo", i: "mdi:weather-partly-cloudy", c: { type: "custom:faber-weather", entity: "", days: 4 } },
+      { g: "Faber", n: "Clima / condizionatore", i: "mdi:air-conditioner", c: { type: "custom:faber-clima",
+        climate: "", name: "", temp: "", humidity: "", power: "",
+        mostra_ventola: true, mostra_alette: true, mostra_programmi: true } },
       { g: "Faber", n: "Carichi reali", i: "mdi:gauge", c: { type: "custom:faber-carichi", title: "Carichi reali",
         totale: "", gruppo: "", prezzo_kwh: 0.30, soglia_media: 1500, soglia_alta: 2500, top: 5, soglia_acceso: 5, naviga: "" } },
       { g: "Faber", n: "Consumi di casa", i: "mdi:lightning-bolt", c: { type: "custom:energia-consumi-card", title: "Consumi di casa", days_back: 8,
@@ -1733,18 +1736,48 @@ class FaberHome extends HTMLElement {
   // --------------------------------------------------------- impostazioni
   // Tutto quello che prima si poteva cambiare solo scrivendo la
   // configurazione a mano: orari del tema, sfondo, animazione, e i chip.
-  _entityListHTML(id, value, prefix, label) {
-    const ids = Object.keys(this._hass.states).filter(e => !prefix || e.startsWith(prefix));
-    const nome = e => (this._hass.states[e].attributes.friendly_name || e);
+  // L'elenco si riempie mentre scrivi, sull'INSIEME COMPLETO delle entita.
+  // Prima erano le prime 400 in ordine alfabetico: in questa casa i sensori
+  // sono 1234, e sei dei nove sensori di temperatura restavano tagliati fuori
+  // — proprio quelli chiamati "temperatura_*", che in alfabeto vengono tardi.
+  // Un elenco troncato non e un elenco: e una lotteria sull'iniziale.
+  _entityListHTML(id, value, prefix, label, dc) {
     // Etichetta e campo incolonnati: senza il contenitore scorrevano in linea
     // e "Meteo" finiva accanto a "Temperatura" invece che sopra il suo campo.
-    return `<div class="fh-sfield">
+    return `<div class="fh-sfield" data-elist="${id}" data-prefix="${fhEsc(prefix || "")}" data-dc="${fhEsc(dc || "")}">
       <label class="fh-slab">${fhEsc(label)}</label>
-      <input class="fh-input" id="${id}" list="${id}List" value="${fhEsc(value || "")}" placeholder="nessuna">
-      <datalist id="${id}List">
-        ${ids.slice(0, 400).map(e => `<option value="${e}">${fhEsc(nome(e))}</option>`).join("")}
-      </datalist>
+      <input class="fh-input" id="${id}" list="${id}List" value="${fhEsc(value || "")}"
+        placeholder="scrivi per cercare..." autocomplete="off">
+      <datalist id="${id}List"></datalist>
     </div>`;
+  }
+
+  // Va richiamato dopo aver messo il markup nel DOM.
+  _wireEntityLists(box) {
+    box.querySelectorAll("[data-elist]").forEach(campo => {
+      const inp = campo.querySelector("input");
+      const dl = campo.querySelector("datalist");
+      const prefix = campo.dataset.prefix;
+      const dc = campo.dataset.dc;
+      const st = this._hass.states;
+      const tutte = Object.keys(st).filter(e => !prefix || e.startsWith(prefix));
+      // Se il campo ha un mestiere (temperatura, potenza...), quelle giuste
+      // stanno in cima anche prima di scrivere: e quasi sempre una di loro.
+      const buone = dc ? tutte.filter(e => st[e].attributes.device_class === dc) : [];
+      const nome = e => (st[e].attributes.friendly_name || e);
+      const riempi = () => {
+        const parole = inp.value.toLowerCase().trim().split(/\s+/).filter(Boolean);
+        const filtra = arr => arr.filter(e =>
+          !parole.length || parole.every(w => (e + " " + nome(e)).toLowerCase().includes(w)));
+        const testa = filtra(buone);
+        const resto = filtra(tutte).filter(e => !testa.includes(e));
+        dl.innerHTML = [...testa, ...resto].slice(0, 120)
+          .map(e => `<option value="${e}">${fhEsc(nome(e))}</option>`).join("");
+      };
+      riempi();
+      inp.addEventListener("input", riempi);
+      inp.addEventListener("focus", riempi);
+    });
   }
 
   _openSettings() {
@@ -1778,7 +1811,7 @@ class FaberHome extends HTMLElement {
 
         <div class="fh-sgroup">Intestazione</div>
         ${this._entityListHTML("stWeather", h.weather, "weather.", "Meteo")}
-        ${this._entityListHTML("stTemp", h.temperature, "sensor.", "Temperatura mostrata")}
+        ${this._entityListHTML("stTemp", h.temperature, "sensor.", "Temperatura mostrata", "temperature")}
         <label class="fh-check"><input type="checkbox" id="stSec"${h.seconds ? " checked" : ""}>
           Mostra anche i secondi nell'orologio</label>
 
@@ -1808,6 +1841,7 @@ class FaberHome extends HTMLElement {
     const apply = () => { this._applyScene(true); this._renderNav(); this._renderPage(); };
 
     const wire = () => {
+      this._wireEntityLists(box);
       const q = id => box.querySelector(id);
       const ap = this._cfg.appearance, h = this._cfg.header;
       q("#stAuto").addEventListener("change", e => { ap.autoTheme.enabled = e.target.checked; apply(); });
@@ -3031,11 +3065,406 @@ const FCE_CSS = `
 customElements.define("faber-carichi-editor", FaberCarichiEditor);
 
 
+
+/* ======================================================================== */
+/* CARD: CLIMA                                                              */
+/* Un condizionatore ha molte manopole, ma non tutte su tutti gli apparecchi:*/
+/* i modi, le velocita, le alette e i programmi si leggono da quello che     */
+/* l'apparecchio DICHIARA, non da un elenco fisso. Mostrare un tasto che poi */
+/* fallisce e peggio che non mostrarlo.                                      */
+/* ======================================================================== */
+
+const FK_DEFAULTS = {
+  name: "",
+  climate: "",
+  temp: "",
+  humidity: "",
+  power: "",
+  mostra_ventola: true,
+  mostra_alette: true,
+  mostra_programmi: true,
+};
+
+const FK_MODI = {
+  off: { t: "Spento", i: "mdi:power", c: "#93a1b0" },
+  cool: { t: "Fresco", i: "mdi:snowflake", c: "#4fc3f7" },
+  heat: { t: "Caldo", i: "mdi:fire", c: "#ff8a4c" },
+  heat_cool: { t: "Automatico", i: "mdi:autorenew", c: "#a78bfa" },
+  auto: { t: "Automatico", i: "mdi:autorenew", c: "#a78bfa" },
+  dry: { t: "Deumidifica", i: "mdi:water-percent", c: "#ffb020" },
+  fan_only: { t: "Ventola", i: "mdi:fan", c: "#38e08a" },
+};
+
+const FK_VENTOLA = {
+  auto: "Auto", low: "Bassa", middle_low: "Medio-bassa", medium: "Media",
+  middle_high: "Medio-alta", high: "Alta", quiet: "Silenziosa", focus: "Diretta", diffuse: "Diffusa",
+};
+
+const FK_ALETTE = {
+  swing: "Oscilla", auto: "Auto", top: "In alto", high: "Alta", mid_high: "Medio-alta",
+  mid_low: "Medio-bassa", low: "Bassa", bottom: "In basso", off: "Ferme",
+  both_sides: "Ai lati", left: "Sinistra", forward: "Avanti", right: "Destra",
+};
+
+const FK_PROGRAMMI = {
+  none: "Nessuno", eco: "Eco", mute: "Silenzioso", eco_mute: "Eco silenzioso",
+  super: "Turbo", boost: "Turbo", comfort: "Comfort", sleep: "Notte", away: "Assente",
+  home: "In casa", activity: "Attivita",
+};
+
+function fkNome(mappa, k) {
+  if (mappa === FK_PROGRAMMI && /^sleep_(\d)$/.test(k)) return "Notte " + k.slice(-1);
+  if (mappa === FK_PROGRAMMI && /^eco_sleep_(\d)$/.test(k)) return "Eco notte " + k.slice(-1);
+  return mappa[k] || k.replace(/_/g, " ");
+}
+
+class FaberClima extends HTMLElement {
+  static getConfigElement() { return document.createElement("faber-clima-editor"); }
+  static getStubConfig(hass) {
+    const c = Object.keys(hass && hass.states ? hass.states : {})
+      .filter(id => id.startsWith("climate.") && hass.states[id].state !== "unavailable");
+    return Object.assign({}, FK_DEFAULTS, { climate: c[0] || "" });
+  }
+
+  setConfig(config) {
+    this._cfg = Object.assign({}, FK_DEFAULTS, JSON.parse(JSON.stringify(config || {})));
+    this._built = false;
+    if (this._hass) this._render();
+  }
+  set hass(h) { this._hass = h; this._render(); }
+  getCardSize() { return 6; }
+
+  _st() { return this._cfg.climate ? this._hass.states[this._cfg.climate] : null; }
+  _num(id) { const s = id && this._hass.states[id]; const v = s && parseFloat(s.state); return isFinite(v) ? v : null; }
+
+  _srv(servizio, dati) {
+    this._hass.callService("climate", servizio, Object.assign({ entity_id: this._cfg.climate }, dati));
+  }
+
+  _render() {
+    if (!this._hass || !this._cfg) return;
+    const st = this._st();
+
+    if (!this._built) {
+      this.innerHTML = `<style>${FK_CSS}</style><ha-card class="fk"><div class="fk-body"></div></ha-card>`;
+      this._card = this.querySelector(".fk");
+      this._body = this.querySelector(".fk-body");
+      this._built = true;
+    }
+
+    if (!st) {
+      this._card.style.backgroundImage = "";
+      this._body.innerHTML = `<div class="fk-vuoto">${this._cfg.climate
+        ? "Non trovo " + fhEsc(this._cfg.climate)
+        : "Scegli un climatizzatore nelle impostazioni della card."}</div>`;
+      return;
+    }
+
+    const a = st.attributes;
+    const modo = st.state;
+    const m = FK_MODI[modo] || { t: modo, i: "mdi:help-circle-outline", c: "#93a1b0" };
+    const acceso = modo !== "off" && modo !== "unavailable";
+    const f = a.supported_features || 0;
+
+    // La tinta della card segue il modo, sovrapposta al pannello.
+    this._card.style.backgroundImage = acceso
+      ? `linear-gradient(160deg, ${m.c}26, ${m.c}0d)` : "";
+    this._card.style.borderColor = acceso ? m.c + "59" : "";
+    this._card.classList.toggle("on", acceso);
+
+    // La temperatura vera preferisce un sensore dedicato: molti split non la
+    // misurano (current_temperature nullo) o la misurano dove soffiano.
+    const ora = this._num(this._cfg.temp) ?? a.current_temperature;
+    const uman = this._num(this._cfg.humidity);
+    const watt = this._num(this._cfg.power);
+    const obiettivo = a.temperature;
+    const passo = a.target_temp_step || 0.5;
+    const nome = this._cfg.name || a.friendly_name || "Clima";
+
+    const modi = (a.hvac_modes || []).filter(x => x !== "off");
+    const vent = this._cfg.mostra_ventola && (f & 8) ? (a.fan_modes || []) : [];
+    const alette = this._cfg.mostra_alette && (f & 32) ? (a.swing_modes || []) : [];
+    const prog = this._cfg.mostra_programmi && (f & 16) ? (a.preset_modes || []) : [];
+    // Alcuni apparecchi dicono di sapere impostare la temperatura ma in certi
+    // modi (ventola, deumidifica) non ha senso: si nasconde invece di mentire.
+    const puoTemp = (f & 1) && obiettivo != null && !["fan_only", "dry", "off"].includes(modo);
+
+    this._body.innerHTML = `
+      <div class="fk-top">
+        <div class="fk-titolo">
+          <div class="fk-nome">${fhEsc(nome)}</div>
+          <div class="fk-modo" style="color:${m.c}"><ha-icon icon="${m.i}"></ha-icon>${fhEsc(m.t)}</div>
+        </div>
+        <button type="button" class="fk-power${acceso ? " on" : ""}" data-power title="Accendi o spegni">
+          <ha-icon icon="mdi:power"></ha-icon>
+        </button>
+      </div>
+
+      <div class="fk-centro">
+        <div class="fk-aria${acceso ? " viva" : ""}" style="--fk-c:${m.c}">
+          <span></span><span></span><span></span>
+        </div>
+        <div class="fk-lettura">
+          <div class="fk-ora">${ora != null ? Math.round(ora * 10) / 10 : "--"}<span>&deg;</span></div>
+          <div class="fk-oralab">${this._cfg.temp || a.current_temperature != null ? "in stanza" : "nessun sensore"}</div>
+        </div>
+      </div>
+
+      ${puoTemp ? `<div class="fk-target">
+        <button type="button" class="fk-tbtn" data-t="-">&minus;</button>
+        <div class="fk-tval"><b>${obiettivo}</b><span>&deg;C</span><small>impostata</small></div>
+        <button type="button" class="fk-tbtn" data-t="+">+</button>
+      </div>` : ""}
+
+      <div class="fk-modi">
+        ${modi.map(k => {
+          const mm = FK_MODI[k] || { t: k, i: "mdi:circle-outline", c: "#93a1b0" };
+          const sel = modo === k;
+          return `<button type="button" class="fk-mb${sel ? " sel" : ""}" data-modo="${fhEsc(k)}"
+            style="${sel ? `--fk-c:${mm.c}` : ""}"><ha-icon icon="${mm.i}"></ha-icon>${fhEsc(mm.t)}</button>`;
+        }).join("")}
+      </div>
+
+      ${(uman != null || watt != null) ? `<div class="fk-info">
+        ${uman != null ? `<span><ha-icon icon="mdi:water-percent"></ha-icon>${Math.round(uman)}%</span>` : ""}
+        ${watt != null ? `<span><ha-icon icon="mdi:lightning-bolt"></ha-icon>${Math.round(watt)} W</span>` : ""}
+      </div>` : ""}
+
+      ${vent.length ? this._riga("Ventola", "fan", vent, a.fan_mode, FK_VENTOLA) : ""}
+      ${alette.length ? this._riga("Alette", "swing", alette, a.swing_mode, FK_ALETTE) : ""}
+      ${prog.length ? this._riga("Programma", "preset", prog, a.preset_mode, FK_PROGRAMMI) : ""}
+    `;
+
+    const q = sel => this._body.querySelectorAll(sel);
+    this._body.querySelector("[data-power]").addEventListener("click", () => {
+      if (acceso) this._srv("set_hvac_mode", { hvac_mode: "off" });
+      else this._srv("set_hvac_mode", { hvac_mode: modi.includes("cool") ? "cool" : modi[0] });
+    });
+    q("[data-t]").forEach(b => b.addEventListener("click", () => {
+      const d = b.dataset.t === "+" ? passo : -passo;
+      const v = Math.min(a.max_temp ?? 35, Math.max(a.min_temp ?? 7, obiettivo + d));
+      this._srv("set_temperature", { temperature: Math.round(v * 10) / 10 });
+    }));
+    q("[data-modo]").forEach(b => b.addEventListener("click", () => this._srv("set_hvac_mode", { hvac_mode: b.dataset.modo })));
+    q("[data-fan]").forEach(b => b.addEventListener("click", () => this._srv("set_fan_mode", { fan_mode: b.dataset.fan })));
+    q("[data-swing]").forEach(b => b.addEventListener("click", () => this._srv("set_swing_mode", { swing_mode: b.dataset.swing })));
+    q("[data-preset]").forEach(b => b.addEventListener("click", () => this._srv("set_preset_mode", { preset_mode: b.dataset.preset })));
+  }
+
+  // Le opzioni sono tante (il condizionatore della sala ha 13 programmi): una
+  // riga che scorre di lato, non una griglia che allunga la card all'infinito.
+  _riga(etichetta, chiave, valori, attuale, mappa) {
+    return `<div class="fk-riga">
+      <div class="fk-rlab">${fhEsc(etichetta)}</div>
+      <div class="fk-rscroll">
+        ${valori.map(v => `<button type="button" class="fk-pill${v === attuale ? " sel" : ""}"
+          data-${chiave}="${fhEsc(v)}">${fhEsc(fkNome(mappa, v))}</button>`).join("")}
+      </div>
+    </div>`;
+  }
+}
+
+const FK_CSS = `
+  .fk{display:block;position:relative;overflow:hidden;border-radius:22px;
+    background-color:rgba(16,18,24,.82);border:1px solid rgba(255,255,255,.10);
+    backdrop-filter:blur(18px) saturate(140%);-webkit-backdrop-filter:blur(18px) saturate(140%);
+    color:#eaf1f8;box-shadow:0 10px 30px rgba(0,0,0,.28);
+    transition:background-image .5s ease,border-color .5s ease}
+  .fk-body{padding:16px;display:flex;flex-direction:column;gap:13px;
+    font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  .fk-vuoto{padding:26px 10px;text-align:center;font-size:12.5px;font-weight:600;opacity:.6}
+  .fk-top{display:flex;align-items:flex-start;gap:12px}
+  .fk-titolo{flex:1;min-width:0}
+  .fk-nome{font-size:15.5px;font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .fk-modo{display:flex;align-items:center;gap:5px;font-size:11px;font-weight:800;
+    text-transform:uppercase;letter-spacing:.09em;margin-top:3px}
+  .fk-modo ha-icon{--mdc-icon-size:14px}
+  .fk-power{width:42px;height:42px;border-radius:14px;cursor:pointer;flex:0 0 auto;
+    display:flex;align-items:center;justify-content:center;
+    border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:#93a1b0;
+    transition:background .25s,color .25s,border-color .25s}
+  .fk-power ha-icon{--mdc-icon-size:21px}
+  .fk-power.on{background:rgba(56,224,138,.18);border-color:rgba(56,224,138,.5);color:#38e08a}
+  .fk-centro{display:flex;align-items:center;gap:14px;padding:2px 0}
+  /* Il soffio: tre striscie che scorrono solo quando l'apparecchio e acceso.
+     Ferme non consumano nulla e non distraggono. */
+  .fk-aria{position:relative;width:56px;height:52px;flex:0 0 auto;opacity:.3}
+  .fk-aria span{position:absolute;left:0;height:4px;border-radius:3px;background:var(--fk-c,#93a1b0);opacity:.5}
+  .fk-aria span:nth-child(1){top:12px;width:70%}
+  .fk-aria span:nth-child(2){top:24px;width:100%}
+  .fk-aria span:nth-child(3){top:36px;width:55%}
+  .fk-aria.viva{opacity:1}
+  .fk-aria.viva span{animation:fk-soffio 2.4s ease-in-out infinite}
+  .fk-aria.viva span:nth-child(2){animation-delay:.3s}
+  .fk-aria.viva span:nth-child(3){animation-delay:.6s}
+  @keyframes fk-soffio{
+    0%{transform:translateX(-14px) scaleX(.4);opacity:0}
+    35%{opacity:.85}
+    100%{transform:translateX(16px) scaleX(1);opacity:0}}
+  @media (prefers-reduced-motion:reduce){.fk-aria.viva span{animation:none;opacity:.7}}
+  .fk-lettura{flex:1;min-width:0;text-align:right}
+  .fk-ora{font-size:42px;font-weight:900;line-height:1;font-variant-numeric:tabular-nums}
+  .fk-ora span{font-size:20px;font-weight:800;opacity:.6}
+  .fk-oralab{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;opacity:.55;margin-top:5px}
+  .fk-target{display:flex;align-items:center;justify-content:center;gap:14px;
+    padding:9px;border-radius:16px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08)}
+  .fk-tbtn{width:40px;height:40px;border-radius:50%;cursor:pointer;font:inherit;font-size:21px;font-weight:800;
+    border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.07);color:inherit;
+    display:flex;align-items:center;justify-content:center;line-height:1}
+  .fk-tbtn:hover{background:rgba(255,255,255,.14)}
+  .fk-tval{min-width:92px;text-align:center;line-height:1}
+  .fk-tval b{font-size:27px;font-weight:900;font-variant-numeric:tabular-nums}
+  .fk-tval span{font-size:14px;font-weight:800;opacity:.6;margin-left:2px}
+  .fk-tval small{display:block;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;opacity:.5;margin-top:4px}
+  .fk-modi{display:grid;grid-template-columns:repeat(auto-fit,minmax(76px,1fr));gap:7px}
+  .fk-mb{display:flex;flex-direction:column;align-items:center;gap:4px;padding:9px 4px;border-radius:14px;
+    cursor:pointer;font:inherit;font-size:10.5px;font-weight:800;
+    border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.05);color:#93a1b0;
+    transition:background .2s,color .2s,border-color .2s}
+  .fk-mb ha-icon{--mdc-icon-size:19px}
+  .fk-mb:hover{background:rgba(255,255,255,.1);color:#eaf1f8}
+  .fk-mb.sel{color:var(--fk-c,#eaf1f8);border-color:color-mix(in srgb,var(--fk-c) 55%,transparent);
+    background:color-mix(in srgb,var(--fk-c) 16%,transparent)}
+  .fk-info{display:flex;gap:14px;font-size:11.5px;font-weight:700;opacity:.75}
+  .fk-info span{display:inline-flex;align-items:center;gap:4px}
+  .fk-info ha-icon{--mdc-icon-size:15px}
+  .fk-riga{display:flex;flex-direction:column;gap:5px}
+  .fk-rlab{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.09em;opacity:.5}
+  /* Scorre di lato: il condizionatore della sala ha tredici programmi, in
+     griglia allungherebbero la card oltre lo schermo. */
+  .fk-rscroll{display:flex;gap:6px;overflow-x:auto;padding-bottom:3px;
+    scrollbar-width:none;-ms-overflow-style:none}
+  .fk-rscroll::-webkit-scrollbar{display:none}
+  .fk-pill{flex:0 0 auto;padding:7px 12px;border-radius:20px;cursor:pointer;font:inherit;
+    font-size:11.5px;font-weight:700;white-space:nowrap;
+    border:1px solid rgba(255,255,255,.11);background:rgba(255,255,255,.05);color:#93a1b0;
+    transition:background .2s,color .2s,border-color .2s}
+  .fk-pill:hover{background:rgba(255,255,255,.1);color:#eaf1f8}
+  .fk-pill.sel{border-color:rgba(255,176,32,.6);background:rgba(255,176,32,.18);color:#ffe9c2}
+`;
+
+customElements.define("faber-clima", FaberClima);
+
+class FaberClimaEditor extends HTMLElement {
+  setConfig(config) {
+    this._cfg = Object.assign({}, FK_DEFAULTS, JSON.parse(JSON.stringify(config || {})));
+    if (this._interno) { this._interno = false; return; }
+    if (this._hass) this._render();
+  }
+  set hass(h) { this._hass = h; if (this._cfg && !this._fatto) { this._fatto = true; this._render(); } }
+  _emit() {
+    this._interno = true;
+    this.dispatchEvent(new CustomEvent("config-changed", { detail: { config: this._cfg }, bubbles: true, composed: true }));
+  }
+  _set(k, v) { this._cfg = Object.assign({}, this._cfg, { [k]: v }); this._emit(); }
+  _nomeEnt(id) { const s = this._hass.states[id]; return (s && s.attributes.friendly_name) || id; }
+
+  _picker(campo, etichetta, aiuto, prefisso, dc) {
+    const sel = this._cfg[campo] || "";
+    return `<div class="fke-f" data-pick="${campo}" data-pre="${prefisso}" data-dc="${dc || ""}">
+      <label>${etichetta}</label>${aiuto ? `<span class="fke-h">${aiuto}</span>` : ""}
+      <div class="fke-pw">
+        <input type="text" class="fke-in fke-q" autocomplete="off" placeholder="Cerca..." value="${fhEsc(sel ? this._nomeEnt(sel) : "")}">
+        ${sel ? `<button type="button" class="fke-x">&times;</button>` : ""}
+        <div class="fke-drop" hidden></div>
+      </div>
+      ${sel ? `<div class="fke-id">${fhEsc(sel)}</div>` : ""}
+    </div>`;
+  }
+
+  _render() {
+    if (!this._cfg || !this._hass) return;
+    const c = this._cfg;
+    this.innerHTML = `<style>${FKE_CSS}</style>
+      <div class="fke">
+        ${this._picker("climate", "Climatizzatore", "L'apparecchio da comandare. Modi, velocita e programmi vengono letti da lui: compaiono solo quelli che sa fare davvero.", "climate.")}
+        <div class="fke-f"><label>Nome mostrato</label>
+          <span class="fke-h">Vuoto = usa il nome dell'apparecchio.</span>
+          <input class="fke-in" id="fkNome" value="${fhEsc(c.name || "")}"></div>
+        ${this._picker("temp", "Sensore temperatura — opzionale", "Molti split non misurano la temperatura, o la misurano dove soffiano. Un sensore in stanza dice il vero.", "sensor.", "temperature")}
+        ${this._picker("humidity", "Sensore umidita — opzionale", "", "sensor.", "humidity")}
+        ${this._picker("power", "Sensore potenza — opzionale", "Per vedere quanto sta consumando adesso.", "sensor.", "power")}
+        <div class="fke-f"><label>Cosa mostrare</label>
+          <label class="fke-ck"><input type="checkbox" id="fkV"${c.mostra_ventola !== false ? " checked" : ""}> Velocita della ventola</label>
+          <label class="fke-ck"><input type="checkbox" id="fkA"${c.mostra_alette !== false ? " checked" : ""}> Alette</label>
+          <label class="fke-ck"><input type="checkbox" id="fkP"${c.mostra_programmi !== false ? " checked" : ""}> Programmi (eco, notte, turbo...)</label>
+          <span class="fke-h">Una riga compare solo se l'apparecchio la sostiene, anche con la spunta messa.</span></div>
+      </div>`;
+    const q = s => this.querySelector(s);
+    q("#fkNome").addEventListener("input", e => this._set("name", e.target.value));
+    q("#fkV").addEventListener("change", e => this._set("mostra_ventola", e.target.checked));
+    q("#fkA").addEventListener("change", e => this._set("mostra_alette", e.target.checked));
+    q("#fkP").addEventListener("change", e => this._set("mostra_programmi", e.target.checked));
+    this.querySelectorAll("[data-pick]").forEach(b => this._wire(b));
+  }
+
+  _wire(box) {
+    const campo = box.dataset.pick, pre = box.dataset.pre, dc = box.dataset.dc;
+    const inp = box.querySelector(".fke-q"), drop = box.querySelector(".fke-drop"), x = box.querySelector(".fke-x");
+    const st = this._hass.states;
+    const tutte = Object.keys(st).filter(e => e.startsWith(pre));
+    // Le entita col mestiere giusto stanno in cima: fra 1234 sensori, quelli
+    // di temperatura sono nove e vanno trovati subito.
+    const buone = dc ? tutte.filter(e => st[e].attributes.device_class === dc) : [];
+    const apri = () => {
+      const parole = inp.value.toLowerCase().trim().split(/\s+/).filter(Boolean);
+      const filtra = arr => arr.filter(e => !parole.length || parole.every(w => (e + " " + this._nomeEnt(e)).toLowerCase().includes(w)));
+      const testa = filtra(buone), resto = filtra(tutte).filter(e => !testa.includes(e));
+      const l = [...testa, ...resto].slice(0, 50);
+      drop.innerHTML = l.length
+        ? l.map(e => `<button type="button" data-id="${fhEsc(e)}"><b>${fhEsc(this._nomeEnt(e))}</b><i>${fhEsc(e)}</i></button>`).join("")
+        : `<div class="fke-h" style="padding:10px">Nessuna entita trovata.</div>`;
+      drop.hidden = false;
+      drop.querySelectorAll("[data-id]").forEach(b => b.addEventListener("mousedown", ev => {
+        ev.preventDefault(); this._set(campo, b.dataset.id); this._render();
+      }));
+    };
+    inp.addEventListener("focus", apri);
+    inp.addEventListener("input", apri);
+    inp.addEventListener("blur", () => setTimeout(() => { drop.hidden = true; }, 150));
+    if (x) x.addEventListener("click", () => { this._set(campo, ""); this._render(); });
+  }
+}
+
+const FKE_CSS = `
+  .fke{display:flex;flex-direction:column;gap:14px;padding:4px 2px;font-family:inherit}
+  .fke-f{display:flex;flex-direction:column;gap:5px;min-width:0}
+  .fke-f>label{font-size:13px;font-weight:700;color:var(--primary-text-color)}
+  .fke-h{font-size:11.5px;line-height:1.45;color:var(--secondary-text-color)}
+  .fke-in{padding:9px 10px;border-radius:9px;font-size:14px;width:100%;box-sizing:border-box;font-family:inherit;
+    border:1px solid var(--divider-color);background:var(--card-background-color);color:var(--primary-text-color)}
+  .fke-pw{position:relative}
+  .fke-x{position:absolute;right:6px;top:50%;transform:translateY(-50%);width:24px;height:24px;border:none;
+    border-radius:50%;cursor:pointer;font-size:16px;line-height:1;background:var(--divider-color);color:var(--primary-text-color)}
+  .fke-drop{position:absolute;z-index:30;left:0;right:0;top:calc(100% + 4px);max-height:230px;overflow-y:auto;
+    border-radius:12px;border:1px solid var(--divider-color);background:var(--ha-card-background,var(--card-background-color));
+    box-shadow:0 12px 30px rgba(0,0,0,.35)}
+  .fke-drop button{display:flex;flex-direction:column;gap:1px;width:100%;text-align:left;padding:8px 11px;
+    border:none;background:none;cursor:pointer;font-family:inherit;color:var(--primary-text-color)}
+  .fke-drop button:hover{background:rgba(255,176,32,.14)}
+  .fke-drop b{font-size:13px;font-weight:700}
+  .fke-drop i{font-size:10.5px;font-style:normal;color:var(--secondary-text-color)}
+  .fke-id{font-size:10.5px;color:var(--secondary-text-color);font-family:ui-monospace,monospace}
+  .fke-ck{display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;font-weight:600;
+    color:var(--primary-text-color)}
+  .fke-ck input{width:auto}
+`;
+
+customElements.define("faber-clima-editor", FaberClimaEditor);
+
+
 window.customCards = window.customCards || [];
 window.customCards.push({
   type: "faber-weather",
   name: "Faber Meteo",
   description: "Meteo nello stile della famiglia: temperatura grande, condizione in italiano, umidita/pressione/vento/direzione e i prossimi giorni.",
+  preview: true,
+  documentationURL: "https://github.com/cristianwebonline/ha-faber-home",
+});
+window.customCards.push({
+  type: "faber-clima",
+  name: "Faber Clima",
+  description: "Il condizionatore con tutti i suoi comandi: modi, temperatura, ventola, alette e programmi. Compaiono solo quelli che l'apparecchio sa fare davvero.",
   preview: true,
   documentationURL: "https://github.com/cristianwebonline/ha-faber-home",
 });
