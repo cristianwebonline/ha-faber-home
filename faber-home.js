@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.19.0";
+const FH_VERSION = "0.19.1";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -822,7 +822,11 @@ class FaberHome extends HTMLElement {
       const main = this.querySelector("[data-main]");
       const slot = grip.closest(".fh-slot");
       if (!slot || !main) return;
-      grip.setPointerCapture(ev.pointerId);
+      // La cattura e un di piu: se fallisce (capita, e non e colpa nostra)
+      // non deve portarsi dietro tutto il trascinamento. Gli eventi si
+      // ascoltano comunque sulla finestra, che li riceve sempre, anche
+      // quando il dito esce dalla maniglia.
+      try { grip.setPointerCapture(ev.pointerId); } catch (e) { /* pazienza */ }
 
       const r = slot.getBoundingClientRect();
       const fantasma = slot.cloneNode(true);
@@ -874,18 +878,18 @@ class FaberHome extends HTMLElement {
 
       const onMove = e => { muovi(e.clientX, e.clientY); cerca(e.clientX, e.clientY); };
       const onUp = () => {
-        grip.removeEventListener("pointermove", onMove);
-        grip.removeEventListener("pointerup", onUp);
-        grip.removeEventListener("pointercancel", onUp);
+        window.removeEventListener("pointermove", onMove, true);
+        window.removeEventListener("pointerup", onUp, true);
+        window.removeEventListener("pointercancel", onUp, true);
         fantasma.remove();
         slot.classList.remove("fh-dragging");
         main.classList.remove("fh-dragmode");
         pulisci();
         if (bersaglio) this._sposta(ri, ci, di, bersaglio);
       };
-      grip.addEventListener("pointermove", onMove);
-      grip.addEventListener("pointerup", onUp);
-      grip.addEventListener("pointercancel", onUp);
+      window.addEventListener("pointermove", onMove, true);
+      window.addEventListener("pointerup", onUp, true);
+      window.addEventListener("pointercancel", onUp, true);
     });
   }
 
@@ -903,7 +907,7 @@ class FaberHome extends HTMLElement {
       const col = ang.closest(".fh-col");
       const riga = ang.closest(".fh-row");
       if (!slot || !col || !riga) return;
-      ang.setPointerCapture(ev.pointerId);
+      try { ang.setPointerCapture(ev.pointerId); } catch (e) { /* pazienza */ }
 
       const cfg = this._cfg.pages[this._page].rows[ri].cols[ci].cards[di];
       const colonna = this._cfg.pages[this._page].rows[ri].cols[ci];
@@ -929,18 +933,18 @@ class FaberHome extends HTMLElement {
         mostra();
       };
       const onUp = () => {
-        ang.removeEventListener("pointermove", onMove);
-        ang.removeEventListener("pointerup", onUp);
-        ang.removeEventListener("pointercancel", onUp);
+        window.removeEventListener("pointermove", onMove, true);
+        window.removeEventListener("pointerup", onUp, true);
+        window.removeEventListener("pointercancel", onUp, true);
         etichetta.remove();
         cfg.fh_h = Math.round(hNuova);
         colonna.span = spanNuovo;
         this._renderPage();
       };
       mostra();
-      ang.addEventListener("pointermove", onMove);
-      ang.addEventListener("pointerup", onUp);
-      ang.addEventListener("pointercancel", onUp);
+      window.addEventListener("pointermove", onMove, true);
+      window.addEventListener("pointerup", onUp, true);
+      window.addEventListener("pointercancel", onUp, true);
     });
   }
 
