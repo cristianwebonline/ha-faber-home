@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.14.1";
+const FH_VERSION = "0.14.2";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -518,17 +518,26 @@ class FaberHome extends HTMLElement {
 
   _watchFascia() {
     const main = this.querySelector("[data-main]");
-    if (!main || this._ro) return;
-    this._larghezza = main.clientWidth || 900;
-    this._fascia = this._fasciaDa(this._larghezza);
-    this._ro = new ResizeObserver(entries => {
-      const w = entries[0].contentRect.width;
-      if (!w) return;
-      this._larghezza = w;
-      const f = this._fasciaDa(w);
-      if (f !== this._fascia) { this._fascia = f; this._renderPage(); }
-    });
-    this._ro.observe(main);
+    if (!main) return;
+    // Ci si riattacca ogni volta che il contenitore e un elemento NUOVO.
+    // Quando il guscio viene ricostruito, il vecchio [data-main] esce dalla
+    // pagina: l'osservatore restava appeso a un elemento che non esisteva
+    // piu e non riferiva nulla. Cosi la larghezza restava quella di prima e
+    // il telefono continuava a disegnare le colonne di uno schermo grande.
+    if (this._roTarget !== main) {
+      if (this._ro) this._ro.disconnect();
+      this._roTarget = main;
+      this._ro = new ResizeObserver(entries => {
+        const w = entries[0].contentRect.width;
+        if (!w) return;
+        this._larghezza = w;
+        const f = this._fasciaDa(w);
+        if (f !== this._fascia) { this._fascia = f; this._renderPage(); }
+      });
+      this._ro.observe(main);
+    }
+    const w = main.clientWidth;
+    if (w) { this._larghezza = w; this._fascia = this._fasciaDa(w); }
   }
 
   // Quante colonne mostrare in questa riga, adesso. "auto" (0) vuol dire:
@@ -547,12 +556,6 @@ class FaberHome extends HTMLElement {
     const main = this.querySelector("[data-main]");
     if (!main) return;
     this._watchFascia();
-    // La larghezza si rilegge qui, non ci si fida di quella messa in cache
-    // dall'osservatore: al primissimo disegno l'elemento puo non essere ancora
-    // misurabile, e la pagina nascerebbe con le colonne di uno schermo grande
-    // anche su un telefono.
-    const wOra = main.clientWidth;
-    if (wOra) { this._larghezza = wOra; this._fascia = this._fasciaDa(wOra); }
     const page = this._cfg.pages[this._page];
     this._cardEls.clear();
     main.innerHTML = "";
