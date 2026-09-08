@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.22.0";
+const FH_VERSION = "0.23.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -3541,7 +3541,7 @@ class FaberClima extends HTMLElement {
     const presaSt = this._cfg.presa ? this._hass.states[this._cfg.presa] : null;
     const presaOn = presaSt ? presaSt.state === "on" : true;
     const senzaCorrente = !!presaSt && !presaOn;
-    const timerAcceso = ["on", "off"].some(q => {
+    const timerAcceso = ["on", "off", "once_on", "once_off"].some(q => {
       const e = this._timerEntita(q);
       return e && this._hass.states[e].state === "on";
     });
@@ -3735,8 +3735,6 @@ class FaberClima extends HTMLElement {
     const cfgOn = await this._leggiTimer("on");
     const cfgOff = await this._leggiTimer("off");
     const entOn = this._timerEntita("on"), entOff = this._timerEntita("off");
-    const attivo = (entOn && this._hass.states[entOn].state === "on")
-      || (entOff && this._hass.states[entOff].state === "on");
 
     // --------------------------------------------- cosa c'e gia impostato
     const azOn = (cfgOn && (cfgOn.actions || cfgOn.action)) || [];
@@ -3776,6 +3774,12 @@ class FaberClima extends HTMLElement {
     let onceOn = primoOrario(cfgOnceOn);
     let onceOff = primoOrario(cfgOnceOff);
 
+    // Lo stato "attivo" guarda tutte e quattro le automazioni: un ordine
+    // singolo da solo e comunque un timer che c'e, e va poter sospendere.
+    const tutteEnt = ["on", "off", "once_on", "once_off"].map(q => this._timerEntita(q)).filter(Boolean);
+    const attivo = tutteEnt.some(e => this._hass.states[e].state === "on");
+    const esisteQualcosa = !!(cfgOn || cfgOff || cfgOnceOn || cfgOnceOff);
+
     const GG = [["mon", "Lunedi"], ["tue", "Martedi"], ["wed", "Mercoledi"], ["thu", "Giovedi"],
                 ["fri", "Venerdi"], ["sat", "Sabato"], ["sun", "Domenica"]];
     const a = st ? st.attributes : {};
@@ -3795,6 +3799,10 @@ class FaberClima extends HTMLElement {
       if (q("#pSog")) p.soglia = parseFloat(q("#pSog").value) || 0;
       if (q("#pMin")) p.minuti = parseInt(q("#pMin").value, 10) || 0;
       if (q("#pTemp")) p.temp = q("#pTemp").value === "" ? null : parseFloat(q("#pTemp").value);
+      // Anche l'ordine singolo: prima Salva ignorava questi due campi, e chi
+      // scriveva un orario qui e premeva Salva non salvava niente.
+      if (q("#oOn")) onceOn = q("#oOn").value;
+      if (q("#oOff")) onceOff = q("#oOff").value;
     };
 
     const disegna = () => {
@@ -3806,7 +3814,7 @@ class FaberClima extends HTMLElement {
       body.innerHTML = `
         <div class="fk-mh">
           <div class="fk-mt">Programmazione</div>
-          ${(cfgOn || cfgOff) ? `<span class="fk-swlab">${attivo ? "Attivo" : "Sospeso"}</span>
+          ${esisteQualcosa ? `<span class="fk-swlab">${attivo ? "Attivo" : "Sospeso"}</span>
             <button type="button" class="fk-sw${attivo ? " on" : ""}" data-sw
             title="${attivo ? "Sospendi: gli orari restano scritti" : "Riattiva con gli orari di prima"}"><span></span></button>` : ""}
           <button type="button" class="fk-mx" data-chiudi>&times;</button>
@@ -3821,10 +3829,9 @@ class FaberClima extends HTMLElement {
         <div class="fk-mrighe">
           ${[30, 60, 90, 120].map(m => `<button type="button" class="fk-mb piccolo" data-fra="${m}">Spegni fra ${m} min</button>`).join("")}
         </div>
-        <div class="fk-mrighe">
-          <button type="button" class="fk-mb piccolo" data-once>Imposta per stavolta</button>
-          ${(cfgOnceOn || cfgOnceOff) ? `<button type="button" class="fk-mb piccolo" data-onceoff>Annulla quello singolo</button>` : ""}
-        </div>
+        ${(cfgOnceOn || cfgOnceOff) ? `<div class="fk-mrighe">
+          <button type="button" class="fk-mb piccolo" data-onceoff>Annulla l'ordine singolo</button>
+        </div>` : ""}
         ${(cfgOnceOn || cfgOnceOff) ? `<div class="fk-mstato acceso">Ordine singolo impostato${onceOn ? " · accende alle " + fhEsc(onceOn) : ""}${onceOff ? " · spegne alle " + fhEsc(onceOff) : ""}</div>` : ""}
 
         <div class="fk-mgruppo">Programma della settimana</div>
@@ -3877,13 +3884,13 @@ class FaberClima extends HTMLElement {
           Se non lo vuoi, togli la spunta alla presa oppure metti anche un orario di accensione.
         </div>` : ""}
 
-        ${(cfgOn || cfgOff) ? `<div class="fk-mstato ${attivo ? "acceso" : "spento"}">${attivo
+        ${esisteQualcosa ? `<div class="fk-mstato ${attivo ? "acceso" : "spento"}">${attivo
           ? "Programma attivo" : "Programma sospeso &mdash; gli orari restano scritti, riaccendi l'interruttore in alto quando torni"}</div>` : ""}
 
         <div class="fk-mfoot">
           <span class="fk-mmsg" data-msg></span>
-          ${(cfgOn || cfgOff) ? `<button type="button" class="fk-mb" data-sospendi>${attivo ? "Sospendi" : "Riattiva"}</button>` : ""}
-          ${(cfgOn || cfgOff) ? `<button type="button" class="fk-mb" data-elimina>Elimina</button>` : ""}
+          ${esisteQualcosa ? `<button type="button" class="fk-mb" data-sospendi>${attivo ? "Sospendi" : "Riattiva"}</button>` : ""}
+          ${esisteQualcosa ? `<button type="button" class="fk-mb" data-elimina>Elimina</button>` : ""}
           <button type="button" class="fk-mb primario" data-salva>Salva</button>
         </div>`;
 
@@ -3892,34 +3899,18 @@ class FaberClima extends HTMLElement {
       const sw = body.querySelector("[data-sw]");
       if (sw) sw.addEventListener("click", async () => {
         const srv = attivo ? "turn_off" : "turn_on";
-        for (const e of [entOn, entOff]) if (e) await this._hass.callService("automation", srv, { entity_id: e });
+        for (const e of tutteEnt) await this._hass.callService("automation", srv, { entity_id: e });
         scrim.remove();
       });
 
-      const leggiOnce = () => {
-        const a = body.querySelector("#oOn"), b = body.querySelector("#oOff");
-        if (a) onceOn = a.value;
-        if (b) onceOff = b.value;
-      };
       body.querySelectorAll("[data-fra]").forEach(b => b.addEventListener("click", () => {
+        leggiCampi();
         const m = parseInt(b.dataset.fra, 10);
         const d = new Date(Date.now() + m * 60000);
         onceOff = String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
         onceOn = "";
         disegna();
       }));
-      const bOnce = body.querySelector("[data-once]");
-      if (bOnce) bOnce.addEventListener("click", async () => {
-        leggiOnce();
-        const m = body.querySelector("[data-msg]");
-        if (m) m.textContent = "Salvo...";
-        try {
-          await this._scriviSingolo("once_on", nome, onceOn, p);
-          await this._scriviSingolo("once_off", nome, onceOff, p);
-          if (m) m.textContent = "Fatto.";
-          setTimeout(() => scrim.remove(), 800);
-        } catch (e) { if (m) m.textContent = "Non ci sono riuscito: " + ((e && e.message) || e); }
-      });
       const bOnceOff = body.querySelector("[data-onceoff]");
       if (bOnceOff) bOnceOff.addEventListener("click", async () => {
         for (const q of ["once_on", "once_off"]) {
@@ -3962,14 +3953,14 @@ class FaberClima extends HTMLElement {
       const sos = body.querySelector("[data-sospendi]");
       if (sos) sos.addEventListener("click", async () => {
         const srv = attivo ? "turn_off" : "turn_on";
-        for (const e of [entOn, entOff]) if (e) await this._hass.callService("automation", srv, { entity_id: e });
+        for (const e of tutteEnt) await this._hass.callService("automation", srv, { entity_id: e });
         msg(attivo ? "Sospeso." : "Riattivato."); setTimeout(() => scrim.remove(), 800);
       });
 
       const el = body.querySelector("[data-elimina]");
       if (el) el.addEventListener("click", async () => {
         msg("Elimino...");
-        for (const q of ["on", "off"]) {
+        for (const q of ["on", "off", "once_on", "once_off"]) {
           try { await this._hass.callApi("delete", "config/automation/config/" + this._timerId(q)); } catch (e) { /* non c'era */ }
         }
         msg("Eliminato."); setTimeout(() => scrim.remove(), 800);
@@ -3986,6 +3977,11 @@ class FaberClima extends HTMLElement {
           const eraSospeso = (cfgOn || cfgOff) && !attivo;
           await this._scriviProgramma("on", nome, orariOn, p);
           await this._scriviProgramma("off", nome, orariOff, p);
+          // Un solo tasto Salva che salva TUTTO: programma settimanale e
+          // ordine singolo. Prima erano due, e quello che si preme per
+          // istinto non salvava l'orario appena scritto sopra.
+          await this._scriviSingolo("once_on", nome, onceOn, p);
+          await this._scriviSingolo("once_off", nome, onceOff, p);
           if (eraSospeso) {
             await new Promise(r => setTimeout(r, 900));
             for (const q of ["on", "off"]) {
