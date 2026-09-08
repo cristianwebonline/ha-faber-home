@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.23.0";
+const FH_VERSION = "0.24.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -671,13 +671,22 @@ class FaberHome extends HTMLElement {
       inner.className = "fh-row";
       const n = this._colonneRiga(row);
       inner.style.setProperty("--fh-n", n);
+      // Quando le colonne non ci stanno tutte in riga (tre colonne su un
+      // telefono che ne mostra due), quelle di troppo vanno a capo e il
+      // risultato e un accavallamento: card di altezze diverse, disallineate,
+      // con buchi in mezzo. In quel caso si smonta il raggruppamento in
+      // colonne e le card entrano DIRETTAMENTE nella griglia: cosi quelle
+      // sulla stessa riga combaciano sempre. In modifica no: li servono gli
+      // strumenti di colonna.
+      const piatta = !this._edit && n < (row.cols || []).length;
+      inner.classList.toggle("piatta", piatta);
       (row.cols || []).forEach((col, ci) => {
         const colEl = document.createElement("div");
         colEl.className = "fh-col";
         // Una colonna non puo occupare piu tracce di quante ne esistano: su
         // telefono con due colonne, una "larga 3" prenderebbe il posto di
         // colonne che non ci sono e sfonderebbe la griglia.
-        colEl.style.gridColumn = `span ${Math.min(col.span || 1, n)}`;
+        if (!piatta) colEl.style.gridColumn = `span ${Math.min(col.span || 1, n)}`;
         colEl.dataset.col = ci;
         if (this._edit) colEl.appendChild(this._colToolsEl(ri, ci));
         (col.cards || []).forEach((cardCfg, di) => {
@@ -1390,6 +1399,29 @@ class FaberHome extends HTMLElement {
     };
   }
 
+  // Il sensore di un certo mestiere che sta in quella stanza: cosi la card
+  // della stanza mostra subito temperatura e umidita senza chiederle.
+  _sensoreArea(areaId, dc) {
+    const ents = Object.values(this._hass.entities || {});
+    const devs = this._hass.devices || {};
+    const trovata = ents.find(e => {
+      if (!e.entity_id.startsWith("sensor.")) return false;
+      const st = this._hass.states[e.entity_id];
+      if (!st || st.attributes.device_class !== dc) return false;
+      const a = e.area_id || (devs[e.device_id] || {}).area_id;
+      return a === areaId;
+    });
+    return trovata ? trovata.entity_id : "";
+  }
+
+  // Le pagine dove si puo andare: le viste delle dashboard, per collegare la
+  // card della stanza a quella giusta.
+  _pagineDisponibili() {
+    const out = [];
+    (this._cfg.pages || []).forEach(pg => out.push({ titolo: pg.title, path: "#" + pg.id }));
+    return out;
+  }
+
   _openRoomSheet() {
     const areas = Object.values(this._hass.areas || {});
     const devs = Object.values(this._hass.devices || {}).filter(d => !d.disabled_by);
@@ -1431,24 +1463,55 @@ class FaberHome extends HTMLElement {
             </span>
           </label>`;
         }).join("") || `<div class="fh-note">Nessun dispositivo utile in questa stanza.</div>`}
+        <label class="fh-check" style="margin-top:10px">
+          <input type="checkbox" id="rmCima" checked> Mettila in cima alla pagina</label>
+        <div class="fh-note">Togli la spunta per metterla in fondo.</div>
         <div class="fh-srow" style="margin-top:12px">
           <button type="button" class="fh-btn" id="rmBack">Indietro</button>
-          <button type="button" class="fh-btn primary" id="rmAdd">Aggiungi alla pagina</button>
+          <button type="button" class="fh-btn" id="rmLink">Solo una card che porta alla stanza</button>
+          <button type="button" class="fh-btn primary" id="rmAdd">Aggiungi i dispositivi</button>
         </div>`;
       box.querySelectorAll("[data-dev]").forEach(cb => cb.addEventListener("change", () => {
         selezione[cb.dataset.dev] = cb.checked;
       }));
       box.querySelector("#rmBack").addEventListener("click", drawAree);
+      // Una sola card con il nome della stanza che, toccata, ci porta: e la
+      // "card stanza" vera, non l'elenco dei suoi dispositivi.
+      box.querySelector("#rmLink").addEventListener("click", () => {
+        const inCima = box.querySelector("#rmCima") && box.querySelector("#rmCima").checked;
+        const pag = this._pagineDisponibili().find(x => x.titolo.toLowerCase() === scelta.name.toLowerCase());
+        const card = {
+          type: "custom:mini-card",
+          name: scelta.name,
+          icon_type: this._guessIcon(scelta.name),
+          mode: "room",
+          path: pag ? pag.path : "",
+          temp: this._sensoreArea(scelta.area_id, "temperature"),
+          humidity: this._sensoreArea(scelta.area_id, "humidity"),
+          power: "", energy: "", switch: "", climate: "", device_id: "", group: "",
+          soglia: 10, soglia_freddo: 18, soglia_caldo: 26, prezzo_kwh: 0.30, storico_giorni: 14,
+        };
+        const righe = this._cfg.pages[this._page].rows;
+        const riga = { cols: [{ span: 1, cards: [card] }] };
+        if (inCima) righe.unshift(riga); else righe.push(riga);
+        const sc2 = this.querySelector(".fh-scrim");
+        if (sc2) sc2.remove();
+        this._renderPage();
+        this._openCardEditor(inCima ? 0 : righe.length - 1, 0, 0);
+      });
       box.querySelector("#rmAdd").addEventListener("click", () => {
         const scelte = proposte.filter(x => selezione[x.d.id]).map(x => x.card);
         if (!scelte.length) return;
+        const inCima = box.querySelector("#rmCima") && box.querySelector("#rmCima").checked;
         // Distribuite su tre colonne, cosi su schermo largo respirano e sul
         // telefono si impilano da sole.
         const cols = [[], [], []];
         scelte.forEach((c, i) => cols[i % 3].push(c));
-        this._cfg.pages[this._page].rows.push({
-          cols: cols.filter(c => c.length).map(c => ({ span: 1, cards: c })),
-        });
+        const riga = { cols: cols.filter(c => c.length).map(c => ({ span: 1, cards: c })) };
+        // Prima finiva sempre in fondo, e su una pagina lunga volevi dire
+        // scorrere fino in basso per trovarla.
+        const righe = this._cfg.pages[this._page].rows;
+        if (inCima) righe.unshift(riga); else righe.push(riga);
         const sc = this.querySelector(".fh-scrim");
         if (sc) sc.remove();
         this._renderPage();
@@ -2302,6 +2365,7 @@ const FH_CSS = `
      un contenuto rigido a rendere tutta la pagina piu larga del telefono, e
      si vedevano le card tagliate a destra. */
   .fh-app{max-width:100%;overflow-x:hidden}
+  .fh-main.editing{padding-top:74px}
   .fh-main{position:relative;flex:1;max-width:100%;padding:8px 16px 110px;display:flex;flex-direction:column;gap:14px}
   .fh-cardwrap{min-width:0;max-width:100%}
   .fh-rowwrap{min-width:0;max-width:100%}
@@ -2320,6 +2384,10 @@ const FH_CSS = `
   /* Le card di una colonna si dividono l'altezza della riga: cosi quelle
      affiancate combaciano invece di sfalsarsi. */
   .fh-slot{display:flex;flex-direction:column;min-width:0;position:relative;flex:1 1 auto}
+  /* display:contents fa sparire la colonna come scatola: le card diventano
+     elementi della griglia della riga, e allora quelle affiancate stanno
+     davvero sulla stessa linea invece di essere due pile indipendenti. */
+  .fh-row.piatta>.fh-col{display:contents}
   /* L'altezza scelta e un MINIMO, non un tetto. Prima era un'altezza fissa con
      overflow nascosto: il contenuto che non ci stava veniva tagliato, in alto
      e ai lati, e non c'era modo di recuperarlo. Un contenuto non si taglia:
@@ -2391,7 +2459,10 @@ const FH_CSS = `
   .fh-navcircle ha-icon{--mdc-icon-size:27px;color:#1c1400}
 
   /* ---- modalita modifica ---- */
-  .fh-editbar{position:sticky;top:0;z-index:8;position:sticky;top:0;z-index:4;display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  /* fixed come la barra in basso, che si e visto funzionare qui dentro:
+     sticky non reggeva perche il contenitore che scorre non e questo. Cosi
+     Salva e Annulla restano raggiungibili senza risalire tutta la pagina. */
+  .fh-editbar{position:fixed;left:12px;right:12px;top:8px;z-index:30;display:flex;align-items:center;gap:8px;flex-wrap:wrap;
     padding:10px 12px;border-radius:16px;margin-bottom:4px;
     background:var(--fh-panel,rgba(30,38,48,.9));border:1px solid rgba(255,176,32,.45);
     backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
@@ -3777,7 +3848,18 @@ class FaberClima extends HTMLElement {
     // Lo stato "attivo" guarda tutte e quattro le automazioni: un ordine
     // singolo da solo e comunque un timer che c'e, e va poter sospendere.
     const tutteEnt = ["on", "off", "once_on", "once_off"].map(q => this._timerEntita(q)).filter(Boolean);
-    const attivo = tutteEnt.some(e => this._hass.states[e].state === "on");
+    let attivo = tutteEnt.some(e => this._hass.states[e].state === "on");
+
+    // Sospendere o riattivare non e "finire": si resta nel pannello e si vede
+    // il risultato. Prima chiudeva tutto, e per controllare bisognava
+    // riaprirlo da capo.
+    const cambiaStato = async () => {
+      const srv = attivo ? "turn_off" : "turn_on";
+      for (const e of tutteEnt) await this._hass.callService("automation", srv, { entity_id: e });
+      await new Promise(r => setTimeout(r, 700));
+      attivo = tutteEnt.some(e => this._hass.states[e] && this._hass.states[e].state === "on");
+      disegna();
+    };
     const esisteQualcosa = !!(cfgOn || cfgOff || cfgOnceOn || cfgOnceOff);
 
     const GG = [["mon", "Lunedi"], ["tue", "Martedi"], ["wed", "Mercoledi"], ["thu", "Giovedi"],
@@ -3897,11 +3979,7 @@ class FaberClima extends HTMLElement {
       body.querySelector("[data-chiudi]").addEventListener("click", () => scrim.remove());
 
       const sw = body.querySelector("[data-sw]");
-      if (sw) sw.addEventListener("click", async () => {
-        const srv = attivo ? "turn_off" : "turn_on";
-        for (const e of tutteEnt) await this._hass.callService("automation", srv, { entity_id: e });
-        scrim.remove();
-      });
+      if (sw) sw.addEventListener("click", () => cambiaStato());
 
       body.querySelectorAll("[data-fra]").forEach(b => b.addEventListener("click", () => {
         leggiCampi();
@@ -3952,9 +4030,8 @@ class FaberClima extends HTMLElement {
 
       const sos = body.querySelector("[data-sospendi]");
       if (sos) sos.addEventListener("click", async () => {
-        const srv = attivo ? "turn_off" : "turn_on";
-        for (const e of tutteEnt) await this._hass.callService("automation", srv, { entity_id: e });
-        msg(attivo ? "Sospeso." : "Riattivato."); setTimeout(() => scrim.remove(), 800);
+        msg(attivo ? "Sospendo..." : "Riattivo...");
+        await cambiaStato();
       });
 
       const el = body.querySelector("[data-elimina]");
