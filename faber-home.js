@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.10.1";
+const FH_VERSION = "0.11.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -700,7 +700,29 @@ class FaberHome extends HTMLElement {
   // ----------------------------------------------------------- fogli a comparsa
   // Un solo foglio alla volta, chiuso toccando fuori o la X: e il modo in cui
   // si configura stando col telefono in una mano.
-  _sheet(title, bodyEl) {
+  // Il piede resta sempre in vista, anche con un editor lunghissimo: senza,
+  // arrivato in fondo alla configurazione non si capiva piu come confermare,
+  // e il Salva vero era nascosto dietro il foglio.
+  _sheetFooter(scrimGetter) {
+    const foot = document.createElement("div");
+    foot.className = "fh-sheetfoot";
+    foot.innerHTML = `<span class="fh-footmsg" data-msg>Le modifiche si vedono subito dietro al pannello.</span>
+      <button type="button" class="fh-btn" data-act="fatto">Fatto</button>
+      <button type="button" class="fh-btn primary" data-act="salva">Salva</button>`;
+    foot.querySelector('[data-act="fatto"]').addEventListener("click", () => {
+      const sc = scrimGetter();
+      if (sc) sc.remove();
+    });
+    foot.querySelector('[data-act="salva"]').addEventListener("click", async () => {
+      const msg = foot.querySelector("[data-msg]");
+      msg.textContent = "Salvo...";
+      const ok = await this._save(true);
+      msg.textContent = ok ? "Salvato." : "Non sono riuscito a salvare.";
+    });
+    return foot;
+  }
+
+  _sheet(title, bodyEl, conPiede) {
     const prev = this.querySelector(".fh-scrim");
     if (prev) prev.remove();
     const scrim = document.createElement("div");
@@ -715,6 +737,7 @@ class FaberHome extends HTMLElement {
     body.className = "fh-sheetbody";
     body.appendChild(bodyEl);
     sheet.appendChild(body);
+    if (conPiede) sheet.appendChild(this._sheetFooter(() => scrim));
     scrim.appendChild(sheet);
     scrim.addEventListener("click", e => { if (e.target === scrim) scrim.remove(); });
     sheet.querySelector("[data-close]").addEventListener("click", () => scrim.remove());
@@ -986,7 +1009,7 @@ class FaberHome extends HTMLElement {
     };
 
     drawAree();
-    this._sheet("Aggiungi una stanza", box);
+    this._sheet("Aggiungi una stanza", box, true);
   }
 
   // Il catalogo e cresciuto: senza ricerca sul telefono diventa un rotolo.
@@ -1137,7 +1160,7 @@ class FaberHome extends HTMLElement {
       });
       box.appendChild(link);
     }
-    this._sheet("Configura la card", box);
+    this._sheet("Configura la card", box, true);
   }
 
 
@@ -1212,7 +1235,7 @@ class FaberHome extends HTMLElement {
       });
     };
     draw();
-    this._sheet("Popup della card", box);
+    this._sheet("Popup della card", box, true);
   }
 
   // Catalogo riusabile: aggiunge una card a un elenco qualunque (pagina o
@@ -1291,7 +1314,7 @@ class FaberHome extends HTMLElement {
       });
       box.appendChild(msg); box.appendChild(ta); box.appendChild(btn);
     }
-    this._sheet("Configura la card", box);
+    this._sheet("Configura la card", box, true);
   }
 
   _openPageSheet() {
@@ -1329,7 +1352,7 @@ class FaberHome extends HTMLElement {
       });
     };
     draw();
-    this._sheet("Pagine", box);
+    this._sheet("Pagine", box, true);
   }
 
 
@@ -1404,9 +1427,7 @@ class FaberHome extends HTMLElement {
           </div>`).join("")}
         <button type="button" class="fh-btn primary" id="stAddChip">+ Aggiungi chip</button>
 
-        <div class="fh-sgroup">&nbsp;</div>
-        <button type="button" class="fh-btn primary" id="stSave">Salva impostazioni</button>
-        <div class="fh-note" id="stMsg"></div>`;
+`;
       wire();
     };
 
@@ -1449,16 +1470,10 @@ class FaberHome extends HTMLElement {
           draw(); this._updateLive();
         }));
       });
-      q("#stSave").addEventListener("click", async () => {
-        const msg = q("#stMsg");
-        msg.textContent = "Salvo...";
-        const ok = await this._save(true);
-        msg.textContent = ok ? "Salvato." : "Non sono riuscito a salvare.";
-      });
     };
 
     draw();
-    this._sheet("Impostazioni", box);
+    this._sheet("Impostazioni", box, true);
   }
 
   // Salvataggio: si rilegge la configurazione fresca della dashboard, si
@@ -1693,7 +1708,13 @@ const FH_CSS = `
     border-bottom:none;border-radius:24px 24px 0 0;box-shadow:0 -16px 50px rgba(0,0,0,.55)}
   .fh-sheethead{display:flex;align-items:center;gap:10px;padding:14px 16px 8px}
   .fh-sheettitle{flex:1;font-size:16px;font-weight:800;color:var(--primary-text-color)}
-  .fh-sheetbody{overflow-y:auto;padding:4px 16px 24px;display:flex;flex-direction:column;gap:10px}
+  .fh-sheetbody{flex:1 1 auto;min-height:0;overflow-y:auto;padding:4px 16px 24px;display:flex;flex-direction:column;gap:10px}
+
+  .fh-sheetfoot{flex:0 0 auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+    padding:12px 16px calc(14px + env(safe-area-inset-bottom,0px));
+    background:var(--ha-card-background,var(--card-background-color,#1c1f26));
+    border-top:1px solid var(--divider-color)}
+  .fh-footmsg{flex:1;min-width:120px;font-size:11.5px;color:var(--secondary-text-color)}
   .fh-catgroup{font-size:10.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
     color:var(--secondary-text-color);margin-top:8px}
   .fh-catlist{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px}
