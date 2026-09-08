@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.3.2";
+const FH_VERSION = "0.4.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -378,16 +378,18 @@ class FaberHome extends HTMLElement {
       <div class="fh-app">
         <canvas class="fh-bg"></canvas>
         <header class="fh-head">
-          <div class="fh-clockbox">
-            <div class="fh-clock" data-clock>${this._timeText()}</div>
-            <div class="fh-date" data-date>${this._dateText()}</div>
-          </div>
-          <div class="fh-chips" data-chips>${this._chipsHTML()}</div>
-          <div class="fh-headicons">
+          <div class="fh-headtop">
+            <div class="fh-clockbox">
+              <div class="fh-clock" data-clock>${this._timeText()}</div>
+              <div class="fh-date" data-date>${this._dateText()}</div>
+            </div>
+            <div class="fh-headicons">
             <button type="button" class="fh-ic" data-act="edit" title="Modifica"><ha-icon icon="mdi:pencil"></ha-icon></button>
             <button type="button" class="fh-ic" data-act="reload" title="Ricarica"><ha-icon icon="mdi:refresh"></ha-icon></button>
             <button type="button" class="fh-ic" data-act="ha" title="Home Assistant"><ha-icon icon="mdi:home-assistant"></ha-icon></button>
+            </div>
           </div>
+          <div class="fh-chips" data-chips>${this._chipsHTML()}</div>
         </header>
         <main class="fh-main" data-main></main>
         <nav class="fh-nav" data-nav></nav>
@@ -683,7 +685,8 @@ class FaberHome extends HTMLElement {
       { g: "Faber", n: "Centro elettrodomestici", i: "mdi:dishwasher", c: { type: "custom:centro-elettrodomestici-card", kind: "lavastoviglie", name: "Lavastoviglie", power: "" } },
       { g: "Faber", n: "Centro sicurezza", i: "mdi:shield-lock", c: { type: "custom:centro-sicurezza-card", name: "Porta blindata", lock: "" } },
       { g: "Home Assistant", n: "Tessera (tile)", i: "mdi:card-outline", c: { type: "tile", entity: "" } },
-      { g: "Home Assistant", n: "Meteo", i: "mdi:weather-partly-cloudy", c: { type: "weather-forecast", entity: "", forecast_type: "daily" } },
+      { g: "Faber", n: "Meteo", i: "mdi:weather-partly-cloudy", c: { type: "custom:faber-weather", entity: "", days: 4 } },
+      { g: "Home Assistant", n: "Meteo (nativa)", i: "mdi:weather-cloudy", c: { type: "weather-forecast", entity: "", forecast_type: "daily" } },
       { g: "Home Assistant", n: "Grafico storico", i: "mdi:chart-line", c: { type: "history-graph", entities: [] } },
       { g: "Home Assistant", n: "Testo (markdown)", i: "mdi:format-text", c: { type: "markdown", content: "Scrivi qui" } },
       { g: "Home Assistant", n: "Pulsante", i: "mdi:gesture-tap-button", c: { type: "button", entity: "" } },
@@ -711,7 +714,7 @@ class FaberHome extends HTMLElement {
       const fresh = JSON.parse(JSON.stringify(item.c));
       // Una card meteo senza entita nasce gia rotta, e in casa il meteo e
       // quasi sempre uno solo: si precompila, poi si cambia dall'editor.
-      if (fresh.type === "weather-forecast" && !fresh.entity) {
+      if ((fresh.type === "weather-forecast" || fresh.type === "custom:faber-weather") && !fresh.entity) {
         const w = Object.keys(this._hass.states).filter(e => e.startsWith("weather."));
         if (w.length) fresh.entity = this._cfg.header.weather && w.includes(this._cfg.header.weather) ? this._cfg.header.weather : w[0];
       }
@@ -920,17 +923,24 @@ class FaberHome extends HTMLElement {
 }
 
 const FH_CSS = `
-  .fh-app{position:relative;min-height:100vh;display:flex;flex-direction:column;
+  .fh-app{container-type:inline-size;container-name:fh;
+    position:relative;min-height:100vh;display:flex;flex-direction:column;
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
     color:var(--fh-ink,#eaf1f8);transition:background .6s ease,color .6s ease}
   .fh-bg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0}
-  .fh-head{position:relative;z-index:1;display:flex;align-items:flex-start;gap:14px;
-    padding:18px 20px 8px;flex-wrap:wrap}
-  .fh-clockbox{flex:0 0 auto}
+  .fh-head{position:relative;z-index:1;display:flex;flex-direction:column;gap:10px;padding:18px 20px 8px}
+  .fh-headtop{display:flex;align-items:flex-start;gap:14px}
+  .fh-clockbox{flex:1;min-width:0}
   .fh-clock{font-size:clamp(34px,9vw,52px);font-weight:800;line-height:1;letter-spacing:-.02em;
     font-variant-numeric:tabular-nums}
   .fh-date{margin-top:4px;font-size:12.5px;font-weight:600;color:var(--fh-muted,#93a1b0);text-transform:capitalize}
-  .fh-chips{flex:1;display:flex;flex-wrap:wrap;gap:7px;align-items:center;min-width:0}
+  /* Una riga sola che scorre: andando a capo i chip mangiavano meta schermo
+     sul telefono, e il primo finiva sotto le icone in alto a destra. */
+  .fh-chips{display:flex;flex-wrap:nowrap;gap:7px;align-items:center;min-width:0;
+    overflow-x:auto;overflow-y:hidden;scrollbar-width:none;-ms-overflow-style:none;
+    padding-bottom:2px;-webkit-overflow-scrolling:touch}
+  .fh-chips::-webkit-scrollbar{display:none}
+  .fh-chips > *{flex:0 0 auto}
   .fh-chip{display:flex;align-items:center;gap:6px;padding:7px 12px;border-radius:999px;cursor:pointer;
     font:inherit;font-size:12.5px;font-weight:700;color:var(--fh-muted,#93a1b0);
     border:1px solid var(--fh-stroke,rgba(255,255,255,.09));background:var(--fh-panel,rgba(255,255,255,.05));
@@ -1035,16 +1045,219 @@ const FH_CSS = `
   .fh-input{flex:1;min-width:0;padding:8px 10px;border-radius:9px;font:inherit;font-size:13px;
     border:1px solid var(--fh-stroke,rgba(255,255,255,.12));background:rgba(0,0,0,.2);color:var(--fh-ink,#eaf1f8)}
   .fh-input.small{flex:0 0 110px}
-  @media (max-width:520px){
+  @container fh (max-width: 560px){
     .fh-head{padding:14px 14px 6px}
     .fh-main{padding:6px 12px 108px}
     .fh-col{min-width:100%}
+    .fh-clock{font-size:clamp(30px,13cqw,44px)}
+    .fh-catlist{grid-template-columns:1fr}
   }
 `;
 
 customElements.define("faber-home", FaberHome);
 
+// ---------------------------------------------------------------------------
+// Card meteo della famiglia. Quella nativa di Home Assistant e corretta ma
+// anonima: qui la stessa informazione sta in un pannello vetro con la
+// temperatura grande, le quattro misure che si guardano davvero (umidita,
+// pressione, vento, direzione) e la striscia dei prossimi giorni.
+const FW_DIR = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSO", "SO", "OSO", "O", "ONO", "NO", "NNO"];
+function fwDir(deg) {
+  if (deg == null || isNaN(deg)) return "";
+  return FW_DIR[Math.round(((+deg % 360) / 22.5)) % 16];
+}
+
+class FaberWeather extends HTMLElement {
+  setConfig(config) {
+    if (!config || !config.entity) throw new Error("Scegli un'entita meteo");
+    this._cfg = Object.assign({ days: 4 }, config);
+    this._built = false;
+  }
+  set hass(hass) {
+    this._hass = hass;
+    const dark = !!(hass.themes && hass.themes.darkMode);
+    if (!this._built || this._dark !== dark) {
+      this._dark = dark; this._built = true;
+      this._render();
+      this._loadForecast();
+    } else this._patch();
+  }
+  getCardSize() { return 4; }
+  static getConfigElement() { return document.createElement("faber-weather-editor"); }
+  static getStubConfig(hass) {
+    const w = Object.keys(hass.states).filter(e => e.startsWith("weather."));
+    return { type: "custom:faber-weather", entity: w[0] || "", days: 4 };
+  }
+
+  // Dal 2024 le previsioni non stanno piu negli attributi: si chiedono al
+  // servizio, che risponde con i giorni.
+  async _loadForecast() {
+    if (this._fcTimer) clearTimeout(this._fcTimer);
+    try {
+      const r = await this._hass.callWS({
+        type: "call_service", domain: "weather", service: "get_forecasts",
+        service_data: { type: "daily" }, target: { entity_id: this._cfg.entity },
+        return_response: true,
+      });
+      const res = r && r.response && r.response[this._cfg.entity];
+      this._fc = (res && res.forecast) || [];
+      this._patch();
+    } catch (e) { this._fc = []; }
+    this._fcTimer = setTimeout(() => this._loadForecast(), 15 * 60 * 1000);
+  }
+  disconnectedCallback() { if (this._fcTimer) clearTimeout(this._fcTimer); }
+
+  _statHTML(icon, label, value) {
+    if (value == null || value === "") return "";
+    return `<div class="fw-stat"><ha-icon icon="${icon}"></ha-icon>
+      <div class="fw-statval">${fhEsc(value)}</div>
+      <div class="fw-statlab">${fhEsc(label)}</div></div>`;
+  }
+
+  _render() {
+    const st = this._hass.states[this._cfg.entity];
+    if (!st) { this.innerHTML = `<div style="padding:16px">Entita meteo non trovata.</div>`; return; }
+    const a = st.attributes;
+    const dark = this._dark;
+    const ink = dark ? "#eaf1f8" : "#101722";
+    const muted = dark ? "#93a1b0" : "#41506a";
+    const panel = dark ? "rgba(30,38,48,.72)" : "rgba(255,255,255,.72)";
+    const stroke = dark ? "rgba(255,255,255,.09)" : "rgba(15,23,42,.10)";
+    const unit = (a.temperature_unit || "°C");
+    this.innerHTML = `
+      <style>
+        .fw{container-type:inline-size;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+          position:relative;overflow:hidden;padding:16px 18px;color:${ink};border-radius:20px;
+          background:${panel};border:1px solid ${stroke};backdrop-filter:blur(14px);
+          -webkit-backdrop-filter:blur(14px);box-shadow:0 8px 22px rgba(0,0,0,${dark ? ".3" : ".12"})}
+        .fw::before{content:"";position:absolute;inset:0;pointer-events:none;
+          background:radial-gradient(120% 70% at 85% -20%,rgba(255,176,32,${dark ? ".14" : ".22"}),transparent 62%)}
+        .fw-top{position:relative;display:flex;align-items:center;gap:14px}
+        .fw-main{flex:1;min-width:0}
+        .fw-name{font-size:13px;font-weight:700;color:${muted};overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+        .fw-temp{font-size:clamp(38px,14cqw,54px);font-weight:800;line-height:1.02;letter-spacing:-.02em;
+          font-variant-numeric:tabular-nums}
+        .fw-cond{font-size:13.5px;font-weight:700;color:${muted};text-transform:capitalize}
+        .fw-icon{flex:0 0 auto}
+        .fw-icon ha-icon{--mdc-icon-size:64px;color:#ffb020}
+        .fw-stats{position:relative;display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-top:14px}
+        .fw-stat{display:flex;flex-direction:column;align-items:center;gap:2px;padding:9px 4px;border-radius:14px;
+          background:${dark ? "rgba(255,255,255,.05)" : "rgba(15,23,42,.05)"};border:1px solid ${stroke}}
+        .fw-stat ha-icon{--mdc-icon-size:17px;color:${muted}}
+        .fw-statval{font-size:13px;font-weight:800;font-variant-numeric:tabular-nums}
+        .fw-statlab{font-size:9px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:${muted}}
+        .fw-days{position:relative;display:flex;gap:7px;margin-top:12px;overflow-x:auto;scrollbar-width:none}
+        .fw-days::-webkit-scrollbar{display:none}
+        .fw-day{flex:1 0 62px;display:flex;flex-direction:column;align-items:center;gap:3px;padding:9px 4px;
+          border-radius:14px;background:${dark ? "rgba(255,255,255,.04)" : "rgba(15,23,42,.04)"};border:1px solid ${stroke}}
+        .fw-dayname{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:${muted}}
+        .fw-day ha-icon{--mdc-icon-size:22px;color:#ffb020}
+        .fw-max{font-size:13px;font-weight:800;font-variant-numeric:tabular-nums}
+        .fw-min{font-size:11px;font-weight:700;color:${muted};font-variant-numeric:tabular-nums}
+        @container (max-width: 330px){ .fw-stats{grid-template-columns:repeat(2,1fr)} }
+      </style>
+      <div class="fw">
+        <div class="fw-top">
+          <div class="fw-main">
+            <div class="fw-name">${fhEsc(this._cfg.name || a.friendly_name || "Meteo")}</div>
+            <div class="fw-temp" data-temp>${fhEsc(a.temperature != null ? Math.round(a.temperature) : "–")}<span style="font-size:.42em;vertical-align:super">${fhEsc(unit)}</span></div>
+            <div class="fw-cond" data-cond>${fhEsc(FH_WEATHER_IT[st.state] || st.state)}</div>
+          </div>
+          <div class="fw-icon"><ha-icon data-wicon icon="${fhEsc(FH_WEATHER_ICON[st.state] || "mdi:weather-partly-cloudy")}"></ha-icon></div>
+        </div>
+        <div class="fw-stats" data-stats>${this._statsHTML(a)}</div>
+        <div class="fw-days" data-days></div>
+      </div>`;
+    this._paintDays();
+  }
+
+  _statsHTML(a) {
+    return [
+      this._statHTML("mdi:water-percent", "Umidita", a.humidity != null ? a.humidity + "%" : ""),
+      this._statHTML("mdi:gauge", "Pressione", a.pressure != null ? Math.round(a.pressure) + " " + (a.pressure_unit || "hPa") : ""),
+      this._statHTML("mdi:weather-windy", "Vento", a.wind_speed != null ? Math.round(a.wind_speed) + " " + (a.wind_speed_unit || "km/h") : ""),
+      this._statHTML("mdi:compass-outline", "Direzione", fwDir(a.wind_bearing)),
+    ].join("");
+  }
+
+  _paintDays() {
+    const box = this.querySelector("[data-days]");
+    if (!box) return;
+    const fc = (this._fc || []).slice(0, Math.max(1, this._cfg.days || 4));
+    if (!fc.length) { box.innerHTML = ""; return; }
+    box.innerHTML = fc.map(d => {
+      const day = new Date(d.datetime).toLocaleDateString("it-IT", { weekday: "short" });
+      return `<div class="fw-day">
+        <div class="fw-dayname">${fhEsc(day.replace(".", ""))}</div>
+        <ha-icon icon="${fhEsc(FH_WEATHER_ICON[d.condition] || "mdi:weather-partly-cloudy")}"></ha-icon>
+        <div class="fw-max">${d.temperature != null ? Math.round(d.temperature) + "\u00b0" : "–"}</div>
+        <div class="fw-min">${d.templow != null ? Math.round(d.templow) + "\u00b0" : ""}</div>
+      </div>`;
+    }).join("");
+  }
+
+  _patch() {
+    const st = this._hass.states[this._cfg.entity];
+    if (!st) return;
+    const a = st.attributes;
+    const t = this.querySelector("[data-temp]");
+    if (t) t.innerHTML = `${a.temperature != null ? Math.round(a.temperature) : "–"}<span style="font-size:.42em;vertical-align:super">${fhEsc(a.temperature_unit || "°C")}</span>`;
+    const c = this.querySelector("[data-cond]");
+    if (c) c.textContent = FH_WEATHER_IT[st.state] || st.state;
+    const ic = this.querySelector("[data-wicon]");
+    if (ic) ic.setAttribute("icon", FH_WEATHER_ICON[st.state] || "mdi:weather-partly-cloudy");
+    const sb = this.querySelector("[data-stats]");
+    if (sb) sb.innerHTML = this._statsHTML(a);
+    this._paintDays();
+  }
+}
+customElements.define("faber-weather", FaberWeather);
+
+class FaberWeatherEditor extends HTMLElement {
+  setConfig(config) {
+    this._cfg = Object.assign({ days: 4 }, config || {});
+    if (this._internal) { this._internal = false; return; }
+    this._render();
+  }
+  set hass(h) { this._hass = h; if (!this._done) { this._done = true; this._render(); } }
+  _emit() {
+    this._internal = true;
+    this.dispatchEvent(new CustomEvent("config-changed", { detail: { config: this._cfg }, bubbles: true, composed: true }));
+  }
+  _render() {
+    if (!this._cfg || !this._hass) return;
+    const w = Object.keys(this._hass.states).filter(e => e.startsWith("weather."));
+    this.innerHTML = `<div style="display:flex;flex-direction:column;gap:12px;padding:6px 2px;font-family:inherit">
+      <label style="font-size:13px;font-weight:600">Entita meteo</label>
+      <select id="fwEnt" style="padding:9px 10px;border-radius:8px;font-size:14px;width:100%;
+        border:1px solid var(--divider-color);background:var(--card-background-color);color:var(--primary-text-color)">
+        ${w.map(e => `<option value="${e}"${e === this._cfg.entity ? " selected" : ""}>${fhEsc((this._hass.states[e].attributes.friendly_name) || e)}</option>`).join("")}
+      </select>
+      <label style="font-size:13px;font-weight:600">Nome mostrato (facoltativo)</label>
+      <input id="fwName" value="${fhEsc(this._cfg.name || "")}" style="padding:9px 10px;border-radius:8px;font-size:14px;width:100%;
+        border:1px solid var(--divider-color);background:var(--card-background-color);color:var(--primary-text-color)">
+      <label style="font-size:13px;font-weight:600">Giorni di previsione</label>
+      <input id="fwDays" type="number" min="0" max="7" value="${this._cfg.days ?? 4}" style="padding:9px 10px;border-radius:8px;font-size:14px;width:100%;
+        border:1px solid var(--divider-color);background:var(--card-background-color);color:var(--primary-text-color)">
+    </div>`;
+    const q = id => this.querySelector(id);
+    q("#fwEnt").addEventListener("change", e => { this._cfg = Object.assign({}, this._cfg, { entity: e.target.value }); this._emit(); });
+    q("#fwName").addEventListener("input", e => { this._cfg = Object.assign({}, this._cfg, { name: e.target.value }); this._emit(); });
+    q("#fwDays").addEventListener("change", e => { this._cfg = Object.assign({}, this._cfg, { days: parseInt(e.target.value) || 0 }); this._emit(); });
+  }
+}
+customElements.define("faber-weather-editor", FaberWeatherEditor);
+
+
+
 window.customCards = window.customCards || [];
+window.customCards.push({
+  type: "faber-weather",
+  name: "Faber Meteo",
+  description: "Meteo nello stile della famiglia: temperatura grande, condizione in italiano, umidita/pressione/vento/direzione e i prossimi giorni.",
+  preview: true,
+  documentationURL: "https://github.com/cristianwebonline/ha-faber-home",
+});
 window.customCards.push({
   type: "faber-home",
   name: "Faber Home",
