@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.25.0";
+const FH_VERSION = "0.26.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -752,6 +752,11 @@ class FaberHome extends HTMLElement {
   // --------------------------------------------------------------- modifica
   _toggleEdit() {
     this._edit = !this._edit;
+    if (!this._edit) {
+      const app = this.querySelector(".fh-app");
+      if (app) { app.style.maxWidth = ""; app.style.margin = ""; }
+      this._prova = null;
+    }
     // Si tiene una copia prima di toccare qualcosa: "Annulla" deve poter
     // riportare tutto com'era, senza ricaricare la pagina.
     if (this._edit) this._snapshot = JSON.stringify(this._cfg);
@@ -767,9 +772,25 @@ class FaberHome extends HTMLElement {
     const el = document.createElement("div");
     el.className = "fh-editbar";
     el.innerHTML = `<span class="fh-editlabel"><ha-icon icon="mdi:pencil"></ha-icon> Stai modificando</span>
+      <span class="fh-prova" title="Guarda come viene sugli altri schermi">
+        ${[["tel", "mdi:cellphone", "Telefono", 400], ["tab", "mdi:tablet", "Tablet", 800],
+           ["desk", "mdi:monitor", "Schermo grande", 0]]
+          .map(([k, ic, tit, w]) => `<button type="button" class="fh-pv${(this._prova || "desk") === k ? " sel" : ""}"
+            data-prova="${k}" data-w="${w}" title="${tit}"><ha-icon icon="${ic}"></ha-icon></button>`).join("")}
+      </span>
       <button type="button" class="fh-btn" data-act="pagine">Pagine</button>
       <button type="button" class="fh-btn" data-act="annulla">Annulla</button>
       <button type="button" class="fh-btn primary" data-act="salva">Salva</button>`;
+    el.querySelectorAll("[data-prova]").forEach(b => b.addEventListener("click", () => {
+      this._prova = b.dataset.prova;
+      const w = parseInt(b.dataset.w, 10);
+      const app = this.querySelector(".fh-app");
+      // Si stringe il pannello per davvero, cosi si vede il layout vero e non
+      // una simulazione: le colonne si ricontano da sole, come sul telefono.
+      if (w) { app.style.maxWidth = w + "px"; app.style.margin = "0 auto"; }
+      else { app.style.maxWidth = ""; app.style.margin = ""; }
+      this._renderPage();
+    }));
     el.querySelectorAll("[data-act]").forEach(b => b.addEventListener("click", () => {
       const a = b.dataset.act;
       if (a === "salva") this._save();
@@ -1171,7 +1192,8 @@ class FaberHome extends HTMLElement {
         person: "", name: "", avatars: "", forma: "cerchio", grandezza: "media", disposizione: "colonna",
         mostra_distanza: true, mostra_indirizzo: true, mostra_batteria: true } },
       { g: "Faber", n: "Clima / condizionatore", i: "mdi:air-conditioner", c: { type: "custom:faber-clima",
-        climate: "", name: "", temp: "", humidity: "", power: "", presa: "", aspetto: "auto",
+        climate: "", name: "", temp: "", humidity: "", power: "", presa: "", energy: "",
+        prezzo_kwh: 0.30, storico_giorni: 14, aspetto: "auto",
         mostra_ventola: true, mostra_alette: true, mostra_programmi: true } },
       { g: "Faber", n: "Carichi reali", i: "mdi:gauge", c: { type: "custom:faber-carichi", title: "Carichi reali",
         totale: "", gruppo: "", prezzo_kwh: 0.30, soglia_media: 1500, soglia_alta: 2500, top: 5, soglia_acceso: 5, naviga: "" } },
@@ -1416,6 +1438,22 @@ class FaberHome extends HTMLElement {
 
   // Il sensore di un certo mestiere che sta in quella stanza: cosi la card
   // della stanza mostra subito temperatura e umidita senza chiederle.
+  // L'icona della barra in basso, indovinata dal nome della stanza.
+  _iconaStanza(nome) {
+    const n = (nome || "").toLowerCase();
+    const mappa = [
+      [/cucin/, "mdi:silverware-fork-knife"], [/bagn/, "mdi:shower"],
+      [/camera|letto/, "mdi:bed"], [/salott|soggiorn|sala/, "mdi:sofa"],
+      [/giardin|estern/, "mdi:tree"], [/garage|box/, "mdi:garage"],
+      [/lavator|lavander/, "mdi:washing-machine"], [/studio|ufficio/, "mdi:desk"],
+      [/corridoi|ingress/, "mdi:door-open"], [/scal/, "mdi:stairs"],
+      [/terrazz|balcon/, "mdi:balcony"], [/cantin|taverna/, "mdi:home-floor-b"],
+      [/mansard|soffitt/, "mdi:home-roof"],
+    ];
+    const t = mappa.find(([r]) => r.test(n));
+    return t ? t[1] : "mdi:floor-plan";
+  }
+
   _sensoreArea(areaId, dc) {
     const ents = Object.values(this._hass.entities || {});
     const devs = this._hass.devices || {};
@@ -1484,7 +1522,8 @@ class FaberHome extends HTMLElement {
         <div class="fh-srow" style="margin-top:12px">
           <button type="button" class="fh-btn" id="rmBack">Indietro</button>
           <button type="button" class="fh-btn" id="rmLink">Solo una card che porta alla stanza</button>
-          <button type="button" class="fh-btn primary" id="rmAdd">Aggiungi i dispositivi</button>
+          <button type="button" class="fh-btn" id="rmPag">Crea una pagina per la stanza</button>
+          <button type="button" class="fh-btn primary" id="rmAdd">Metti qui i dispositivi</button>
         </div>`;
       box.querySelectorAll("[data-dev]").forEach(cb => cb.addEventListener("change", () => {
         selezione[cb.dataset.dev] = cb.checked;
@@ -1492,6 +1531,26 @@ class FaberHome extends HTMLElement {
       box.querySelector("#rmBack").addEventListener("click", drawAree);
       // Una sola card con il nome della stanza che, toccata, ci porta: e la
       // "card stanza" vera, non l'elenco dei suoi dispositivi.
+      // La stanza come PAGINA sua, con la sua voce nella barra in basso: e
+      // cosi che si tiene in ordine una casa con molte stanze, invece di
+      // allungare all'infinito una pagina sola.
+      box.querySelector("#rmPag").addEventListener("click", () => {
+        const scelte = proposte.filter(x => selezione[x.d.id]).map(x => x.card);
+        const cols = [[], [], []];
+        scelte.forEach((c, i) => cols[i % 3].push(c));
+        const id = scelta.name.toLowerCase().replace(/[^a-z0-9]+/gi, "_").replace(/^_|_$/g, "") || fhUid("st");
+        const gia = this._cfg.pages.findIndex(pg => pg.id === id);
+        const pagina = {
+          id, title: scelta.name, icon: this._iconaStanza(scelta.name),
+          rows: scelte.length ? [{ n_tel: 2, cols: cols.filter(c => c.length).map(c => ({ span: 1, cards: c })) }] : [],
+        };
+        if (gia >= 0) this._cfg.pages[gia] = pagina; else this._cfg.pages.push(pagina);
+        const sc3 = this.querySelector(".fh-scrim");
+        if (sc3) sc3.remove();
+        // Ci si va subito: e la conferma che e stata creata.
+        this._vaiPagina(this._cfg.pages.findIndex(pg => pg.id === id));
+      });
+
       box.querySelector("#rmLink").addEventListener("click", () => {
         const inCima = box.querySelector("#rmCima") && box.querySelector("#rmCima").checked;
         const pag = this._pagineDisponibili().find(x => x.titolo.toLowerCase() === scelta.name.toLowerCase());
@@ -2481,6 +2540,12 @@ const FH_CSS = `
     padding:10px 12px;border-radius:16px;margin-bottom:4px;
     background:var(--fh-panel,rgba(30,38,48,.9));border:1px solid rgba(255,176,32,.45);
     backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+  .fh-prova{display:flex;gap:3px;flex:0 0 auto}
+  .fh-pv{width:30px;height:30px;border-radius:9px;cursor:pointer;display:flex;align-items:center;
+    justify-content:center;border:1px solid var(--fh-stroke,rgba(255,255,255,.12));
+    background:transparent;color:var(--fh-muted,#93a1b0)}
+  .fh-pv ha-icon{--mdc-icon-size:16px}
+  .fh-pv.sel{border-color:rgba(255,176,32,.6);background:rgba(255,176,32,.18);color:#ffe9c2}
   .fh-editlabel{flex:1;min-width:120px;display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:800;color:#ffb020}
   .fh-editlabel ha-icon{--mdc-icon-size:17px}
   .fh-btn{padding:8px 14px;border-radius:999px;cursor:pointer;font:inherit;font-size:12.5px;font-weight:700;
@@ -3086,8 +3151,10 @@ class FaberCarichi extends HTMLElement {
   }
 
   set hass(h) {
+    const primo = !this._hass;
     this._hass = h;
     this._render();
+    if (primo) this._caricaCurva();
   }
 
   getCardSize() { return 5; }
@@ -3099,6 +3166,68 @@ class FaberCarichi extends HTMLElement {
       if (Array.isArray(m) && m.length) return m;
     }
     return Array.isArray(c.sensori) ? c.sensori : [];
+  }
+
+  // L'andamento delle ultime ore. Una fila di barre e una fotografia: dice
+  // quanto stai tirando adesso ma non se stai salendo o scendendo. La curva
+  // e la cosa che si guarda per prima.
+  async _caricaCurva() {
+    const id = this._cfg.totale;
+    if (!id || !this._hass) return;
+    if (this._curvaPer === id && Date.now() - (this._curvaTs || 0) < 300000) return;
+    this._curvaPer = id;
+    this._curvaTs = Date.now();
+    try {
+      const ore = Math.max(2, Math.min(48, parseInt(this._cfg.ore_grafico, 10) || 6));
+      const al = new Date();
+      const dal = new Date(al.getTime() - ore * 3600000);
+      const res = await this._hass.callWS({
+        type: "history/history_during_period",
+        start_time: dal.toISOString(), end_time: al.toISOString(),
+        entity_ids: [id], minimal_response: true, no_attributes: true,
+      });
+      const righe = (res && res[id]) || [];
+      const punti = righe.map(r => {
+        const t = r.lu !== undefined ? r.lu * 1000 : new Date(r.last_updated || r.lc).getTime();
+        const w = parseFloat(r.s !== undefined ? r.s : r.state);
+        return { t, w };
+      }).filter(x => isFinite(x.t) && isFinite(x.w)).sort((a, b) => a.t - b.t);
+      // Si riduce a un punto per minuto: piu di cosi non si vede comunque, e
+      // disegnare migliaia di punti su un telefono si sente.
+      const passo = (ore * 3600000) / 120;
+      const secchi = new Map();
+      punti.forEach(x => {
+        const k = Math.floor((x.t - dal.getTime()) / passo);
+        const v = secchi.get(k);
+        if (!v || x.w > v) secchi.set(k, x.w);
+      });
+      this._curva = [...secchi.keys()].sort((a, b) => a - b).map(k => secchi.get(k));
+    } catch (e) {
+      this._curva = null;
+    }
+    this._imp = null;
+    this._render();
+  }
+
+  // Un'area disegnata a mano: nessuna libreria da caricare per una curva.
+  _curvaHTML(colore) {
+    const v = this._curva;
+    if (!v || v.length < 3) return "";
+    const W = 300, H = 46;
+    const mx = Math.max(...v, 1);
+    const px = (i) => (i / (v.length - 1)) * W;
+    const py = (x) => H - (x / mx) * (H - 4) - 2;
+    const linea = v.map((x, i) => (i ? "L" : "M") + px(i).toFixed(1) + " " + py(x).toFixed(1)).join(" ");
+    const area = linea + ` L${W} ${H} L0 ${H} Z`;
+    const ore = Math.max(2, Math.min(48, parseInt(this._cfg.ore_grafico, 10) || 6));
+    return `<div class="fc-curva">
+      <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
+        <path d="${area}" fill="${colore}" opacity=".16"/>
+        <path d="${linea}" fill="none" stroke="${colore}" stroke-width="2"
+          stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>
+      </svg>
+      <div class="fc-curvalab"><span>ultime ${ore} ore</span><span>max ${fcW(mx)} W</span></div>
+    </div>`;
   }
 
   _dati() {
@@ -3155,6 +3284,8 @@ class FaberCarichi extends HTMLElement {
         </div>
       </div>
 
+      ${this._curvaHTML(t.forte)}
+
       <div class="fc-barra">
         <div class="fc-fill" style="width:${perc}%;background:${t.forte};box-shadow:0 0 12px ${t.forte}66"></div>
       </div>
@@ -3202,6 +3333,10 @@ const FC_CSS = `
   .fc-big{font-size:34px;font-weight:900;line-height:1;font-variant-numeric:tabular-nums}
   .fc-big span{font-size:15px;font-weight:800;opacity:.75;margin-left:3px}
   .fc-sub{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.6px;opacity:.6;margin-top:4px}
+  .fc-curva{position:relative;margin:2px 0 4px}
+  .fc-curva svg{display:block;width:100%;height:46px}
+  .fc-curvalab{display:flex;justify-content:space-between;font-size:9.5px;font-weight:800;
+    text-transform:uppercase;letter-spacing:.06em;opacity:.45;margin-top:2px}
   .fc-barra{height:9px;border-radius:6px;background:rgba(0,0,0,.32);overflow:hidden;border:1px solid rgba(255,255,255,.07)}
   .fc-fill{height:100%;border-radius:6px;transition:width .6s cubic-bezier(.22,.9,.3,1)}
   .fc-leg{display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:11.5px;font-weight:600;opacity:.88}
@@ -3459,6 +3594,9 @@ const FK_DEFAULTS = {
   humidity: "",
   power: "",
   presa: "",
+  energy: "",
+  prezzo_kwh: 0.30,
+  storico_giorni: 14,
   aspetto: "auto",
   mostra_ventola: true,
   mostra_alette: true,
@@ -3491,6 +3629,10 @@ const FK_PROGRAMMI = {
   super: "Turbo", boost: "Turbo", comfort: "Comfort", sleep: "Notte", away: "Assente",
   home: "In casa", activity: "Attivita",
 };
+
+function fkGiorno(d) {
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+}
 
 function fkNome(mappa, k) {
   if (mappa === FK_PROGRAMMI && /^sleep_(\d)$/.test(k)) return "Notte " + k.slice(-1);
@@ -3554,7 +3696,12 @@ class FaberClima extends HTMLElement {
     this._imp = null;
     if (this._hass) this._render();
   }
-  set hass(h) { this._hass = h; this._render(); }
+  set hass(h) {
+    const primo = !this._hass;
+    this._hass = h;
+    this._render();
+    if (primo) this._caricaConsumi();
+  }
   getCardSize() { return 6; }
 
   _st() { return this._cfg.climate ? this._hass.states[this._cfg.climate] : null; }
@@ -3567,6 +3714,109 @@ class FaberClima extends HTMLElement {
     if (!s) return null;
     const v = parseFloat(s.state);
     return isFinite(v) ? v : null;
+  }
+
+  // ---- quanto ha consumato -------------------------------------------------
+  // Due strade, e la scelta non e di comodo. Se c'e un contatore di energia si
+  // usa quello (statistiche gia pronte, un colpo solo). Se c'e solo la
+  // potenza, si integra nel tempo: e quello che fa la card del forno, e su
+  // questa casa funziona bene perche le prese misurano di continuo.
+  async _caricaConsumi() {
+    const c = this._cfg;
+    if (!c.energy && !c.power) { this._consumi = null; return; }
+    const firma = (c.energy || c.power) + "|" + (c.storico_giorni || 14);
+    if (this._consumiPer === firma && Date.now() - (this._consumiTs || 0) < 600000) return;
+    this._consumiPer = firma;
+    this._consumiTs = Date.now();
+    const giorni = Math.max(2, Math.min(60, parseInt(c.storico_giorni, 10) || 14));
+    const al = new Date();
+    const dal = new Date(al.getTime() - giorni * 86400000);
+    try {
+      let perGiorno = {};
+      if (c.energy) {
+        const res = await this._hass.callWS({
+          type: "recorder/statistics_during_period",
+          start_time: dal.toISOString(), end_time: al.toISOString(),
+          statistic_ids: [c.energy], period: "hour", types: ["change"],
+        });
+        // Un contatore che salta di colpo (riavvio, sostituzione) inventerebbe
+        // consumi enormi: sopra i 5 kWh in un'ora si scarta il valore.
+        ((res && res[c.energy]) || []).forEach(r => {
+          let k = (r.change && r.change > 0) ? r.change : 0;
+          if (k > 5) k = 0;
+          const g = fkGiorno(new Date(r.start));
+          perGiorno[g] = (perGiorno[g] || 0) + k;
+        });
+      } else {
+        const res = await this._hass.callWS({
+          type: "history/history_during_period",
+          start_time: dal.toISOString(), end_time: al.toISOString(),
+          entity_ids: [c.power], minimal_response: true, no_attributes: true,
+        });
+        const punti = ((res && res[c.power]) || []).map(r => ({
+          t: r.lu !== undefined ? r.lu * 1000 : new Date(r.last_updated || r.lc).getTime(),
+          w: parseFloat(r.s !== undefined ? r.s : r.state),
+        })).filter(x => isFinite(x.t) && isFinite(x.w)).sort((a, b) => a.t - b.t);
+        // Un buco lungo (apparecchio offline) non va riempito col valore
+        // precedente: si conta al massimo un'ora fra due letture.
+        const MAX_S = 3600;
+        for (let i = 0; i < punti.length - 1; i++) {
+          const dt = Math.min(MAX_S, (punti[i + 1].t - punti[i].t) / 1000);
+          if (dt <= 0) continue;
+          const kwh = Math.max(0, punti[i].w) * dt / 3600 / 1000;
+          const g = fkGiorno(new Date(punti[i].t));
+          perGiorno[g] = (perGiorno[g] || 0) + kwh;
+        }
+      }
+      this._consumi = perGiorno;
+    } catch (e) {
+      this._consumi = null;
+    }
+    this._imp = null;
+    this._render();
+  }
+
+  _consumiHTML(colore) {
+    const g = this._consumi;
+    if (!g) return "";
+    const c = this._cfg;
+    const prezzo = parseFloat(c.prezzo_kwh) || 0;
+    const giorni = Math.max(2, Math.min(60, parseInt(c.storico_giorni, 10) || 14));
+    const oggi = fkGiorno(new Date());
+    const chiavi = [];
+    for (let i = giorni - 1; i >= 0; i--) {
+      chiavi.push(fkGiorno(new Date(Date.now() - i * 86400000)));
+    }
+    const val = chiavi.map(k => g[k] || 0);
+    if (!val.some(v => v > 0.001)) return "";
+    const mx = Math.max(...val, 0.001);
+    const tot = val.reduce((a, b) => a + b, 0);
+    const media = tot / giorni;
+    const eur = n => (n * prezzo).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " \u20ac";
+    const kwh = n => n.toLocaleString("it-IT", { minimumFractionDigits: n < 10 ? 2 : 1, maximumFractionDigits: 2 });
+
+    return `<div class="fk-cons">
+      <div class="fk-crighe">
+        <div><div class="fk-clab">Oggi</div>
+          <div class="fk-cval" style="color:${colore}">${kwh(g[oggi] || 0)}<small>kWh</small></div>
+          <div class="fk-ceur">${eur(g[oggi] || 0)}</div></div>
+        <div><div class="fk-clab">Media al giorno</div>
+          <div class="fk-cval">${kwh(media)}<small>kWh</small></div>
+          <div class="fk-ceur">${eur(media)}</div></div>
+        <div><div class="fk-clab">In ${giorni} giorni</div>
+          <div class="fk-cval">${kwh(tot)}<small>kWh</small></div>
+          <div class="fk-ceur">${eur(tot)}</div></div>
+      </div>
+      <div class="fk-cbarre">
+        ${val.map((v, i) => {
+          const d = new Date(Date.now() - (giorni - 1 - i) * 86400000);
+          const h = Math.max(2, Math.round(v / mx * 100));
+          return `<div class="fk-cb${i === val.length - 1 ? " oggi" : ""}"
+            title="${d.toLocaleDateString("it-IT", { weekday: "short", day: "2-digit", month: "2-digit" })}: ${kwh(v)} kWh">
+            <span style="height:${h}%;background:${v > 0 ? colore : "rgba(255,255,255,.12)"}"></span></div>`;
+        }).join("")}
+      </div>
+    </div>`;
   }
 
   _srv(servizio, dati) {
@@ -3587,6 +3837,7 @@ class FaberClima extends HTMLElement {
       a.preset_mode, a.hvac_action, (a.hvac_modes || []).join(","),
       v(c.temp), v(c.humidity), v(c.power), v(c.presa),
       c.name, c.mostra_ventola, c.mostra_alette, c.mostra_programmi, c.aspetto,
+      c.energy, c.prezzo_kwh, c.storico_giorni,
       ["on", "off"].map(q => { const e = this._timerEntita(q); return e ? this._hass.states[e].state : ""; }).join(",")].join("|");
   }
 
@@ -3718,6 +3969,8 @@ class FaberClima extends HTMLElement {
         ${uman != null ? `<span><ha-icon icon="mdi:water-percent"></ha-icon>${Math.round(uman)}%</span>` : ""}
         ${watt != null ? `<span><ha-icon icon="mdi:lightning-bolt"></ha-icon>${Math.round(watt)} W</span>` : ""}
       </div>` : ""}
+
+      ${this._consumiHTML(m.c)}
 
       ${vent.length ? this._riga("Ventola", "fan", vent, a.fan_mode, FK_VENTOLA) : ""}
       ${alette.length ? this._riga("Alette", "swing", alette, a.swing_mode, FK_ALETTE) : ""}
@@ -4434,6 +4687,17 @@ const FK_CSS = `
   .fk-mb:hover{background:rgba(255,255,255,.1);color:#eaf1f8}
   .fk-mb.sel{color:var(--fk-c,#eaf1f8);border-color:color-mix(in srgb,var(--fk-c) 55%,transparent);
     background:color-mix(in srgb,var(--fk-c) 16%,transparent)}
+  .fk-cons{display:flex;flex-direction:column;gap:9px;padding:11px;border-radius:14px;
+    background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08)}
+  .fk-crighe{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+  .fk-clab{font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;opacity:.5}
+  .fk-cval{font-size:17px;font-weight:900;line-height:1.15;font-variant-numeric:tabular-nums;margin-top:2px}
+  .fk-cval small{font-size:10px;font-weight:800;opacity:.6;margin-left:3px}
+  .fk-ceur{font-size:11px;font-weight:700;opacity:.6;font-variant-numeric:tabular-nums}
+  .fk-cbarre{display:flex;align-items:flex-end;gap:2px;height:34px}
+  .fk-cb{flex:1;min-width:0;height:100%;display:flex;align-items:flex-end}
+  .fk-cb span{display:block;width:100%;border-radius:2px 2px 0 0;min-height:2px}
+  .fk-cb.oggi span{outline:1px solid rgba(255,255,255,.35);outline-offset:1px}
   .fk-info{display:flex;gap:14px;font-size:11.5px;font-weight:700;opacity:.75}
   .fk-info span{display:inline-flex;align-items:center;gap:4px}
   .fk-info ha-icon{--mdc-icon-size:15px}
@@ -4493,6 +4757,7 @@ class FaberClimaEditor extends HTMLElement {
         ${this._picker("temp", "Sensore temperatura — opzionale", "Molti split non misurano la temperatura, o la misurano dove soffiano. Un sensore in stanza dice il vero.", "sensor.", "temperature")}
         ${this._picker("humidity", "Sensore umidita — opzionale", "", "sensor.", "humidity")}
         ${this._picker("power", "Sensore potenza — opzionale", "Per vedere quanto sta consumando adesso.", "sensor.", "power")}
+        ${this._picker("energy", "Contatore energia \u2014 opzionale", "Per vedere quanto ha consumato e quanto costa. Se non ce l'hai, i kWh li calcolo dal sensore di potenza.", "sensor.", "energy")}
         ${this._picker("presa", "Presa di corrente — opzionale", "La presa che alimenta il condizionatore. Diventa un secondo tasto: staccare la corrente non e spegnere, e togliere l'alimentazione. Con la presa staccata i comandi restano visibili ma spenti.", "switch.")}
         <div class="fke-f"><label>Aspetto</label>
           <span class="fke-h">Il disegno lo indovina dal nome; qui lo puoi decidere tu.</span>
@@ -4502,6 +4767,15 @@ class FaberClimaEditor extends HTMLElement {
             <option value="stufa"${c.aspetto === "stufa" ? " selected" : ""}>Stufa a pellet</option>
             <option value="radiatore"${c.aspetto === "radiatore" ? " selected" : ""}>Termosifone</option>
           </select></div>
+        <div class="fke-riga2">
+          <div class="fke-f"><label>Prezzo energia (&euro;/kWh)</label>
+            <input class="fke-in" id="fkPrz" type="number" min="0" step="0.01" value="${c.prezzo_kwh}"></div>
+          <div class="fke-f"><label>Giorni di storico</label>
+            <select class="fke-in" id="fkGg">
+              ${[7, 14, 30].map(n => `<option value="${n}"${(c.storico_giorni || 14) === n ? " selected" : ""}>${n} giorni</option>`).join("")}
+            </select></div>
+        </div>
+
         <div class="fke-f"><label>Cosa mostrare</label>
           <label class="fke-ck"><input type="checkbox" id="fkV"${c.mostra_ventola !== false ? " checked" : ""}> Velocita della ventola</label>
           <label class="fke-ck"><input type="checkbox" id="fkA"${c.mostra_alette !== false ? " checked" : ""}> Alette</label>
@@ -4511,6 +4785,8 @@ class FaberClimaEditor extends HTMLElement {
     const q = s => this.querySelector(s);
     q("#fkNome").addEventListener("input", e => this._set("name", e.target.value));
     q("#fkAsp").addEventListener("change", e => this._set("aspetto", e.target.value));
+    q("#fkPrz").addEventListener("change", e => this._set("prezzo_kwh", parseFloat(e.target.value) || 0));
+    q("#fkGg").addEventListener("change", e => this._set("storico_giorni", parseInt(e.target.value, 10)));
     q("#fkV").addEventListener("change", e => this._set("mostra_ventola", e.target.checked));
     q("#fkA").addEventListener("change", e => this._set("mostra_alette", e.target.checked));
     q("#fkP").addEventListener("change", e => this._set("mostra_programmi", e.target.checked));
@@ -4552,6 +4828,7 @@ const FKE_CSS = `
   .fke-h{font-size:11.5px;line-height:1.45;color:var(--secondary-text-color)}
   .fke-in{padding:9px 10px;border-radius:9px;font-size:14px;width:100%;box-sizing:border-box;font-family:inherit;
     border:1px solid var(--divider-color);background:var(--card-background-color);color:var(--primary-text-color)}
+  .fke-riga2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
   .fke-pw{position:relative}
   .fke-x{position:absolute;right:6px;top:50%;transform:translateY(-50%);width:24px;height:24px;border:none;
     border-radius:50%;cursor:pointer;font-size:16px;line-height:1;background:var(--divider-color);color:var(--primary-text-color)}
