@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.29.0";
+const FH_VERSION = "0.30.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -863,7 +863,9 @@ class FaberHome extends HTMLElement {
       { k: "n_tab", i: "mdi:tablet", t: "Sul tablet" },
       { k: "n_desk", i: "mdi:monitor", t: "Su schermo grande" },
     ];
-    el.innerHTML = `<span class="fh-toolslabel">Riga ${ri + 1}</span>
+    el.innerHTML = `<span class="fh-toolslabel">Riga ${ri + 1}${row.fissa ? " \u00b7 in cima" : ""}</span>
+      ${this._btn(row.fissa ? "mdi:pin" : "mdi:pin-outline",
+        row.fissa ? "Tenuta in cima: le nuove card non la scavalcano" : "Tieni questa riga in cima", "fissa")}
       ${this._btn("mdi:table-column-plus-after", "Aggiungi colonna", "addcol")}
       ${this._btn("mdi:arrow-up", "Sposta su", "up")}
       ${this._btn("mdi:arrow-down", "Sposta giu", "down")}
@@ -883,9 +885,14 @@ class FaberHome extends HTMLElement {
       this._renderPage();
     }));
     const rows = this._cfg.pages[this._page].rows;
+    if (row.fissa) {
+      const sp = el.querySelector('[data-act="fissa"]');
+      if (sp) sp.classList.add("acceso");
+    }
     el.querySelectorAll("[data-act]").forEach(b => b.addEventListener("click", () => {
       const a = b.dataset.act;
-      if (a === "addcol") rows[ri].cols.push({ span: 1, cards: [] });
+      if (a === "fissa") rows[ri].fissa = !rows[ri].fissa;
+      else if (a === "addcol") rows[ri].cols.push({ span: 1, cards: [] });
       else if (a === "up" && ri > 0) { const [r] = rows.splice(ri, 1); rows.splice(ri - 1, 0, r); }
       else if (a === "down" && ri < rows.length - 1) { const [r] = rows.splice(ri, 1); rows.splice(ri + 1, 0, r); }
       else if (a === "del") rows.splice(ri, 1);
@@ -1529,17 +1536,28 @@ class FaberHome extends HTMLElement {
   // Dove mettere una card nuova: in una riga che c'e gia, come colonna in
   // piu, cosi sta accanto alle altre e si puo spostare e ridimensionare. Una
   // riga nuova si crea solo se non ce ne sono, o se quella e gia piena.
+  // La prima riga LIBERA: quelle contrassegnate "tieni in cima" si saltano.
+  // Le persone stanno sotto i chip e devono restarci: una stanza aggiunta in
+  // cima le scavalcava e si mescolava tutto.
+  _primaLibera() {
+    const righe = this._cfg.pages[this._page].rows;
+    let i = 0;
+    while (i < righe.length && righe[i].fissa) i++;
+    return i;
+  }
+
   _mettiCard(card, inCima) {
     const righe = this._cfg.pages[this._page].rows;
-    const i = inCima ? 0 : righe.length - 1;
+    const primaLibera = this._primaLibera();
+    const i = inCima ? primaLibera : righe.length - 1;
     const riga = righe[i];
-    if (riga && (riga.cols || []).length < 6) {
+    if (riga && !riga.fissa && (riga.cols || []).length < 6) {
       const col = { span: 1, cards: [card] };
       if (inCima) riga.cols.unshift(col); else riga.cols.push(col);
       return { ri: i, ci: inCima ? 0 : riga.cols.length - 1, di: 0 };
     }
     const nuova = { cols: [{ span: 1, cards: [card] }] };
-    if (inCima) { righe.unshift(nuova); return { ri: 0, ci: 0, di: 0 }; }
+    if (inCima) { righe.splice(primaLibera, 0, nuova); return { ri: primaLibera, ci: 0, di: 0 }; }
     righe.push(nuova);
     return { ri: righe.length - 1, ci: 0, di: 0 };
   }
