@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.12.2";
+const FH_VERSION = "0.13.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -507,9 +507,46 @@ class FaberHome extends HTMLElement {
     }));
   }
 
+
+  // ------------------------------------------------------- fasce di larghezza
+  // Niente container queries qui dentro: `container-type` porta con se
+  // `contain: layout`, che crea un contesto di impilamento e rimetterebbe i
+  // popup delle card prigionieri sotto la barra (il difetto della v0.10.1).
+  // Si misura la larghezza vera con un osservatore e si ridisegna solo quando
+  // si cambia fascia - non a ogni pixel.
+  _fasciaDa(w) { return w < 560 ? "tel" : w < 920 ? "tab" : "desk"; }
+
+  _watchFascia() {
+    const main = this.querySelector("[data-main]");
+    if (!main || this._ro) return;
+    this._larghezza = main.clientWidth || 900;
+    this._fascia = this._fasciaDa(this._larghezza);
+    this._ro = new ResizeObserver(entries => {
+      const w = entries[0].contentRect.width;
+      if (!w) return;
+      this._larghezza = w;
+      const f = this._fasciaDa(w);
+      if (f !== this._fascia) { this._fascia = f; this._renderPage(); }
+    });
+    this._ro.observe(main);
+  }
+
+  // Quante colonne mostrare in questa riga, adesso. "auto" (0) vuol dire:
+  // quante ce ne stanno larghe almeno quanto una card comoda.
+  _colonneRiga(row) {
+    const n = (row.cols || []).length || 1;
+    const f = this._fascia || "desk";
+    const scelto = f === "tel" ? row.n_tel : f === "tab" ? row.n_tab : row.n_desk;
+    if (scelto) return Math.max(1, Math.min(n, scelto));
+    const minima = f === "tel" ? 165 : 240;
+    const w = this._larghezza || 900;
+    return Math.max(1, Math.min(n, Math.floor((w + 14) / (minima + 14))));
+  }
+
   async _renderPage() {
     const main = this.querySelector("[data-main]");
     if (!main) return;
+    this._watchFascia();
     const page = this._cfg.pages[this._page];
     this._cardEls.clear();
     main.innerHTML = "";
@@ -536,28 +573,40 @@ class FaberHome extends HTMLElement {
 
       const inner = document.createElement("div");
       inner.className = "fh-row";
+      const n = this._colonneRiga(row);
+      inner.style.setProperty("--fh-n", n);
       (row.cols || []).forEach((col, ci) => {
         const colEl = document.createElement("div");
         colEl.className = "fh-col";
-        colEl.style.flex = `${col.span || 1} 1 0`;
+        // Una colonna non puo occupare piu tracce di quante ne esistano: su
+        // telefono con due colonne, una "larga 3" prenderebbe il posto di
+        // colonne che non ci sono e sfonderebbe la griglia.
+        colEl.style.gridColumn = `span ${Math.min(col.span || 1, n)}`;
+        colEl.dataset.col = ci;
         if (this._edit) colEl.appendChild(this._colToolsEl(ri, ci));
         (col.cards || []).forEach((cardCfg, di) => {
           const el = this._createCard(cardCfg, helpers);
           if (!el) return;
+          // Ogni card vive in un suo alloggiamento: e li che si applica
+          // l'altezza scelta, ed e quello che si trascina.
+          const slot = document.createElement("div");
+          slot.className = "fh-slot";
+          slot.dataset.slot = `${ri}.${ci}.${di}`;
+          const h = this._altezzaCard(cardCfg);
+          if (h) { slot.style.height = h + "px"; slot.classList.add("fissa"); }
           if (this._edit) {
-            const box = document.createElement("div");
-            box.className = "fh-cardedit";
-            box.appendChild(this._cardToolsEl(ri, ci, di));
-            box.appendChild(el);
+            slot.classList.add("editing");
+            slot.appendChild(this._cardToolsEl(ri, ci, di));
+            slot.appendChild(el);
             // In modifica il tocco non deve accendere una presa ne aprire un
             // popup: uno strato trasparente sopra la card intercetta tutto.
             const shield = document.createElement("div");
             shield.className = "fh-shield";
-            box.appendChild(shield);
-            colEl.appendChild(box);
+            slot.appendChild(shield);
           } else {
-            colEl.appendChild(el);
+            slot.appendChild(el);
           }
+          colEl.appendChild(slot);
         });
         if (this._edit) colEl.appendChild(this._addCardEl(ri, ci));
         inner.appendChild(colEl);
@@ -567,6 +616,12 @@ class FaberHome extends HTMLElement {
     });
     if (this._edit) main.appendChild(this._addRowEl());
   }
+
+
+  // L'altezza vive sotto una chiave nostra, come il popup, e viene tolta prima
+  // di consegnare la configurazione a Home Assistant: certe card native
+  // rifiutano chiavi che non conoscono.
+  _altezzaCard(cfg) { const h = parseInt(cfg && cfg.fh_h, 10); return isFinite(h) && h > 0 ? h : 0; }
 
   // --------------------------------------------------------------- modifica
   _toggleEdit() {
@@ -605,11 +660,31 @@ class FaberHome extends HTMLElement {
   _rowToolsEl(ri) {
     const el = document.createElement("div");
     el.className = "fh-tools";
+    const row = this._cfg.pages[this._page].rows[ri];
+    const scelte = [
+      { k: "n_tel", i: "mdi:cellphone", t: "Sul telefono" },
+      { k: "n_tab", i: "mdi:tablet", t: "Sul tablet" },
+      { k: "n_desk", i: "mdi:monitor", t: "Su schermo grande" },
+    ];
     el.innerHTML = `<span class="fh-toolslabel">Riga ${ri + 1}</span>
       ${this._btn("mdi:table-column-plus-after", "Aggiungi colonna", "addcol")}
       ${this._btn("mdi:arrow-up", "Sposta su", "up")}
       ${this._btn("mdi:arrow-down", "Sposta giu", "down")}
-      ${this._btn("mdi:delete-outline", "Elimina riga", "del")}`;
+      ${this._btn("mdi:delete-outline", "Elimina riga", "del")}
+      <div class="fh-perriga">
+        ${scelte.map(x => `<span class="fh-pr" title="${x.t}">
+          <ha-icon icon="${x.i}"></ha-icon>
+          <select data-n="${x.k}">
+            <option value="0"${!row[x.k] ? " selected" : ""}>auto</option>
+            ${[1, 2, 3, 4, 5, 6].map(v => `<option value="${v}"${row[x.k] === v ? " selected" : ""}>${v}</option>`).join("")}
+          </select>
+        </span>`).join("")}
+        <span class="fh-prnota">card per riga</span>
+      </div>`;
+    el.querySelectorAll("[data-n]").forEach(sel => sel.addEventListener("change", () => {
+      row[sel.dataset.n] = parseInt(sel.value, 10) || 0;
+      this._renderPage();
+    }));
     const rows = this._cfg.pages[this._page].rows;
     el.querySelectorAll("[data-act]").forEach(b => b.addEventListener("click", () => {
       const a = b.dataset.act;
@@ -645,12 +720,26 @@ class FaberHome extends HTMLElement {
     // piu affidabili del trascinamento, che sul telefono litiga con lo
     // scorrimento della pagina (lezione della Smart Card).
     const haPop = !!(this._cfg.pages[this._page].rows[ri].cols[ci].cards[di].fh_popup || {}).cards;
-    el.innerHTML = `${this._btn("mdi:cog-outline", "Configura", "cfg")}
+    const hAtt = this._altezzaCard(this._cfg.pages[this._page].rows[ri].cols[ci].cards[di]);
+    el.innerHTML = `<button type="button" class="fh-grip" data-grip title="Trascina per spostare"><ha-icon icon="mdi:drag"></ha-icon></button>
+      <select class="fh-hsel" data-h title="Altezza della card">
+        <option value="0"${!hAtt ? " selected" : ""}>altezza auto</option>
+        ${[110, 140, 170, 200, 240, 300, 380].map(v => `<option value="${v}"${hAtt === v ? " selected" : ""}>${v} px</option>`).join("")}
+        ${hAtt && ![110, 140, 170, 200, 240, 300, 380].includes(hAtt) ? `<option value="${hAtt}" selected>${hAtt} px</option>` : ""}
+      </select>
+      ${this._btn("mdi:cog-outline", "Configura", "cfg")}
       ${this._btn(haPop ? "mdi:dock-window" : "mdi:dock-window", "Popup al tocco", "pop")}
       ${this._btn("mdi:content-copy", "Duplica", "dup")}
       ${this._btn("mdi:arrow-left", "Colonna precedente", "left")}
       ${this._btn("mdi:arrow-right", "Colonna successiva", "right")}
       ${this._btn("mdi:delete-outline", "Elimina", "del")}`;
+    el.querySelector("[data-h]").addEventListener("change", e => {
+      const v = parseInt(e.target.value, 10) || 0;
+      const cfg = this._cfg.pages[this._page].rows[ri].cols[ci].cards[di];
+      if (v) cfg.fh_h = v; else delete cfg.fh_h;
+      this._renderPage();
+    });
+    this._wireDrag(el.querySelector("[data-grip]"), ri, ci, di);
     const cols = this._cfg.pages[this._page].rows[ri].cols;
     el.querySelectorAll("[data-act]").forEach(b => b.addEventListener("click", () => {
       const a = b.dataset.act;
@@ -664,6 +753,105 @@ class FaberHome extends HTMLElement {
       this._renderPage();
     }));
     return el;
+  }
+
+
+  // ------------------------------------------------------------ trascinamento
+  // Si trascina dalla MANIGLIA, non da tutta la card: e la lezione della Smart
+  // Card, dove `touch-action:none` steso su tutto trasformava la tela in una
+  // zona morta per lo scorrimento. Qui solo la maniglia blocca il tocco; il
+  // resto della pagina scorre come sempre.
+  _wireDrag(grip, ri, ci, di) {
+    if (!grip) return;
+    grip.addEventListener("pointerdown", ev => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      const main = this.querySelector("[data-main]");
+      const slot = grip.closest(".fh-slot");
+      if (!slot || !main) return;
+      grip.setPointerCapture(ev.pointerId);
+
+      const r = slot.getBoundingClientRect();
+      const fantasma = slot.cloneNode(true);
+      fantasma.classList.add("fh-ghost");
+      fantasma.style.width = r.width + "px";
+      fantasma.style.height = r.height + "px";
+      document.body.appendChild(fantasma);
+      const dx = ev.clientX - r.left, dy = ev.clientY - r.top;
+      const muovi = (x, y) => {
+        fantasma.style.left = (x - dx) + "px";
+        fantasma.style.top = (y - dy) + "px";
+      };
+      muovi(ev.clientX, ev.clientY);
+      slot.classList.add("fh-dragging");
+      main.classList.add("fh-dragmode");
+
+      let bersaglio = null;
+      const segna = (el, dopo) => {
+        main.querySelectorAll(".fh-drop-prima,.fh-drop-dopo").forEach(x => x.classList.remove("fh-drop-prima", "fh-drop-dopo"));
+        main.querySelectorAll(".fh-col.fh-drop-in").forEach(x => x.classList.remove("fh-drop-in"));
+        if (el && el.classList.contains("fh-slot")) el.classList.add(dopo ? "fh-drop-dopo" : "fh-drop-prima");
+        else if (el) el.classList.add("fh-drop-in");
+      };
+
+      const cerca = (x, y) => {
+        const sotto = document.elementsFromPoint(x, y);
+        const altro = sotto.find(e => e.classList && e.classList.contains("fh-slot") && e !== slot && !e.classList.contains("fh-ghost"));
+        if (altro) {
+          const b = altro.getBoundingClientRect();
+          const dopo = y > b.top + b.height / 2;
+          segna(altro, dopo);
+          bersaglio = { tipo: "slot", el: altro, dopo };
+          return;
+        }
+        const col = sotto.find(e => e.classList && e.classList.contains("fh-col"));
+        if (col) { segna(col); bersaglio = { tipo: "col", el: col }; return; }
+        segna(null); bersaglio = null;
+      };
+
+      const onMove = e => { muovi(e.clientX, e.clientY); cerca(e.clientX, e.clientY); };
+      const onUp = () => {
+        grip.removeEventListener("pointermove", onMove);
+        grip.removeEventListener("pointerup", onUp);
+        grip.removeEventListener("pointercancel", onUp);
+        fantasma.remove();
+        slot.classList.remove("fh-dragging");
+        main.classList.remove("fh-dragmode");
+        main.querySelectorAll(".fh-drop-prima,.fh-drop-dopo,.fh-drop-in").forEach(x => x.classList.remove("fh-drop-prima", "fh-drop-dopo", "fh-drop-in"));
+        if (bersaglio) this._sposta(ri, ci, di, bersaglio);
+      };
+      grip.addEventListener("pointermove", onMove);
+      grip.addEventListener("pointerup", onUp);
+      grip.addEventListener("pointercancel", onUp);
+    });
+  }
+
+  // Si toglie prima e si reinserisce dopo, ricalcolando l'indice: togliere una
+  // card sposta di uno tutte quelle che le stavano dietro nella stessa colonna,
+  // e senza tenerne conto la card finirebbe un posto piu in la di dove l'hai
+  // lasciata.
+  _sposta(ri, ci, di, bersaglio) {
+    const rows = this._cfg.pages[this._page].rows;
+    let dest;
+    if (bersaglio.tipo === "slot") {
+      const [tri, tci, tdi] = bersaglio.el.dataset.slot.split(".").map(Number);
+      dest = { ri: tri, ci: tci, i: tdi + (bersaglio.dopo ? 1 : 0) };
+    } else {
+      const colEl = bersaglio.el;
+      const rowEl = colEl.closest(".fh-row");
+      const tri = [...this.querySelectorAll("[data-main] .fh-row")].indexOf(rowEl);
+      const tci = parseInt(colEl.dataset.col, 10);
+      if (tri < 0 || isNaN(tci)) return;
+      dest = { ri: tri, ci: tci, i: (rows[tri].cols[tci].cards || []).length };
+    }
+    if (dest.ri === ri && dest.ci === ci && (dest.i === di || dest.i === di + 1)) return;
+    const [card] = rows[ri].cols[ci].cards.splice(di, 1);
+    if (!card) return;
+    let i = dest.i;
+    if (dest.ri === ri && dest.ci === ci && dest.i > di) i -= 1;
+    const arr = rows[dest.ri].cols[dest.ci].cards;
+    arr.splice(Math.max(0, Math.min(i, arr.length)), 0, card);
+    this._renderPage();
   }
 
   _addCardEl(ri, ci) {
@@ -1804,8 +1992,50 @@ const FH_CSS = `
      sopra. Senza z-index il popup di una card compete davvero con la barra
      e le passa davanti, come deve. */
   .fh-main{position:relative;flex:1;padding:8px 16px 110px;display:flex;flex-direction:column;gap:14px}
-  .fh-row{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start}
-  .fh-col{display:flex;flex-direction:column;gap:14px;min-width:240px}
+  /* La riga e una griglia con un numero di tracce deciso dalla fascia di
+     larghezza (--fh-n, scritto dal JS). Prima era un flex con min-width 240px
+     per colonna: sul telefono nessuna colonna ci stava accanto a un'altra e
+     tutto finiva impilato, senza possibilita di scelta. */
+  .fh-row{display:grid;grid-template-columns:repeat(var(--fh-n,1),minmax(0,1fr));
+    gap:14px;align-items:start}
+  .fh-col{display:flex;flex-direction:column;gap:14px;min-width:0}
+  /* L'alloggiamento della card: qui vive l'altezza scelta. Con un'altezza
+     fissa la card dentro deve riempirlo tutto, altrimenti resta appesa in
+     alto dentro un riquadro vuoto. */
+  .fh-slot{display:flex;flex-direction:column;min-width:0;position:relative}
+  .fh-slot.fissa{overflow:hidden}
+  .fh-slot.fissa>.fh-cardwrap{flex:1;min-height:0}
+  .fh-slot.fissa>.fh-cardwrap>*{height:100%;box-sizing:border-box}
+  .fh-slot.editing.fissa>.fh-cardwrap{flex:1}
+  /* trascinamento */
+  .fh-grip{width:30px;height:30px;border-radius:9px;cursor:grab;touch-action:none;flex:0 0 auto;
+    display:flex;align-items:center;justify-content:center;
+    border:1px solid rgba(255,176,32,.45);background:rgba(255,176,32,.14);color:#ffb020}
+  .fh-grip:active{cursor:grabbing}
+  .fh-grip ha-icon{--mdc-icon-size:17px}
+  .fh-hsel{height:30px;border-radius:9px;font:inherit;font-size:11px;font-weight:700;padding:0 4px;
+    border:1px solid var(--fh-stroke,rgba(255,255,255,.12));background:var(--fh-panel,rgba(255,255,255,.06));
+    color:var(--fh-muted,#93a1b0);cursor:pointer;max-width:104px}
+  .fh-ghost{position:fixed;z-index:60;pointer-events:none;opacity:.85;transform:rotate(-1.5deg);
+    box-shadow:0 18px 44px rgba(0,0,0,.5);border-radius:18px;overflow:hidden}
+  .fh-ghost .fh-tools,.fh-ghost .fh-shield{display:none}
+  .fh-slot.fh-dragging{opacity:.28}
+  .fh-dragmode .fh-col{outline:1px dashed rgba(255,176,32,.22);outline-offset:4px;border-radius:14px}
+  .fh-col.fh-drop-in{outline:2px solid rgba(255,176,32,.75);background:rgba(255,176,32,.07)}
+  .fh-slot.fh-drop-prima::before,.fh-slot.fh-drop-dopo::after{content:"";position:absolute;left:0;right:0;
+    height:4px;border-radius:3px;background:#ffb020;box-shadow:0 0 12px rgba(255,176,32,.8);z-index:5}
+  .fh-slot.fh-drop-prima::before{top:-9px}
+  .fh-slot.fh-drop-dopo::after{bottom:-9px}
+  /* quante card per riga */
+  .fh-perriga{display:flex;align-items:center;gap:6px;flex-wrap:wrap;width:100%;
+    margin-top:4px;padding-top:6px;border-top:1px dashed rgba(255,176,32,.25)}
+  .fh-pr{display:inline-flex;align-items:center;gap:3px}
+  .fh-pr ha-icon{--mdc-icon-size:15px;color:var(--fh-muted,#93a1b0)}
+  .fh-pr select{height:26px;border-radius:8px;font:inherit;font-size:11px;font-weight:700;padding:0 3px;
+    border:1px solid var(--fh-stroke,rgba(255,255,255,.12));background:var(--fh-panel,rgba(255,255,255,.06));
+    color:var(--fh-ink,#eaf1f8);cursor:pointer}
+  .fh-prnota{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;
+    color:var(--fh-muted,#93a1b0)}
   .fh-cardwrap{display:block}
   .fh-cardfail{padding:14px;border-radius:16px;font-size:12.5px;color:var(--fh-muted,#93a1b0);
     border:1px dashed var(--fh-stroke,rgba(255,255,255,.16));background:var(--fh-panel,rgba(255,255,255,.04))}
@@ -1853,7 +2083,7 @@ const FH_CSS = `
   .fh-tools{display:flex;align-items:center;gap:4px;flex-wrap:wrap;padding:5px 8px;border-radius:12px;
     background:rgba(255,176,32,.10);border:1px dashed rgba(255,176,32,.35)}
   .fh-tools.sub{background:rgba(255,255,255,.05);border-style:solid;border-color:var(--fh-stroke,rgba(255,255,255,.1))}
-  .fh-tools.card{border:none;background:none;padding:0 0 4px;justify-content:flex-end}
+  .fh-tools.card{border:none;background:none;padding:0 0 4px;justify-content:flex-end;flex:0 0 auto}
   .fh-toolslabel{flex:1;min-width:52px;font-size:10.5px;font-weight:800;letter-spacing:.05em;
     text-transform:uppercase;color:var(--fh-muted,#93a1b0)}
   .fh-tool{width:30px;height:30px;border-radius:9px;border:1px solid var(--fh-stroke,rgba(255,255,255,.12));
@@ -1864,7 +2094,6 @@ const FH_CSS = `
   .fh-span{width:28px;height:28px;border-radius:8px;cursor:pointer;font:inherit;font-size:12px;font-weight:800;
     border:1px solid var(--fh-stroke,rgba(255,255,255,.12));background:transparent;color:var(--fh-muted,#93a1b0)}
   .fh-span.sel{border-color:rgba(255,176,32,.6);background:rgba(255,176,32,.18);color:#ffe9c2}
-  .fh-cardedit{position:relative;display:flex;flex-direction:column}
   /* Lo scudo impedisce che, mentre sistemi il layout, un tocco accenda una
      presa o apra un popup. */
   .fh-shield{position:absolute;left:0;right:0;bottom:0;top:34px;border-radius:16px;cursor:default;
