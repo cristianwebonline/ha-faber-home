@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.15.2";
+const FH_VERSION = "0.16.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -997,7 +997,7 @@ class FaberHome extends HTMLElement {
         person: "", name: "", avatars: "", forma: "cerchio",
         mostra_distanza: true, mostra_indirizzo: true, mostra_batteria: true } },
       { g: "Faber", n: "Clima / condizionatore", i: "mdi:air-conditioner", c: { type: "custom:faber-clima",
-        climate: "", name: "", temp: "", humidity: "", power: "", presa: "",
+        climate: "", name: "", temp: "", humidity: "", power: "", presa: "", aspetto: "auto",
         mostra_ventola: true, mostra_alette: true, mostra_programmi: true } },
       { g: "Faber", n: "Carichi reali", i: "mdi:gauge", c: { type: "custom:faber-carichi", title: "Carichi reali",
         totale: "", gruppo: "", prezzo_kwh: 0.30, soglia_media: 1500, soglia_alta: 2500, top: 5, soglia_acceso: 5, naviga: "" } },
@@ -3118,6 +3118,7 @@ const FK_DEFAULTS = {
   humidity: "",
   power: "",
   presa: "",
+  aspetto: "auto",
   mostra_ventola: true,
   mostra_alette: true,
   mostra_programmi: true,
@@ -3154,6 +3155,48 @@ function fkNome(mappa, k) {
   if (mappa === FK_PROGRAMMI && /^sleep_(\d)$/.test(k)) return "Notte " + k.slice(-1);
   if (mappa === FK_PROGRAMMI && /^eco_sleep_(\d)$/.test(k)) return "Eco notte " + k.slice(-1);
   return mappa[k] || k.replace(/_/g, " ");
+}
+
+// Il disegno cambia col tipo di apparecchio: uno split appeso al muro non e
+// una stufa a pellet, e una fiammella al posto delle onde d'aria si capisce
+// al volo. Si indovina dal nome, ma resta modificabile a mano.
+function fkAspetto(cfg, st) {
+  if (cfg.aspetto && cfg.aspetto !== "auto") return cfg.aspetto;
+  const n = ((cfg.name || "") + " " + ((st && st.attributes.friendly_name) || "") + " " + (cfg.climate || "")).toLowerCase();
+  if (/pellet|stufa|caminetto|camino/.test(n)) return "stufa";
+  if (/termo|caldaia|riscaldament|radiator/.test(n)) return "radiatore";
+  return "split";
+}
+
+function fkDisegno(tipo) {
+  if (tipo === "stufa") {
+    return `<svg viewBox="0 0 72 58" aria-hidden="true">
+      <rect class="fk-corpo" x="14" y="6" width="44" height="46" rx="7"/>
+      <rect class="fk-vetro" x="21" y="14" width="30" height="24" rx="4"/>
+      <rect class="fk-griglia" x="21" y="43" width="30" height="3.4" rx="1.7"/>
+      <circle class="fk-spia" cx="53" cy="10.5" r="2.2"/>
+      <path class="fk-fiamma f1" d="M36 36 c-5 -3 -6 -8 -3 -12 c0 3 2 4 3 3 c-1 -4 1 -7 4 -9 c-1 4 1 5 2 7 c2 4 1 9 -6 11 Z"/>
+      <path class="fk-fiamma f2" d="M32 36 c-3 -2 -3.5 -5 -1.5 -7.5 c0 2 1.2 2.6 1.8 1.8 c-0.6 -2.4 0.6 -4.2 2.4 -5.4 c-0.6 2.4 0.6 3 1.2 4.2 c1.2 2.4 0.6 5.4 -3.9 6.9 Z"/>
+      <path class="fk-legna" d="M25 47.5 h22" />
+    </svg>`;
+  }
+  if (tipo === "radiatore") {
+    return `<svg viewBox="0 0 72 58" aria-hidden="true">
+      <rect class="fk-corpo" x="12" y="12" width="48" height="34" rx="6"/>
+      <path class="fk-griglia2" d="M22 16 v26 M30 16 v26 M38 16 v26 M46 16 v26 M54 16 v26"/>
+      <circle class="fk-spia" cx="16.5" cy="16.5" r="2"/>
+      <path class="fk-onda o1" d="M20 52 q6 -5 12 0 t12 0"/>
+      <path class="fk-onda o2" d="M26 56 q6 -5 12 0"/>
+    </svg>`;
+  }
+  return `<svg viewBox="0 0 72 58" aria-hidden="true">
+    <rect class="fk-corpo" x="4" y="6" width="64" height="22" rx="7"/>
+    <rect class="fk-griglia" x="9" y="20" width="54" height="3.4" rx="1.7"/>
+    <circle class="fk-spia" cx="60" cy="13" r="2.2"/>
+    <path class="fk-onda o1" d="M14 38 q7 -6 14 0 t14 0"/>
+    <path class="fk-onda o2" d="M18 46 q7 -6 14 0 t14 0"/>
+    <path class="fk-onda o3" d="M22 54 q7 -6 14 0 t14 0"/>
+  </svg>`;
 }
 
 class FaberClima extends HTMLElement {
@@ -3201,7 +3244,8 @@ class FaberClima extends HTMLElement {
     return [st.state, a.temperature, a.current_temperature, a.fan_mode, a.swing_mode,
       a.preset_mode, a.hvac_action, (a.hvac_modes || []).join(","),
       v(c.temp), v(c.humidity), v(c.power), v(c.presa),
-      c.name, c.mostra_ventola, c.mostra_alette, c.mostra_programmi].join("|");
+      c.name, c.mostra_ventola, c.mostra_alette, c.mostra_programmi, c.aspetto,
+      this._timerEntita() ? this._hass.states[this._timerEntita()].state : ""].join("|");
   }
 
   _render() {
@@ -3238,9 +3282,12 @@ class FaberClima extends HTMLElement {
     // La presa e un'altra cosa dal telecomando: staccare la corrente non
     // "spegne" il condizionatore, lo lascia senza alimentazione. Sono due
     // comandi distinti, e col filo staccato il telecomando non serve a nulla.
+    const tipoDisegno = fkAspetto(this._cfg, st);
     const presaSt = this._cfg.presa ? this._hass.states[this._cfg.presa] : null;
     const presaOn = presaSt ? presaSt.state === "on" : true;
     const senzaCorrente = !!presaSt && !presaOn;
+    const tEnt = this._timerEntita();
+    const timerAcceso = !!tEnt && this._hass.states[tEnt].state === "on";
 
     // La tinta della card segue il modo, sovrapposta al pannello.
     this._card.style.backgroundImage = acceso
@@ -3278,6 +3325,8 @@ class FaberClima extends HTMLElement {
           <div class="fk-modo" style="color:${m.c}"><ha-icon icon="${m.i}"></ha-icon>${fhEsc(m.t)}</div>
         </div>
         <div class="fk-comandi">
+          <button type="button" class="fk-timerb${timerAcceso ? " on" : ""}" data-timer
+            title="Timer di spegnimento"><ha-icon icon="mdi:timer-outline"></ha-icon></button>
           ${presaSt ? `<button type="button" class="fk-presa${presaOn ? " on" : ""}" data-presa
             title="${presaOn ? "Stacca la corrente" : "Dai corrente"}">
             <ha-icon icon="mdi:power-plug${presaOn ? "" : "-off"}"></ha-icon>
@@ -3290,15 +3339,8 @@ class FaberClima extends HTMLElement {
       </div>
 
       <div class="fk-centro">
-        <div class="fk-split${acceso ? " viva" : ""}" style="--fk-c:${m.c}">
-          <svg viewBox="0 0 72 58" aria-hidden="true">
-            <rect class="fk-corpo" x="4" y="6" width="64" height="22" rx="7"/>
-            <rect class="fk-griglia" x="9" y="20" width="54" height="3.4" rx="1.7"/>
-            <circle class="fk-spia" cx="60" cy="13" r="2.2"/>
-            <path class="fk-onda o1" d="M14 38 q7 -6 14 0 t14 0"/>
-            <path class="fk-onda o2" d="M18 46 q7 -6 14 0 t14 0"/>
-            <path class="fk-onda o3" d="M22 54 q7 -6 14 0 t14 0"/>
-          </svg>
+        <div class="fk-split ${tipoDisegno}${acceso ? " viva" : ""}" style="--fk-c:${m.c}">
+          ${fkDisegno(tipoDisegno)}
         </div>
         <div class="fk-lettura">
           <div class="fk-ora">${ora != null ? Math.round(ora * 10) / 10 : "--"}<span>&deg;</span></div>
@@ -3341,6 +3383,7 @@ class FaberClima extends HTMLElement {
     });
 
     const q = sel => this._body.querySelectorAll(sel);
+    this._body.querySelector("[data-timer]").addEventListener("click", () => this._openTimer());
     const bp = this._body.querySelector("[data-presa]");
     if (bp) bp.addEventListener("click", () => {
       const dom = this._cfg.presa.split(".")[0];
@@ -3360,6 +3403,174 @@ class FaberClima extends HTMLElement {
     q("[data-fan]").forEach(b => b.addEventListener("click", () => this._srv("set_fan_mode", { fan_mode: b.dataset.fan })));
     q("[data-swing]").forEach(b => b.addEventListener("click", () => this._srv("set_swing_mode", { swing_mode: b.dataset.swing })));
     q("[data-preset]").forEach(b => b.addEventListener("click", () => this._srv("set_preset_mode", { preset_mode: b.dataset.preset })));
+  }
+
+
+  // ------------------------------------------------------------------ timer
+  // Il timer NON e un conto alla rovescia del browser: quello morirebbe
+  // chiudendo la pagina o bloccando il telefono, e sarebbe una bugia. Qui si
+  // scrive una VERA automazione di Home Assistant, che si vede e si modifica
+  // anche da Impostazioni. Spegne il climatizzatore (set_hvac_mode: off), non
+  // stacca la corrente: sono due cose diverse.
+  _timerId() { return "faber_clima_" + (this._cfg.climate || "").replace(/[^a-z0-9]+/gi, "_").toLowerCase(); }
+
+  // L'entita dell'automazione si ritrova dal suo id interno, non dal nome:
+  // il nome lo slugifica Home Assistant e non e prevedibile.
+  _timerEntita() {
+    const id = this._timerId();
+    return Object.keys(this._hass.states).find(e =>
+      e.startsWith("automation.") && this._hass.states[e].attributes.id === id) || null;
+  }
+
+  async _leggiTimer() {
+    try {
+      return await this._hass.callApi("get", "config/automation/config/" + this._timerId());
+    } catch (e) {
+      return null; // non c'e ancora: e la condizione normale, non un errore
+    }
+  }
+
+  async _openTimer() {
+    const scrim = document.createElement("div");
+    scrim.className = "fk-scrim";
+    const nome = this._cfg.name || (this._st() && this._st().attributes.friendly_name) || "Clima";
+    scrim.innerHTML = `<div class="fk-modal"><div class="fk-mbody">Leggo il timer...</div></div>`;
+    scrim.addEventListener("click", e => { if (e.target === scrim) scrim.remove(); });
+    this.appendChild(scrim);
+    const body = scrim.querySelector(".fk-mbody");
+
+    const cfg = await this._leggiTimer();
+    const ent = this._timerEntita();
+    const attivo = ent ? this._hass.states[ent].state === "on" : false;
+
+    // Si rilegge cosa c'e gia impostato dall'automazione stessa: e lei la
+    // fonte della verita, cosi la card non puo dire una cosa diversa da
+    // quella che succedera davvero.
+    let ora = "23:00";
+    let tipo = "nessuno";
+    let giorni = [];
+    if (cfg) {
+      const trg = (cfg.triggers || cfg.trigger || [])[0] || {};
+      if (typeof trg.at === "string") ora = trg.at.slice(0, 5);
+      const cond = (cfg.conditions || cfg.condition || []).find(c => c && c.weekday);
+      if (cond) { tipo = "settimanale"; giorni = [].concat(cond.weekday); }
+      else if (JSON.stringify(cfg.actions || cfg.action || []).includes("automation.turn_off")) tipo = "unatantum";
+      else tipo = "giornaliero";
+      if (!attivo) tipo = tipo; // lo stato acceso/spento e a parte
+    }
+
+    const GG = [["mon", "Lun"], ["tue", "Mar"], ["wed", "Mer"], ["thu", "Gio"], ["fri", "Ven"], ["sat", "Sab"], ["sun", "Dom"]];
+
+    const disegna = () => {
+      body.innerHTML = `
+        <div class="fk-mh">
+          <div class="fk-mt">Timer di spegnimento</div>
+          <button type="button" class="fk-mx" data-chiudi>&times;</button>
+        </div>
+        <div class="fk-mnota">Spegne <b>${fhEsc(nome)}</b> all'ora scelta. Non stacca la corrente: la presa resta com'e.</div>
+
+        <div class="fk-mgruppo">Quando</div>
+        <div class="fk-tipi">
+          ${[["nessuno", "Nessuno"], ["unatantum", "Una volta sola"], ["giornaliero", "Tutti i giorni"], ["settimanale", "Certi giorni"]]
+            .map(([k, t]) => `<button type="button" class="fk-tipo${tipo === k ? " sel" : ""}" data-tipo="${k}">${t}</button>`).join("")}
+        </div>
+
+        ${tipo !== "nessuno" ? `
+          <div class="fk-mgruppo">A che ora</div>
+          <input type="time" class="fk-mora" id="fkOra" value="${fhEsc(ora)}">
+          ${tipo === "settimanale" ? `
+            <div class="fk-mgruppo">In quali giorni</div>
+            <div class="fk-gg">${GG.map(([k, t]) =>
+              `<button type="button" class="fk-g${giorni.includes(k) ? " sel" : ""}" data-g="${k}">${t}</button>`).join("")}</div>` : ""}
+          ${tipo === "unatantum" ? `<div class="fk-mnota">Dopo aver spento una volta il timer si disattiva da solo.</div>` : ""}
+        ` : `<div class="fk-mnota">${cfg ? "Il timer esistente verra cancellato." : "Nessun timer impostato."}</div>`}
+
+        ${(cfg && attivo && tipo !== "nessuno") ? `<div class="fk-mstato acceso">Timer attivo</div>`
+          : (cfg && !attivo) ? `<div class="fk-mstato spento">Timer presente ma disattivato</div>` : ""}
+
+        <div class="fk-mfoot">
+          <span class="fk-mmsg" data-msg></span>
+          ${(cfg && attivo) ? `<button type="button" class="fk-mb" data-sospendi>Sospendi</button>` : ""}
+          ${(cfg && !attivo) ? `<button type="button" class="fk-mb" data-riattiva>Riattiva</button>` : ""}
+          <button type="button" class="fk-mb primario" data-salva>${tipo === "nessuno" ? "Elimina timer" : "Salva timer"}</button>
+        </div>`;
+
+      body.querySelector("[data-chiudi]").addEventListener("click", () => scrim.remove());
+      body.querySelectorAll("[data-tipo]").forEach(b => b.addEventListener("click", () => {
+        const o = body.querySelector("#fkOra"); if (o) ora = o.value;
+        tipo = b.dataset.tipo;
+        if (tipo === "settimanale" && !giorni.length) giorni = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+        disegna();
+      }));
+      body.querySelectorAll("[data-g]").forEach(b => b.addEventListener("click", () => {
+        const o = body.querySelector("#fkOra"); if (o) ora = o.value;
+        const k = b.dataset.g;
+        giorni = giorni.includes(k) ? giorni.filter(x => x !== k) : giorni.concat(k);
+        disegna();
+      }));
+
+      const msg = t => { const m = body.querySelector("[data-msg]"); if (m) m.textContent = t; };
+      const sos = body.querySelector("[data-sospendi]");
+      if (sos) sos.addEventListener("click", async () => {
+        await this._hass.callService("automation", "turn_off", { entity_id: ent });
+        msg("Sospeso."); setTimeout(() => scrim.remove(), 700);
+      });
+      const ria = body.querySelector("[data-riattiva]");
+      if (ria) ria.addEventListener("click", async () => {
+        await this._hass.callService("automation", "turn_on", { entity_id: ent });
+        msg("Riattivato."); setTimeout(() => scrim.remove(), 700);
+      });
+
+      body.querySelector("[data-salva]").addEventListener("click", async () => {
+        const o = body.querySelector("#fkOra"); if (o) ora = o.value;
+        msg("Salvo...");
+        try {
+          if (tipo === "nessuno") {
+            if (cfg) await this._hass.callApi("delete", "config/automation/config/" + this._timerId());
+            msg("Timer eliminato.");
+          } else {
+            if (tipo === "settimanale" && !giorni.length) { msg("Scegli almeno un giorno."); return; }
+            await this._hass.callApi("post", "config/automation/config/" + this._timerId(), this._corpoTimer(nome, ora, tipo, giorni));
+            msg("Salvato.");
+          }
+          setTimeout(() => scrim.remove(), 800);
+        } catch (e) {
+          msg("Non sono riuscito a salvare: " + ((e && e.message) || e));
+        }
+      });
+    };
+    disegna();
+  }
+
+  _corpoTimer(nome, ora, tipo, giorni) {
+    const azioni = [{
+      action: "climate.set_hvac_mode",
+      // entity_id e non device_id: un device_id si rompe se il dispositivo
+      // viene tolto e rimesso.
+      target: { entity_id: this._cfg.climate },
+      data: { hvac_mode: "off" },
+    }];
+    if (tipo === "unatantum") {
+      // Si spegne da sola dopo aver agito. Non si usa "enabled: false" nel
+      // file: non e una chiave valida, l'automazione risulterebbe rotta.
+      // "this.entity_id" e il modo giusto per farle riferire a se stessa.
+      azioni.push({
+        action: "automation.turn_off",
+        target: { entity_id: "{{ this.entity_id }}" },
+        data: { stop_actions: false },
+      });
+    }
+    const corpo = {
+      id: this._timerId(),
+      alias: "Faber Home — spegni " + nome,
+      description: "Creato da Faber Home. Spegne il climatizzatore all'ora indicata. Non tocca la presa di corrente.",
+      mode: "single",
+      triggers: [{ trigger: "time", at: (ora.length === 5 ? ora + ":00" : ora) }],
+      conditions: [],
+      actions: azioni,
+    };
+    if (tipo === "settimanale") corpo.conditions = [{ condition: "time", weekday: giorni }];
+    return corpo;
   }
 
   // Le opzioni sono tante (il condizionatore della sala ha 13 programmi): una
@@ -3404,6 +3615,57 @@ const FK_CSS = `
     transition:background .25s,color .25s,border-color .25s}
   .fk-presa ha-icon{--mdc-icon-size:20px}
   .fk-presa.on{background:rgba(255,176,32,.16);border-color:rgba(255,176,32,.45);color:#ffb020}
+  .fk-timerb{width:42px;height:42px;border-radius:14px;cursor:pointer;flex:0 0 auto;
+    display:flex;align-items:center;justify-content:center;
+    border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:#93a1b0;
+    transition:background .25s,color .25s,border-color .25s}
+  .fk-timerb ha-icon{--mdc-icon-size:20px}
+  .fk-timerb.on{background:rgba(167,139,250,.18);border-color:rgba(167,139,250,.5);color:#c4b5fd}
+  /* --------------------------------------------------------- stufa a pellet */
+  .fk-vetro{fill:rgba(0,0,0,.45);stroke:rgba(255,255,255,.18);stroke-width:1}
+  .fk-legna{stroke:rgba(255,255,255,.2);stroke-width:2.4;stroke-linecap:round;fill:none}
+  .fk-griglia2{stroke:rgba(255,255,255,.22);stroke-width:2.4;stroke-linecap:round;fill:none}
+  .fk-fiamma{fill:rgba(255,255,255,.14)}
+  .fk-split.viva.stufa .fk-vetro{fill:color-mix(in srgb,var(--fk-c) 22%,rgba(0,0,0,.5))}
+  .fk-split.viva .fk-fiamma{fill:var(--fk-c);animation:fk-brucia 1.5s ease-in-out infinite;transform-origin:36px 36px}
+  .fk-split.viva .f2{animation-duration:1.1s;animation-delay:.25s;opacity:.75}
+  .fk-split.viva .fk-griglia2{stroke:color-mix(in srgb,var(--fk-c) 70%,transparent)}
+  @keyframes fk-brucia{
+    0%,100%{transform:scaleY(.86) scaleX(1.04);opacity:.8}
+    50%{transform:scaleY(1.08) scaleX(.94);opacity:1}}
+  @media (prefers-reduced-motion:reduce){.fk-split.viva .fk-fiamma{animation:none}}
+  /* ------------------------------------------------------------ finestrella */
+  .fk-scrim{position:absolute;inset:0;z-index:12;display:flex;align-items:flex-end;justify-content:center;
+    background:rgba(4,6,10,.6);backdrop-filter:blur(5px);border-radius:22px}
+  .fk-modal{width:100%;max-height:100%;overflow-y:auto;border-radius:20px 20px 22px 22px;
+    background:rgba(20,23,30,.98);border:1px solid rgba(255,255,255,.14);
+    box-shadow:0 -12px 40px rgba(0,0,0,.55)}
+  .fk-mbody{padding:14px 15px 15px;display:flex;flex-direction:column;gap:9px}
+  .fk-mh{display:flex;align-items:center;gap:8px}
+  .fk-mt{flex:1;font-size:15px;font-weight:800}
+  .fk-mx{width:28px;height:28px;border-radius:50%;cursor:pointer;font-size:17px;line-height:1;
+    border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.06);color:inherit;flex:0 0 auto}
+  .fk-mnota{font-size:11.5px;line-height:1.45;opacity:.7}
+  .fk-mgruppo{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.09em;opacity:.5;margin-top:4px}
+  .fk-tipi{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+  .fk-tipo{padding:9px 6px;border-radius:12px;cursor:pointer;font:inherit;font-size:12px;font-weight:700;
+    border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);color:#93a1b0}
+  .fk-tipo.sel{border-color:rgba(167,139,250,.6);background:rgba(167,139,250,.18);color:#ddd6fe}
+  .fk-mora{padding:10px;border-radius:12px;font:inherit;font-size:19px;font-weight:800;text-align:center;
+    border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:inherit;
+    font-variant-numeric:tabular-nums}
+  .fk-gg{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+  .fk-g{padding:7px 2px;border-radius:9px;cursor:pointer;font:inherit;font-size:10.5px;font-weight:800;
+    border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);color:#93a1b0}
+  .fk-g.sel{border-color:rgba(167,139,250,.6);background:rgba(167,139,250,.2);color:#ddd6fe}
+  .fk-mstato{font-size:11.5px;font-weight:800;padding:7px 10px;border-radius:10px;text-align:center}
+  .fk-mstato.acceso{background:rgba(167,139,250,.16);color:#c4b5fd}
+  .fk-mstato.spento{background:rgba(255,255,255,.07);color:#93a1b0}
+  .fk-mfoot{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:5px}
+  .fk-mmsg{flex:1;min-width:90px;font-size:11px;font-weight:600;opacity:.7}
+  .fk-mb{padding:9px 13px;border-radius:11px;cursor:pointer;font:inherit;font-size:12.5px;font-weight:800;
+    border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:inherit}
+  .fk-mb.primario{border-color:rgba(167,139,250,.6);background:rgba(167,139,250,.22);color:#ddd6fe}
   .fk-staccato{display:flex;align-items:center;gap:8px;padding:9px 11px;border-radius:13px;
     font-size:11.5px;font-weight:700;line-height:1.4;
     background:rgba(255,92,92,.12);border:1px solid rgba(255,92,92,.32);color:#ffb0a3}
@@ -3516,6 +3778,14 @@ class FaberClimaEditor extends HTMLElement {
         ${this._picker("humidity", "Sensore umidita — opzionale", "", "sensor.", "humidity")}
         ${this._picker("power", "Sensore potenza — opzionale", "Per vedere quanto sta consumando adesso.", "sensor.", "power")}
         ${this._picker("presa", "Presa di corrente — opzionale", "La presa che alimenta il condizionatore. Diventa un secondo tasto: staccare la corrente non e spegnere, e togliere l'alimentazione. Con la presa staccata i comandi restano visibili ma spenti.", "switch.")}
+        <div class="fke-f"><label>Aspetto</label>
+          <span class="fke-h">Il disegno lo indovina dal nome; qui lo puoi decidere tu.</span>
+          <select class="fke-in" id="fkAsp">
+            <option value="auto"${c.aspetto === "auto" || !c.aspetto ? " selected" : ""}>Indovinalo dal nome</option>
+            <option value="split"${c.aspetto === "split" ? " selected" : ""}>Condizionatore a muro</option>
+            <option value="stufa"${c.aspetto === "stufa" ? " selected" : ""}>Stufa a pellet</option>
+            <option value="radiatore"${c.aspetto === "radiatore" ? " selected" : ""}>Termosifone</option>
+          </select></div>
         <div class="fke-f"><label>Cosa mostrare</label>
           <label class="fke-ck"><input type="checkbox" id="fkV"${c.mostra_ventola !== false ? " checked" : ""}> Velocita della ventola</label>
           <label class="fke-ck"><input type="checkbox" id="fkA"${c.mostra_alette !== false ? " checked" : ""}> Alette</label>
@@ -3524,6 +3794,7 @@ class FaberClimaEditor extends HTMLElement {
       </div>`;
     const q = s => this.querySelector(s);
     q("#fkNome").addEventListener("input", e => this._set("name", e.target.value));
+    q("#fkAsp").addEventListener("change", e => this._set("aspetto", e.target.value));
     q("#fkV").addEventListener("change", e => this._set("mostra_ventola", e.target.checked));
     q("#fkA").addEventListener("change", e => this._set("mostra_alette", e.target.checked));
     q("#fkP").addEventListener("change", e => this._set("mostra_programmi", e.target.checked));
