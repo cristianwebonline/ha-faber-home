@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.31.0";
+const FH_VERSION = "0.32.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -2913,20 +2913,53 @@ function fwSkin(state) {
 // Disegni morbidi al posto delle icone piatte, e soprattutto VIVI: il sole
 // gira, la pioggia cade, le nuvole scorrono, il fulmine lampeggia. Le
 // animazioni si fermano da sole se il sistema chiede meno movimento.
+// I gradienti hanno bisogno di un nome unico: lo stesso sole compare nella
+// card e in ogni riga delle previsioni, e due <defs> con lo stesso id nella
+// stessa pagina si sovrascrivono a vicenda.
+let FW_SEME = 0;
+
 function fwArt(kind, size, still) {
   const s = size || 76;
   const cls = still ? "" : " fw-anim";
+  const u = "fw" + (++FW_SEME);
   const S = v => `<svg class="fw-art-svg${cls}" viewBox="0 0 100 100" width="${s}" height="${s}" style="display:block;overflow:visible">${v}</svg>`;
   const cloud = (x, y, sc, fill, klass) => `<g class="${klass || ""}" transform="translate(${x} ${y}) scale(${sc})">
     <path d="M26 62 Q10 62 10 49 Q10 37 23 36 Q27 22 42 22 Q58 22 62 35 Q78 34 80 47 Q82 62 66 62 Z" fill="${fill}"/></g>`;
   switch (kind) {
+    // Il sole di prima era un cerchio piatto con otto stecche uguali: una
+    // icona, non un sole. Questo ha un disco che sfuma dal bianco caldo al
+    // rame sul bordo, una corona che respira, e raggi affusolati lunghi e
+    // corti alternati: la stessa forma che si disegna a mano.
     case "sun": return S(`
+      <defs>
+        <radialGradient id="${u}d" cx="38%" cy="32%" r="72%">
+          <stop offset="0%" stop-color="#fffbe8"/>
+          <stop offset="42%" stop-color="#ffdb7a"/>
+          <stop offset="80%" stop-color="#ffab26"/>
+          <stop offset="100%" stop-color="#f7860c"/>
+        </radialGradient>
+        <radialGradient id="${u}c" cx="50%" cy="50%" r="50%">
+          <stop offset="52%" stop-color="rgba(255,183,52,.42)"/>
+          <stop offset="78%" stop-color="rgba(255,170,40,.16)"/>
+          <stop offset="100%" stop-color="rgba(255,170,40,0)"/>
+        </radialGradient>
+        <linearGradient id="${u}r" x1="0" y1="1" x2="0" y2="0">
+          <stop offset="0%" stop-color="#ffb52c"/>
+          <stop offset="100%" stop-color="#ffd980"/>
+        </linearGradient>
+      </defs>
       <g>
-        <circle class="fw-halo" cx="50" cy="50" r="30" fill="rgba(255,255,255,.35)"/>
+        <circle class="fw-halo" cx="50" cy="50" r="46" fill="url(#${u}c)"/>
         <g class="fw-rays">
-          ${[0, 45, 90, 135, 180, 225, 270, 315].map(d => `<rect x="47.5" y="6" width="5" height="12" rx="2.5" fill="#ffb020" transform="rotate(${d} 50 50)"/>`).join("")}
+          ${[0,30,60,90,120,150,180,210,240,270,300,330].map((d, i) => {
+            const lungo = i % 2 === 0;
+            const punta = lungo ? 8 : 15;      // quanto arriva in alto
+            const base = lungo ? 4.6 : 3.4;    // meta larghezza alla base
+            return `<path d="M50 ${punta} L${50 + base} 30 Q50 27.5 ${50 - base} 30 Z" fill="url(#${u}r)" transform="rotate(${d} 50 50)"/>`;
+          }).join("")}
         </g>
-        <circle cx="50" cy="50" r="21" fill="#ffb020"/>
+        <circle cx="50" cy="50" r="22.5" fill="url(#${u}d)"/>
+        <path d="M36 41 Q44 32 57 33" fill="none" stroke="rgba(255,255,255,.55)" stroke-width="3" stroke-linecap="round"/>
       </g>`);
     case "moon": return S(`
       <g>
@@ -2937,10 +2970,25 @@ function fwArt(kind, size, still) {
         <circle class="fw-star fw-s3" cx="76" cy="72" r="2.1" fill="#fff5dd"/>
       </g>`);
     case "partly": return S(`
+      <defs>
+        <radialGradient id="${u}d" cx="38%" cy="32%" r="72%">
+          <stop offset="0%" stop-color="#fffbe8"/>
+          <stop offset="45%" stop-color="#ffdb7a"/>
+          <stop offset="100%" stop-color="#ffa41c"/>
+        </radialGradient>
+        <linearGradient id="${u}r" x1="0" y1="1" x2="0" y2="0">
+          <stop offset="0%" stop-color="#ffb52c"/>
+          <stop offset="100%" stop-color="#ffd980"/>
+        </linearGradient>
+      </defs>
       <g>
-        <g class="fw-rays"><circle cx="36" cy="34" r="16" fill="#ffb020"/>
-          ${[0, 60, 120, 180, 240, 300].map(d => `<rect x="34" y="8" width="4" height="9" rx="2" fill="#ffb020" transform="rotate(${d} 36 34)"/>`).join("")}
+        <g class="fw-rays fw-rays-sm">
+          ${[0,45,90,135,180,225,270,315].map((d, i) => {
+            const punta = i % 2 === 0 ? 9 : 14;
+            return `<path d="M36 ${punta} L39.2 25 Q36 23.2 32.8 25 Z" fill="url(#${u}r)" transform="rotate(${d} 36 34)"/>`;
+          }).join("")}
         </g>
+        <circle cx="36" cy="34" r="16" fill="url(#${u}d)"/>
         ${cloud(4, 12, .92, "#ffffff", "fw-drift")}
       </g>`);
     case "cloud": return S(`<g>${cloud(2, 8, 1, "#ffffff", "fw-drift")}
@@ -2968,7 +3016,7 @@ function fwArt(kind, size, still) {
 // Le animazioni stanno in un unico blocco riusato dalla card e dal popup.
 const FW_ANIM_CSS = `
   @keyframes fwSpin{to{transform:rotate(360deg)}}
-  @keyframes fwBreath{0%,100%{transform:scale(1);opacity:.75}50%{transform:scale(1.09);opacity:1}}
+  @keyframes fwBreath{0%,100%{transform:scale(.94);opacity:.55}50%{transform:scale(1.06);opacity:1}}
   @keyframes fwDrift{0%,100%{transform:translateX(0)}50%{transform:translateX(5px)}}
   @keyframes fwDrift2{0%,100%{transform:translateX(0)}50%{transform:translateX(-6px)}}
   @keyframes fwFall{0%{transform:translateY(-6px);opacity:0}20%{opacity:1}100%{transform:translateY(24px);opacity:0}}
@@ -2976,8 +3024,9 @@ const FW_ANIM_CSS = `
   @keyframes fwSlide{0%,100%{transform:translateX(0)}50%{transform:translateX(8px)}}
   @keyframes fwFlash{0%,88%,100%{opacity:.25}90%,96%{opacity:1}}
   @keyframes fwTwinkle{0%,100%{opacity:.35}50%{opacity:1}}
-  .fw-anim .fw-rays{transform-origin:50px 50px;animation:fwSpin 26s linear infinite}
-  .fw-anim .fw-halo{transform-origin:50px 50px;animation:fwBreath 5s ease-in-out infinite}
+  .fw-anim .fw-rays{transform-origin:50px 50px;animation:fwSpin 60s linear infinite}
+  .fw-anim .fw-rays-sm{transform-origin:36px 34px}
+  .fw-anim .fw-halo{transform-origin:50px 50px;animation:fwBreath 6s ease-in-out infinite}
   .fw-anim .fw-drift{animation:fwDrift 7s ease-in-out infinite}
   .fw-anim .fw-drift2{animation:fwDrift2 9s ease-in-out infinite}
   .fw-anim .fw-drop{animation:fwFall 1.4s linear infinite}
@@ -3118,7 +3167,7 @@ class FaberWeather extends HTMLElement {
             if (d.precipitation_probability != null) extra.push(`<span><ha-icon icon="mdi:water"></ha-icon>${Math.round(d.precipitation_probability)}%</span>`);
             if (d.wind_speed != null) extra.push(`<span><ha-icon icon="mdi:weather-windy"></ha-icon>${Math.round(d.wind_speed)} km/h</span>`);
             return `<div class="fw-mrow">
-              <div class="fw-mart">${fwArt(dsk.art, 40, true)}</div>
+              <div class="fw-mart">${fwArt(dsk.art, 40)}</div>
               <div class="fw-mday">
                 <div class="fw-mname">${fhEsc(nome)}</div>
                 <div class="fw-mmeta">${fhEsc(data)} · ${fhEsc(FH_WEATHER_IT[d.condition] || d.condition || "")}</div>
@@ -3147,7 +3196,15 @@ class FaberWeather extends HTMLElement {
         background:${sk.soft};display:flex;align-items:center;justify-content:center}
       .fw-mlist{overflow-y:auto;padding:6px 16px 22px;display:flex;flex-direction:column;gap:8px}
       .fw-mrow{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:18px;background:${sk.soft}}
+      /* Anche i giorni futuri si muovono, ma piu piano: otto disegni vivi
+         alla stessa velocita di quello grande diventano un luna park. */
       .fw-mart{flex:0 0 auto}
+      .fw-mart .fw-rays{animation-duration:120s}
+      .fw-mart .fw-halo{animation-duration:9s}
+      .fw-mart .fw-drift,.fw-mart .fw-drift2{animation-duration:14s}
+      .fw-mart .fw-drop{animation-duration:2.2s}
+      .fw-mart .fw-flake{animation-duration:5s}
+      .fw-mart .fw-bolt{animation-duration:5.4s}
       .fw-mday{flex:1;min-width:0}
       .fw-mname{font-size:14.5px;font-weight:800;text-transform:capitalize}
       .fw-mmeta{font-size:11.5px;font-weight:600;opacity:.66;text-transform:capitalize}
