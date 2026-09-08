@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.33.0";
+const FH_VERSION = "0.34.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -23,6 +23,10 @@ const FH_DEFAULTS = {
     weatherAnimation: true,
     sidebar: "mai",
     autoTheme: { enabled: true, dayStart: "07:00", nightStart: "21:00" },
+    // "vetro" = le card diventano semitrasparenti e sfocate, cosi il cielo
+    // animato dietro (stelle, pioggia, nuvole) si vede attraverso invece di
+    // restare nascosto sotto pannelli pieni.
+    cardStyle: "piene",
   },
   header: { clock: true, seconds: false, weather: "", temperature: "", chips: [] },
   pages: [
@@ -304,6 +308,7 @@ class FaberHome extends HTMLElement {
       appearance: {
         pageBackground: Object.assign({}, FH_DEFAULTS.appearance.pageBackground, ap.pageBackground || {}),
         weatherAnimation: ap.weatherAnimation !== false,
+        cardStyle: ap.cardStyle === "vetro" ? "vetro" : "piene",
         sidebar: ap.sidebar || "mai",
         autoTheme: Object.assign({}, FH_DEFAULTS.appearance.autoTheme, ap.autoTheme || {}),
       },
@@ -657,6 +662,8 @@ class FaberHome extends HTMLElement {
     app.classList.toggle("tel", f === "tel");
     app.classList.toggle("tab", f === "tab");
     app.classList.toggle("desk", f === "desk");
+    app.classList.toggle("vetro", (this._cfg.appearance || {}).cardStyle === "vetro");
+    app.classList.toggle("chiaro", !this._isDark());
   }
 
   _fasciaOra() { return this._fascia || this._fasciaDa(this.clientWidth || window.innerWidth || 400); }
@@ -2354,6 +2361,13 @@ class FaberHome extends HTMLElement {
           Sfondo animato col tempo che fa</label>
         <div class="fh-note">Stelle, pioggia, neve, nuvole: si ferma da solo quando la pagina non è in vista.</div>
 
+        <label class="fh-slab">Le card</label>
+        <div class="fh-seg">
+          ${[["piene", "Piene"], ["vetro", "Vetro"]].map(([v, n]) =>
+            `<button type="button" class="fh-segbtn${(ap.cardStyle || "piene") === v ? " sel" : ""}" data-cardstyle="${v}">${n}</button>`).join("")}
+        </div>
+        <div class="fh-note">Col vetro le card diventano semitrasparenti e sfocate: il cielo animato si vede scorrere dietro. Di giorno il vetro si schiarisce da solo, cosi le scritte restano leggibili.</div>
+
         <label class="fh-slab">Sfondo della pagina</label>
         <div class="fh-seg">
           ${[["gradient", "Sfumatura"], ["solid", "Tinta unita"], ["none", "Nessuno"]].map(([v, n]) =>
@@ -2422,6 +2436,12 @@ class FaberHome extends HTMLElement {
       });
       box.querySelectorAll("[data-bg]").forEach(b => b.addEventListener("click", () => {
         ap.pageBackground.mode = b.dataset.bg; draw(); apply();
+      }));
+      box.querySelectorAll("[data-cardstyle]").forEach(b => b.addEventListener("click", () => {
+        ap.cardStyle = b.dataset.cardstyle;
+        draw();
+        this._segnaFascia();   // e' li che si accende o si spegne il vetro
+        apply();
       }));
       const col = q("#stColor");
       if (col) col.addEventListener("input", e => { ap.pageBackground.color = e.target.value; apply(); });
@@ -2536,6 +2556,9 @@ class FaberHome extends HTMLElement {
 
   _updateLive() {
     if (this._skyfx) this._skyfx.setScene(this._weatherMode(), this._isDark());
+    // Il vetro cambia colore col tema: scuro di notte, chiaro di giorno,
+    // senno alle sette del mattino resterebbe un vetro nero su cielo azzurro.
+    this._segnaFascia();
     // Se cambia la condizione meteo cambia anche la tinta della pagina.
     const w = this._cfg.header.weather;
     const cond = w && this._hass && this._hass.states[w] ? this._hass.states[w].state : "";
@@ -2674,6 +2697,31 @@ const FH_CSS = `
   .fh-ghost{position:fixed;z-index:60;pointer-events:none;opacity:.85;transform:rotate(-1.5deg);
     box-shadow:0 18px 44px rgba(0,0,0,.5);border-radius:18px;overflow:hidden}
   .fh-ghost .fh-tools,.fh-ghost .fh-shield{display:none}
+  /* VETRO — le card lasciano vedere il cielo che scorre dietro.
+     La strada e la variabile --ha-card-background: le variabili CSS passano
+     attraverso lo shadow DOM, quindi tinge anche le card di Home Assistant,
+     che altrimenti sarebbero irraggiungibili dal CSS di questo pannello. Il
+     backdrop-filter invece si puo mettere solo sulle card che stanno alla
+     luce del sole (le nostre), e la sfocatura e proprio cio che rende il
+     vetro "vetro" invece che semplice trasparenza. */
+  .fh-app.vetro{
+    --ha-card-background:rgba(18,24,34,.46);
+    --card-background-color:rgba(18,24,34,.46);
+    --ha-card-border-color:rgba(255,255,255,.13);
+    --ha-card-box-shadow:0 8px 26px rgba(0,0,0,.34);
+  }
+  .fh-app.vetro .fh-slot ha-card,
+  .fh-app.vetro .fh-slot>.fh-cardwrap>*{
+    backdrop-filter:blur(20px) saturate(1.25);
+    -webkit-backdrop-filter:blur(20px) saturate(1.25);
+  }
+  /* Di giorno il cielo e chiaro: il vetro va schiarito, senno il testo scuro
+     su un vetro scuro non si legge piu. */
+  .fh-app.vetro.chiaro{
+    --ha-card-background:rgba(255,255,255,.58);
+    --card-background-color:rgba(255,255,255,.58);
+    --ha-card-border-color:rgba(15,23,42,.12);
+  }
   .fh-slot.fh-dragging{opacity:.28}
   .fh-dragmode .fh-col{outline:1px dashed rgba(255,176,32,.22);outline-offset:4px;border-radius:14px}
   .fh-col.fh-drop-in{outline:2px solid rgba(255,176,32,.75);background:rgba(255,176,32,.07)}
