@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.20.2";
+const FH_VERSION = "0.21.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -4477,6 +4477,30 @@ function fpDa(iso) {
 // risponde con la propria pagina web al posto dell'immagine, quindi si vede un
 // riquadro vuoto e non si capisce perche. Meglio correggerlo che lasciarlo
 // sbagliare in silenzio.
+// Una riga si scrive "situazione|indirizzo", ma la barra verticale si
+// dimentica facilmente: "*/local/eva3.gif" e un errore naturale, e prima
+// faceva sparire la riga in silenzio. Qui si riconosce lo stesso, purche la
+// situazione sia una di quelle che esistono davvero.
+function fpRiga(riga, zone) {
+  const i = riga.indexOf("|");
+  if (i > 0) return { chiave: riga.slice(0, i).trim().toLowerCase(), valore: riga.slice(i + 1).trim() };
+  const t = riga.trim();
+  if (t.startsWith("*")) return { chiave: "*", valore: t.slice(1).replace(/^[:\s]+/, "").trim() };
+  const parole = ["casa", "fuori", "zona", "home", "not_home"].concat(zone || []);
+  const b = t.toLowerCase();
+  for (const k of parole) {
+    if (b.startsWith(k)) {
+      const resto = t.slice(k.length).replace(/^[:\s]+/, "").trim();
+      // Solo se cio che resta somiglia a un indirizzo: senno "casale" non
+      // diventerebbe la situazione "casa" piu "le".
+      if (/^(\/|https?:|data:)/i.test(resto)) return { chiave: k, valore: resto };
+    }
+  }
+  // Solo un indirizzo, senza situazione davanti: vale sempre.
+  if (/^(\/|https?:|data:)/i.test(t) || /\.(gif|png|jpe?g|webp|svg)$/i.test(t)) return { chiave: "*", valore: t };
+  return null;
+}
+
 function fpIndirizzo(v) {
   if (!v) return v;
   const t = String(v).trim();
@@ -4505,12 +4529,17 @@ class FaberPersona extends HTMLElement {
 
   // Righe "chiave|indirizzo". La chiave e "home", "not_home", il nome di una
   // zona o il suo entity_id.
+  _zoneNote() {
+    return Object.keys(this._hass.states || {})
+      .filter(e => e.startsWith("zone.") && e !== "zone.home")
+      .map(e => (this._hass.states[e].attributes.friendly_name || e.slice(5)).toLowerCase());
+  }
+
   _avatarMap() {
     const m = {};
     (this._cfg.avatars || "").split("\n").map(r => r.trim()).filter(Boolean).forEach(riga => {
-      const i = riga.indexOf("|");
-      if (i < 0) return;
-      m[riga.slice(0, i).trim().toLowerCase()] = fpIndirizzo(riga.slice(i + 1).trim());
+      const c = fpRiga(riga, this._zoneNote());
+      if (c && c.valore) m[c.chiave] = fpIndirizzo(c.valore);
     });
     return m;
   }
@@ -4720,8 +4749,8 @@ class FaberPersonaEditor extends HTMLElement {
     // scuola), non stanze della casa: per questo fra loro compare "Lavoro Eva".
     const mappa = {};
     (c.avatars || "").split("\n").map(r => r.trim()).filter(Boolean).forEach(riga => {
-      const k = riga.indexOf("|");
-      if (k > 0) mappa[riga.slice(0, k).trim().toLowerCase()] = fpIndirizzo(riga.slice(k + 1).trim());
+      const c = fpRiga(riga, zone.map(z => nomeZona(z).toLowerCase()));
+      if (c && c.valore) mappa[c.chiave] = fpIndirizzo(c.valore);
     });
     const slots = [
       { k: "casa", t: "Quando e a casa" },
