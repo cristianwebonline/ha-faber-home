@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.18.4";
+const FH_VERSION = "0.19.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -644,6 +644,12 @@ class FaberHome extends HTMLElement {
             const shield = document.createElement("div");
             shield.className = "fh-shield";
             slot.appendChild(shield);
+            // L'angolo si tira come quello di una foto.
+            const ang = document.createElement("div");
+            ang.className = "fh-ang";
+            ang.title = "Tira per ridimensionare";
+            slot.appendChild(ang);
+            this._wireResize(ang, ri, ci, di);
           } else {
             slot.appendChild(el);
           }
@@ -762,10 +768,12 @@ class FaberHome extends HTMLElement {
     const haPop = !!(this._cfg.pages[this._page].rows[ri].cols[ci].cards[di].fh_popup || {}).cards;
     const hAtt = this._altezzaCard(this._cfg.pages[this._page].rows[ri].cols[ci].cards[di]);
     el.innerHTML = `<button type="button" class="fh-grip" data-grip title="Trascina per spostare"><ha-icon icon="mdi:drag"></ha-icon></button>
-      <select class="fh-hsel" data-h title="Altezza della card">
-        <option value="0"${!hAtt ? " selected" : ""}>altezza auto</option>
-        ${[110, 140, 170, 200, 240, 300, 380].map(v => `<option value="${v}"${hAtt === v ? " selected" : ""}>${v} px</option>`).join("")}
-        ${hAtt && ![110, 140, 170, 200, 240, 300, 380].includes(hAtt) ? `<option value="${hAtt}" selected>${hAtt} px</option>` : ""}
+      <select class="fh-hsel" data-forma title="Forma della card">
+        <option value="">${hAtt ? hAtt + " px" : "forma auto"}</option>
+        <option value="auto">Auto (si adatta)</option>
+        <option value="quadrata">Quadrata</option>
+        <option value="larga">Rettangolo largo</option>
+        <option value="alta">Alta</option>
       </select>
       ${this._btn("mdi:cog-outline", "Configura", "cfg")}
       ${this._btn(haPop ? "mdi:dock-window" : "mdi:dock-window", "Popup al tocco", "pop")}
@@ -773,11 +781,8 @@ class FaberHome extends HTMLElement {
       ${this._btn("mdi:arrow-left", "Colonna precedente", "left")}
       ${this._btn("mdi:arrow-right", "Colonna successiva", "right")}
       ${this._btn("mdi:delete-outline", "Elimina", "del")}`;
-    el.querySelector("[data-h]").addEventListener("change", e => {
-      const v = parseInt(e.target.value, 10) || 0;
-      const cfg = this._cfg.pages[this._page].rows[ri].cols[ci].cards[di];
-      if (v) cfg.fh_h = v; else delete cfg.fh_h;
-      this._renderPage();
+    el.querySelector("[data-forma]").addEventListener("change", e => {
+      if (e.target.value) this._formaCard(ri, ci, di, e.target.value);
     });
     this._wireDrag(el.querySelector("[data-grip]"), ri, ci, di);
     const cols = this._cfg.pages[this._page].rows[ri].cols;
@@ -797,10 +802,18 @@ class FaberHome extends HTMLElement {
 
 
   // ------------------------------------------------------------ trascinamento
+
   // Si trascina dalla MANIGLIA, non da tutta la card: e la lezione della Smart
   // Card, dove `touch-action:none` steso su tutto trasformava la tela in una
   // zona morta per lo scorrimento. Qui solo la maniglia blocca il tocco; il
   // resto della pagina scorre come sempre.
+  //
+  // Due cose che prima lo rendevano impossibile, e che valgono per qualunque
+  // card dentro Home Assistant:
+  //  1. il fantasma finiva in document.body, cioe FUORI dall'albero ombra dove
+  //     vivono questi stili: nasceva senza forma e senza posizione;
+  //  2. document.elementsFromPoint non entra nell'ombra, quindi non trovava mai
+  //     una card sotto il dito. Qui si confrontano i rettangoli a mano.
   _wireDrag(grip, ri, ci, di) {
     if (!grip) return;
     grip.addEventListener("pointerdown", ev => {
@@ -816,7 +829,8 @@ class FaberHome extends HTMLElement {
       fantasma.classList.add("fh-ghost");
       fantasma.style.width = r.width + "px";
       fantasma.style.height = r.height + "px";
-      document.body.appendChild(fantasma);
+      // Dentro il pannello, non nel body: qui gli stili lo raggiungono.
+      this.appendChild(fantasma);
       const dx = ev.clientX - r.left, dy = ev.clientY - r.top;
       const muovi = (x, y) => {
         fantasma.style.left = (x - dx) + "px";
@@ -827,26 +841,35 @@ class FaberHome extends HTMLElement {
       main.classList.add("fh-dragmode");
 
       let bersaglio = null;
-      const segna = (el, dopo) => {
-        main.querySelectorAll(".fh-drop-prima,.fh-drop-dopo").forEach(x => x.classList.remove("fh-drop-prima", "fh-drop-dopo"));
-        main.querySelectorAll(".fh-col.fh-drop-in").forEach(x => x.classList.remove("fh-drop-in"));
-        if (el && el.classList.contains("fh-slot")) el.classList.add(dopo ? "fh-drop-dopo" : "fh-drop-prima");
-        else if (el) el.classList.add("fh-drop-in");
+      const pulisci = () => {
+        main.querySelectorAll(".fh-drop-prima,.fh-drop-dopo,.fh-drop-in")
+          .forEach(x => x.classList.remove("fh-drop-prima", "fh-drop-dopo", "fh-drop-in"));
       };
 
       const cerca = (x, y) => {
-        const sotto = document.elementsFromPoint(x, y);
-        const altro = sotto.find(e => e.classList && e.classList.contains("fh-slot") && e !== slot && !e.classList.contains("fh-ghost"));
-        if (altro) {
-          const b = altro.getBoundingClientRect();
-          const dopo = y > b.top + b.height / 2;
-          segna(altro, dopo);
-          bersaglio = { tipo: "slot", el: altro, dopo };
-          return;
+        pulisci();
+        bersaglio = null;
+        // Prima le card: si guarda quale rettangolo contiene il dito.
+        const slots = [...main.querySelectorAll(".fh-slot")].filter(s => s !== slot && !s.classList.contains("fh-ghost"));
+        for (const s of slots) {
+          const b = s.getBoundingClientRect();
+          if (x >= b.left && x <= b.right && y >= b.top && y <= b.bottom) {
+            const dopo = y > b.top + b.height / 2;
+            s.classList.add(dopo ? "fh-drop-dopo" : "fh-drop-prima");
+            bersaglio = { tipo: "slot", el: s, dopo };
+            return;
+          }
         }
-        const col = sotto.find(e => e.classList && e.classList.contains("fh-col"));
-        if (col) { segna(col); bersaglio = { tipo: "col", el: col }; return; }
-        segna(null); bersaglio = null;
+        // Poi le colonne, per lasciarla in fondo a una colonna vuota.
+        const cols = [...main.querySelectorAll(".fh-col")];
+        for (const c of cols) {
+          const b = c.getBoundingClientRect();
+          if (x >= b.left && x <= b.right && y >= b.top && y <= b.bottom) {
+            c.classList.add("fh-drop-in");
+            bersaglio = { tipo: "col", el: c };
+            return;
+          }
+        }
       };
 
       const onMove = e => { muovi(e.clientX, e.clientY); cerca(e.clientX, e.clientY); };
@@ -857,13 +880,81 @@ class FaberHome extends HTMLElement {
         fantasma.remove();
         slot.classList.remove("fh-dragging");
         main.classList.remove("fh-dragmode");
-        main.querySelectorAll(".fh-drop-prima,.fh-drop-dopo,.fh-drop-in").forEach(x => x.classList.remove("fh-drop-prima", "fh-drop-dopo", "fh-drop-in"));
+        pulisci();
         if (bersaglio) this._sposta(ri, ci, di, bersaglio);
       };
       grip.addEventListener("pointermove", onMove);
       grip.addEventListener("pointerup", onUp);
       grip.addEventListener("pointercancel", onUp);
     });
+  }
+
+  // ------------------------------------------------------ ridimensionamento
+  // Si tira l'angolo come si fa con una foto: in verticale cambia l'altezza,
+  // in orizzontale cambia quante colonne occupa. La larghezza non puo essere
+  // libera: le card stanno in una griglia, e una larghezza a caso spaccherebbe
+  // l'allineamento con tutte le altre.
+  _wireResize(ang, ri, ci, di) {
+    if (!ang) return;
+    ang.addEventListener("pointerdown", ev => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      const slot = ang.closest(".fh-slot");
+      const col = ang.closest(".fh-col");
+      const riga = ang.closest(".fh-row");
+      if (!slot || !col || !riga) return;
+      ang.setPointerCapture(ev.pointerId);
+
+      const cfg = this._cfg.pages[this._page].rows[ri].cols[ci].cards[di];
+      const colonna = this._cfg.pages[this._page].rows[ri].cols[ci];
+      const h0 = slot.getBoundingClientRect().height;
+      const x0 = ev.clientX, y0 = ev.clientY;
+      const tracce = getComputedStyle(riga).gridTemplateColumns.split(" ").length;
+      const larghezzaTraccia = riga.getBoundingClientRect().width / Math.max(1, tracce);
+      const span0 = Math.min(colonna.span || 1, tracce);
+      let hNuova = h0, spanNuovo = span0;
+
+      const etichetta = document.createElement("div");
+      etichetta.className = "fh-misura";
+      slot.appendChild(etichetta);
+      const mostra = () => { etichetta.textContent = Math.round(hNuova) + " px · " + spanNuovo + (spanNuovo === 1 ? " colonna" : " colonne"); };
+
+      const onMove = e => {
+        hNuova = Math.max(80, Math.min(900, h0 + (e.clientY - y0)));
+        const passi = Math.round((e.clientX - x0) / larghezzaTraccia);
+        spanNuovo = Math.max(1, Math.min(tracce, span0 + passi));
+        slot.style.height = hNuova + "px";
+        slot.classList.add("fissa");
+        col.style.gridColumn = "span " + spanNuovo;
+        mostra();
+      };
+      const onUp = () => {
+        ang.removeEventListener("pointermove", onMove);
+        ang.removeEventListener("pointerup", onUp);
+        ang.removeEventListener("pointercancel", onUp);
+        etichetta.remove();
+        cfg.fh_h = Math.round(hNuova);
+        colonna.span = spanNuovo;
+        this._renderPage();
+      };
+      mostra();
+      ang.addEventListener("pointermove", onMove);
+      ang.addEventListener("pointerup", onUp);
+      ang.addEventListener("pointercancel", onUp);
+    });
+  }
+
+  // Le forme pronte si calcolano sulla larghezza VERA della card in quel
+  // momento: "quadrata" non e un numero fisso, dipende da quanto e larga.
+  _formaCard(ri, ci, di, forma) {
+    const slot = this.querySelector(`[data-slot="${ri}.${ci}.${di}"]`);
+    const w = slot ? slot.getBoundingClientRect().width : 300;
+    const cfg = this._cfg.pages[this._page].rows[ri].cols[ci].cards[di];
+    if (forma === "auto") delete cfg.fh_h;
+    else if (forma === "quadrata") cfg.fh_h = Math.round(w);
+    else if (forma === "larga") cfg.fh_h = Math.round(w * 0.58);
+    else if (forma === "alta") cfg.fh_h = Math.round(w * 1.5);
+    this._renderPage();
   }
 
   // Si toglie prima e si reinserisce dopo, ricalcolando l'indice: togliere una
@@ -1496,6 +1587,17 @@ class FaberHome extends HTMLElement {
       const item = cat[parseInt(b.dataset.i, 10)];
       const cards = this._cfg.pages[this._page].rows[ri].cols[ci].cards;
       const fresh = JSON.parse(JSON.stringify(item.c));
+      // Se la card sa suggerire da sola una configurazione di partenza, la si
+      // usa: nasce gia con qualcosa dentro invece che vuota e muta.
+      if (fresh.type && fresh.type.startsWith("custom:")) {
+        const cls = customElements.get(fresh.type.slice(7));
+        if (cls && typeof cls.getStubConfig === "function") {
+          try {
+            const stub = cls.getStubConfig(this._hass);
+            Object.keys(stub || {}).forEach(k => { if (!fresh[k]) fresh[k] = stub[k]; });
+          } catch (e) { /* se non ci riesce, si va avanti con quello che c'e */ }
+        }
+      }
       // Una card meteo senza entita nasce gia rotta, e in casa il meteo e
       // quasi sempre uno solo: si precompila, poi si cambia dall'editor.
       if ((fresh.type === "weather-forecast" || fresh.type === "custom:faber-weather") && !fresh.entity) {
@@ -2154,6 +2256,13 @@ const FH_CSS = `
   .fh-col.fh-drop-in{outline:2px solid rgba(255,176,32,.75);background:rgba(255,176,32,.07)}
   .fh-slot.fh-drop-prima::before,.fh-slot.fh-drop-dopo::after{content:"";position:absolute;left:0;right:0;
     height:4px;border-radius:3px;background:#ffb020;box-shadow:0 0 12px rgba(255,176,32,.8);z-index:5}
+  .fh-ang{position:absolute;right:-3px;bottom:-3px;width:22px;height:22px;z-index:4;cursor:nwse-resize;
+    touch-action:none;border-radius:0 0 14px 0;
+    background:linear-gradient(135deg,transparent 46%,rgba(255,176,32,.85) 46%);
+    border-right:2px solid rgba(255,176,32,.85);border-bottom:2px solid rgba(255,176,32,.85)}
+  .fh-misura{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:5;
+    padding:5px 10px;border-radius:9px;font-size:11.5px;font-weight:800;white-space:nowrap;
+    background:rgba(10,12,16,.9);color:#ffe9c2;border:1px solid rgba(255,176,32,.5)}
   .fh-slot.fh-drop-prima::before{top:-9px}
   .fh-slot.fh-drop-dopo::after{bottom:-9px}
   /* quante card per riga */
@@ -3565,6 +3674,15 @@ class FaberClima extends HTMLElement {
     const orariOn = this._leggiOrari(cfgOn, p.gestisciSpina ? p.anticipo : 0);
     const orariOff = this._leggiOrari(cfgOff, 0);
 
+    const cfgOnceOn = await this._leggiTimer("once_on");
+    const cfgOnceOff = await this._leggiTimer("once_off");
+    const primoOrario = c => {
+      const t = ((c && (c.triggers || c.trigger)) || [])[0];
+      return t && typeof t.at === "string" ? this._hhmm(t.at) : "";
+    };
+    let onceOn = primoOrario(cfgOnceOn);
+    let onceOff = primoOrario(cfgOnceOff);
+
     const GG = [["mon", "Lunedi"], ["tue", "Martedi"], ["wed", "Mercoledi"], ["thu", "Giovedi"],
                 ["fri", "Venerdi"], ["sat", "Sabato"], ["sun", "Domenica"]];
     const a = st ? st.attributes : {};
@@ -3591,8 +3709,27 @@ class FaberClima extends HTMLElement {
       body.innerHTML = `
         <div class="fk-mh">
           <div class="fk-mt">Programmazione</div>
+          ${(cfgOn || cfgOff) ? `<button type="button" class="fk-sw${attivo ? " on" : ""}" data-sw
+            title="${attivo ? "Sospendi il programma" : "Riattiva il programma"}"><span></span></button>` : ""}
           <button type="button" class="fk-mx" data-chiudi>&times;</button>
         </div>
+
+        <div class="fk-mgruppo">Solo per stavolta</div>
+        <div class="fk-mnota">Un ordine singolo che non tocca il programma settimanale: scatta la prossima volta che l'orologio segna quell'ora, poi si disattiva da solo.</div>
+        <div class="fk-once">
+          <label><span>Accendi alle</span><input type="time" id="oOn" value="${fhEsc(onceOn)}"></label>
+          <label><span>Spegni alle</span><input type="time" id="oOff" value="${fhEsc(onceOff)}"></label>
+        </div>
+        <div class="fk-mrighe">
+          ${[30, 60, 90, 120].map(m => `<button type="button" class="fk-mb piccolo" data-fra="${m}">Spegni fra ${m} min</button>`).join("")}
+        </div>
+        <div class="fk-mrighe">
+          <button type="button" class="fk-mb piccolo" data-once>Imposta per stavolta</button>
+          ${(cfgOnceOn || cfgOnceOff) ? `<button type="button" class="fk-mb piccolo" data-onceoff>Annulla quello singolo</button>` : ""}
+        </div>
+        ${(cfgOnceOn || cfgOnceOff) ? `<div class="fk-mstato acceso">Ordine singolo impostato${onceOn ? " · accende alle " + fhEsc(onceOn) : ""}${onceOff ? " · spegne alle " + fhEsc(onceOff) : ""}</div>` : ""}
+
+        <div class="fk-mgruppo">Programma della settimana</div>
         <div class="fk-mnota">Ogni giorno puo avere i suoi orari. Lascia vuoto per non fare niente quel giorno.</div>
 
         <div class="fk-tab">
@@ -3646,6 +3783,46 @@ class FaberClima extends HTMLElement {
         </div>`;
 
       body.querySelector("[data-chiudi]").addEventListener("click", () => scrim.remove());
+
+      const sw = body.querySelector("[data-sw]");
+      if (sw) sw.addEventListener("click", async () => {
+        const srv = attivo ? "turn_off" : "turn_on";
+        for (const e of [entOn, entOff]) if (e) await this._hass.callService("automation", srv, { entity_id: e });
+        scrim.remove();
+      });
+
+      const leggiOnce = () => {
+        const a = body.querySelector("#oOn"), b = body.querySelector("#oOff");
+        if (a) onceOn = a.value;
+        if (b) onceOff = b.value;
+      };
+      body.querySelectorAll("[data-fra]").forEach(b => b.addEventListener("click", () => {
+        const m = parseInt(b.dataset.fra, 10);
+        const d = new Date(Date.now() + m * 60000);
+        onceOff = String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+        onceOn = "";
+        disegna();
+      }));
+      const bOnce = body.querySelector("[data-once]");
+      if (bOnce) bOnce.addEventListener("click", async () => {
+        leggiOnce();
+        const m = body.querySelector("[data-msg]");
+        if (m) m.textContent = "Salvo...";
+        try {
+          await this._scriviSingolo("once_on", nome, onceOn, p);
+          await this._scriviSingolo("once_off", nome, onceOff, p);
+          if (m) m.textContent = "Fatto.";
+          setTimeout(() => scrim.remove(), 800);
+        } catch (e) { if (m) m.textContent = "Non ci sono riuscito: " + ((e && e.message) || e); }
+      });
+      const bOnceOff = body.querySelector("[data-onceoff]");
+      if (bOnceOff) bOnceOff.addEventListener("click", async () => {
+        for (const q of ["once_on", "once_off"]) {
+          try { await this._hass.callApi("delete", "config/automation/config/" + this._timerId(q)); } catch (e) { /* non c'era */ }
+        }
+        scrim.remove();
+      });
+
       body.querySelectorAll("[data-modo]").forEach(b => b.addEventListener("click", () => {
         leggiCampi(); p.modo = b.dataset.modo; disegna();
       }));
@@ -3707,6 +3884,47 @@ class FaberClima extends HTMLElement {
       });
     };
     disegna();
+  }
+
+  // Un ordine singolo: scatta alla prossima volta che l'orologio segna
+  // quell'ora e poi si disattiva da solo. Niente conto alla rovescia del
+  // browser, e niente condizioni sulla data che qui sarebbero solo fragili.
+  async _scriviSingolo(quale, nome, ora, p) {
+    if (!ora) {
+      try { await this._hass.callApi("delete", "config/automation/config/" + this._timerId(quale)); } catch (e) { /* non c'era */ }
+      return;
+    }
+    const acceso = quale === "once_on";
+    const spina = p.gestisciSpina && this._cfg.presa;
+    const actions = [];
+    if (acceso) {
+      if (spina) actions.push({ action: "switch.turn_on", target: { entity_id: this._cfg.presa } });
+      actions.push({ action: "climate.set_hvac_mode", target: { entity_id: this._cfg.climate }, data: { hvac_mode: p.modo } });
+      if (p.temp != null) actions.push({ action: "climate.set_temperature", target: { entity_id: this._cfg.climate }, data: { temperature: p.temp } });
+    } else {
+      actions.push({ action: "climate.set_hvac_mode", target: { entity_id: this._cfg.climate }, data: { hvac_mode: "off" } });
+      if (spina) {
+        if (this._cfg.power) actions.push({
+          wait_for_trigger: [{ trigger: "numeric_state", entity_id: this._cfg.power, below: p.soglia, for: { minutes: p.minuti } }],
+          timeout: { minutes: Math.max(30, p.minuti * 3) }, continue_on_timeout: true,
+        });
+        else actions.push({ delay: { minutes: p.minuti } });
+        actions.push({ action: "switch.turn_off", target: { entity_id: this._cfg.presa } });
+      }
+    }
+    // Si spegne da sola dopo aver agito: "this.entity_id" e il modo giusto per
+    // farle riferire a se stessa senza indovinare il nome che HA le dara.
+    actions.push({ action: "automation.turn_off", target: { entity_id: "{{ this.entity_id }}" }, data: { stop_actions: false } });
+
+    await this._hass.callApi("post", "config/automation/config/" + this._timerId(quale), {
+      id: this._timerId(quale),
+      alias: "Faber Home — " + (acceso ? "accendi " : "spegni ") + nome + " (una volta)",
+      description: "Creato da Faber Home. Ordine singolo: agisce una volta e poi si disattiva da solo.",
+      mode: "single",
+      triggers: [{ trigger: "time", at: (ora.length === 5 ? ora + ":00" : ora) }],
+      conditions: [],
+      actions,
+    });
   }
 
   async _scriviProgramma(quale, nome, orari, p) {
@@ -3911,6 +4129,18 @@ const FK_CSS = `
     border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:inherit}
   .fk-mb.primario{border-color:rgba(167,139,250,.6);background:rgba(167,139,250,.22);color:#ddd6fe}
   .fk-mb.piccolo{padding:6px 10px;font-size:11px}
+  .fk-sw{width:44px;height:25px;border-radius:14px;cursor:pointer;flex:0 0 auto;padding:0;position:relative;
+    border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.08);transition:background .25s,border-color .25s}
+  .fk-sw span{position:absolute;top:2px;left:2px;width:19px;height:19px;border-radius:50%;
+    background:#93a1b0;transition:transform .25s,background .25s}
+  .fk-sw.on{background:rgba(167,139,250,.3);border-color:rgba(167,139,250,.6)}
+  .fk-sw.on span{transform:translateX(19px);background:#ddd6fe}
+  .fk-once{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .fk-once label{display:flex;flex-direction:column;gap:4px}
+  .fk-once span{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;opacity:.55}
+  .fk-once input{padding:8px 6px;border-radius:10px;font:inherit;font-size:14px;font-weight:800;text-align:center;
+    font-variant-numeric:tabular-nums;border:1px solid rgba(255,255,255,.13);
+    background:rgba(255,255,255,.06);color:inherit}
   .fk-tab{display:flex;flex-direction:column;gap:4px}
   .fk-tr{display:grid;grid-template-columns:minmax(58px,1fr) 1fr 1fr;gap:6px;align-items:center}
   .fk-th span{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;opacity:.5;text-align:center}
@@ -4244,7 +4474,8 @@ class FaberPersona extends HTMLElement {
     if (!st) {
       this._card.style.backgroundImage = "";
       this._body.innerHTML = `<div class="fp-vuoto">${c.person
-        ? "Non trovo " + fhEsc(c.person) : "Scegli una persona nelle impostazioni della card."}</div>`;
+        ? "Non trovo " + fhEsc(c.person)
+        : `<b>Card Persona da configurare</b><br>Entra in modifica (la matita in alto), tocca l'ingranaggio su questa card e scegli chi mostrare.`}</div>`;
       return;
     }
 
@@ -4295,7 +4526,7 @@ class FaberPersona extends HTMLElement {
     }
 
     this._body.innerHTML = `
-      <div class="fp-avatar ${c.forma === "quadrato" ? "quad" : ""}" style="--fp-c:${tono.c};--fp-d:${FP_GRANDEZZE[c.grandezza] || 88}px">
+      <div class="fp-avatar ${c.forma === "quadrato" ? "quad" : ""}${aCasa ? "" : " via"}" style="--fp-c:${tono.c};--fp-d:${FP_GRANDEZZE[c.grandezza] || 88}px">
         ${gif ? `<img src="${fhEsc(gif)}" alt="">` : `<div class="fp-noimg"><ha-icon icon="mdi:account"></ha-icon></div>`}
         <span class="fp-pallino"></span>
       </div>
@@ -4329,6 +4560,13 @@ const FP_CSS = `
     overflow:hidden;border:2.5px solid var(--fp-c,#7a8896);
     box-shadow:0 0 0 4px color-mix(in srgb,var(--fp-c) 18%,transparent),0 8px 20px rgba(0,0,0,.35)}
   .fp-avatar.quad{border-radius:20px}
+  /* Fuori casa il contorno respira piano: si nota con la coda dell'occhio
+     senza diventare un lampeggio fastidioso su una card che sta sempre li. */
+  .fp-avatar.via{animation:fp-respira 2.8s ease-in-out infinite}
+  @keyframes fp-respira{
+    0%,100%{box-shadow:0 0 0 4px color-mix(in srgb,var(--fp-c) 10%,transparent),0 8px 20px rgba(0,0,0,.35)}
+    50%{box-shadow:0 0 0 7px color-mix(in srgb,var(--fp-c) 26%,transparent),0 8px 20px rgba(0,0,0,.35)}}
+  @media (prefers-reduced-motion:reduce){.fp-avatar.via{animation:none}}
   /* La GIF riempie il tondo senza deformarsi: object-fit cover, non contain.
      Un avatar schiacciato si nota subito. */
   .fp-avatar img{width:100%;height:100%;object-fit:cover;display:block}
