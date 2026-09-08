@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.18.0";
+const FH_VERSION = "0.18.1";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -3865,17 +3865,31 @@ const FK_CSS = `
     50%{transform:scaleY(1.08) scaleX(.94);opacity:1}}
   @media (prefers-reduced-motion:reduce){.fk-split.viva .fk-fiamma{animation:none}}
   /* ------------------------------------------------------------ finestrella */
-  .fk-scrim{position:absolute;inset:0;z-index:12;display:flex;align-items:flex-end;justify-content:center;
-    background:rgba(4,6,10,.6);backdrop-filter:blur(5px);border-radius:22px}
-  .fk-modal{width:100%;max-height:100%;overflow-y:auto;border-radius:20px 20px 22px 22px;
-    background:rgba(20,23,30,.98);border:1px solid rgba(255,255,255,.14);
-    box-shadow:0 -12px 40px rgba(0,0,0,.55)}
+  /* A schermo intero, non dentro la card: il programma settimanale e piu alto
+     della card stessa (misurato: 701px contro 546px) e restava tagliato dal
+     suo bordo. */
+  .fk-scrim{position:fixed;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;
+    padding:16px;box-sizing:border-box;background:rgba(4,6,10,.68);backdrop-filter:blur(6px)}
+  .fk-modal{width:100%;max-width:430px;max-height:86vh;overflow-y:auto;border-radius:22px;
+    background:#161a22;border:1px solid rgba(255,255,255,.14);
+    box-shadow:0 20px 60px rgba(0,0,0,.6);
+    /* Il colore si dichiara qui e non si eredita: dentro il pannello chiaro di
+       giorno il testo arrivava quasi nero su fondo scuro, illeggibile. */
+    color:#eaf1f8}
+  .fk-modal *{color:inherit}
   .fk-mbody{padding:14px 15px 15px;display:flex;flex-direction:column;gap:9px}
   .fk-mh{display:flex;align-items:center;gap:8px}
   .fk-mt{flex:1;font-size:15px;font-weight:800}
   .fk-mx{width:28px;height:28px;border-radius:50%;cursor:pointer;font-size:17px;line-height:1;
     border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.06);color:inherit;flex:0 0 auto}
   .fk-mnota{font-size:11.5px;line-height:1.45;opacity:.7}
+  .fk-modal .fk-tipo,.fk-modal .fk-pill,.fk-modal .fk-g{color:#93a1b0}
+  .fk-modal .fk-tipo.sel,.fk-modal .fk-g.sel{color:#ddd6fe}
+  .fk-modal .fk-pill.sel{color:#ffe9c2}
+  .fk-modal .fk-mb.primario{color:#ddd6fe}
+  .fk-modal .fk-mavviso{color:#ffd28a}
+  .fk-modal .fk-mstato.acceso{color:#c4b5fd}
+  .fk-modal .fk-mstato.spento{color:#93a1b0}
   .fk-mgruppo{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.09em;opacity:.5;margin-top:4px}
   .fk-tipi{display:grid;grid-template-columns:1fr 1fr;gap:6px}
   .fk-tipo{padding:9px 6px;border-radius:12px;cursor:pointer;font:inherit;font-size:12px;font-weight:700;
