@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.11.1";
+const FH_VERSION = "0.12.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -765,6 +765,8 @@ class FaberHome extends HTMLElement {
         soglia: 10, soglia_freddo: 18, soglia_caldo: 26, prezzo_kwh: 0.30, storico_giorni: 14 } },
       { g: "Faber", n: "Smart Card (tela)", i: "mdi:palette-swatch-outline", c: { type: "custom:smart-card", name: "Smart Card", canvas: { w: 100, h: 50 }, elements: [] } },
       { g: "Faber", n: "Meteo", i: "mdi:weather-partly-cloudy", c: { type: "custom:faber-weather", entity: "", days: 4 } },
+      { g: "Faber", n: "Carichi reali", i: "mdi:gauge", c: { type: "custom:faber-carichi", title: "Carichi reali",
+        totale: "", gruppo: "", prezzo_kwh: 0.30, soglia_media: 1500, soglia_alta: 2500, top: 5, soglia_acceso: 5, naviga: "" } },
       { g: "Faber", n: "Consumi di casa", i: "mdi:lightning-bolt", c: { type: "custom:energia-consumi-card", title: "Consumi di casa", days_back: 8,
         open_on: "today", prezzo_kwh: 0.30, soglia_media: 33, soglia_alta: 66, lampeggio_record: true } },
       { g: "Faber", n: "Lavatrice", i: "mdi:washing-machine", c: { type: "custom:centro-bucato-card", kind: "lavatrice", name: "Lavatrice",
@@ -1035,14 +1037,156 @@ class FaberHome extends HTMLElement {
          </button>`).join("")}</div>`).join("");
   }
 
+
+  // ------------------------------------------------- importa da altre plance
+  // Molte card sono gia state costruite e messe a punto altrove (plancia
+  // telefono, consumo elettrodomestici, controllo carichi...). Rifarle qui da
+  // zero sarebbe lavoro buttato: si vanno a prendere dove sono, si copiano, e
+  // da quel momento vivono qui per conto loro (una copia, non un legame: se
+  // la tocchi qui non cambia niente sulla plancia di partenza, e viceversa).
+  async _plance() {
+    if (this._planceCache) return this._planceCache;
+    let l = [];
+    try { l = await this._hass.callWS({ type: "lovelace/dashboards/list" }); } catch (e) { l = []; }
+    const out = [{ url_path: null, title: "Panoramica (predefinita)" }];
+    (l || []).forEach(d => {
+      if (d.mode === "storage" && d.url_path !== this._urlPath()) {
+        out.push({ url_path: d.url_path, title: d.title || d.url_path });
+      }
+    });
+    this._planceCache = out;
+    return out;
+  }
+
+  _urlPath() { return location.pathname.split("/").filter(Boolean)[0]; }
+
+  // Le card di una vista stanno in due posti a seconda di come e fatta la
+  // vista: `cards` nelle viste classiche, dentro `sections[].cards` in quelle
+  // a sezioni. Le raccolgo tutte, appiattite, con l'indicazione di dove stavano.
+  _carteDiVista(v) {
+    const out = [];
+    (v.cards || []).forEach((c, i) => out.push({ c, dove: "" , i }));
+    (v.sections || []).forEach((s, si) => (s.cards || []).forEach((c, i) => {
+      const tit = (s.title || (s.type === "grid" && s.cards && s.cards[0] && s.cards[0].heading)) || `sezione ${si + 1}`;
+      out.push({ c, dove: tit, i });
+    }));
+    return out.filter(x => x.c && x.c.type);
+  }
+
+  // Un'etichetta che dica davvero quale card e, senza aprirla.
+  _etichettaCard(c) {
+    const t = c.title || c.name || c.heading || c.label ||
+      (c.entity && this._hass.states[c.entity] && this._hass.states[c.entity].attributes.friendly_name) ||
+      (Array.isArray(c.entities) && c.entities.length ? `${c.entities.length} entita` : "");
+    const tipo = String(c.type).replace(/^custom:/, "");
+    return { titolo: (t || tipo).toString().slice(0, 60), tipo };
+  }
+
+  _openImportSheet(onPick) {
+    const box = document.createElement("div");
+    let stato = { plancia: undefined, vista: null, cfg: null, q: "" };
+
+    const disegna = async () => {
+      // livello 1: quale plancia
+      if (stato.plancia === undefined) {
+        box.innerHTML = `<div class="fh-note">Prendi una card gia pronta da un'altra plancia. Viene copiata qui: le due restano indipendenti.</div>
+          <div class="fh-dvlist" id="lst"><div class="fh-note">Cerco le plance...</div></div>`;
+        const pl = await this._plance();
+        box.querySelector("#lst").innerHTML = pl.map(p => `
+          <button type="button" class="fh-dv" data-pl="${fhEsc(p.url_path == null ? "__default__" : p.url_path)}">
+            <div class="fh-dvname">${fhEsc(p.title)}</div>
+            <div class="fh-dvmeta">${fhEsc(p.url_path || "lovelace")}</div>
+          </button>`).join("");
+        box.querySelectorAll("[data-pl]").forEach(b => b.addEventListener("click", async () => {
+          const up = b.dataset.pl === "__default__" ? null : b.dataset.pl;
+          stato.plancia = up;
+          box.innerHTML = `<div class="fh-note">Apro la plancia...</div>`;
+          try {
+            stato.cfg = await this._hass.callWS(up == null ? { type: "lovelace/config" } : { type: "lovelace/config", url_path: up });
+          } catch (e) {
+            stato.cfg = null;
+            stato.errore = (e && e.message) || "non riesco a leggerla";
+          }
+          disegna();
+        }));
+        return;
+      }
+
+      // livello 2: quale vista
+      if (!stato.cfg) {
+        box.innerHTML = `<div class="fh-note">Non riesco a leggere questa plancia: ${fhEsc(stato.errore || "")}. Le plance scritte in YAML non si possono sfogliare da qui.</div>
+          <button type="button" class="fh-btn" id="back">Torna alle plance</button>`;
+        box.querySelector("#back").addEventListener("click", () => { stato = { plancia: undefined }; disegna(); });
+        return;
+      }
+      if (stato.vista === null) {
+        const viste = stato.cfg.views || [];
+        box.innerHTML = `<button type="button" class="fh-btn" id="back">&larr; Altre plance</button>
+          <div class="fh-dvlist">
+            ${viste.map((v, i) => {
+              const n = this._carteDiVista(v).length;
+              return `<button type="button" class="fh-dv" data-v="${i}">
+                <div class="fh-dvname">${fhEsc(v.title || v.path || "vista " + (i + 1))}</div>
+                <div class="fh-dvmeta">${n} card${n === 1 ? "" : ""}</div>
+              </button>`;
+            }).join("")}
+          </div>`;
+        box.querySelector("#back").addEventListener("click", () => { stato = { plancia: undefined }; disegna(); });
+        box.querySelectorAll("[data-v]").forEach(b => b.addEventListener("click", () => {
+          stato.vista = parseInt(b.dataset.v); disegna();
+        }));
+        return;
+      }
+
+      // livello 3: quale card
+      const v = stato.cfg.views[stato.vista];
+      const tutte = this._carteDiVista(v);
+      const parole = stato.q.toLowerCase().split(/\s+/).filter(Boolean);
+      const carte = tutte.filter(x => {
+        if (!parole.length) return true;
+        const e = this._etichettaCard(x.c);
+        const hay = (e.titolo + " " + e.tipo + " " + x.dove).toLowerCase();
+        return parole.every(p => hay.includes(p));
+      });
+      box.innerHTML = `<button type="button" class="fh-btn" id="back">&larr; Altre viste</button>
+        <input class="fh-input" id="q" placeholder="Filtra le card..." value="${fhEsc(stato.q)}">
+        <div class="fh-dvlist">
+          ${carte.length ? carte.map((x, k) => {
+            const e = this._etichettaCard(x.c);
+            return `<button type="button" class="fh-dv" data-k="${tutte.indexOf(x)}">
+              <div class="fh-dvname">${fhEsc(e.titolo)}</div>
+              <div class="fh-dvmeta">${fhEsc(e.tipo)}${x.dove ? " &middot; " + fhEsc(x.dove) : ""}</div>
+            </button>`;
+          }).join("") : `<div class="fh-note">Nessuna card qui dentro.</div>`}
+        </div>`;
+      box.querySelector("#back").addEventListener("click", () => { stato.vista = null; stato.q = ""; disegna(); });
+      const inp = box.querySelector("#q");
+      inp.addEventListener("input", () => {
+        stato.q = inp.value;
+        disegna();
+        const n = box.querySelector("#q");
+        n.focus(); n.setSelectionRange(stato.q.length, stato.q.length);
+      });
+      box.querySelectorAll("[data-k]").forEach(b => b.addEventListener("click", () => {
+        const orig = tutte[parseInt(b.dataset.k)].c;
+        onPick(JSON.parse(JSON.stringify(orig)));
+      }));
+    };
+
+    disegna();
+    return this._sheet("Da un'altra plancia", box);
+  }
+
   _openPicker(ri, ci) {
     const box = document.createElement("div");
     const cat = this._catalog();
     box.innerHTML = `<input class="fh-input" id="catQ" placeholder="Cerca una card...">
       <div id="catList">${this._catalogHTML("")}</div>` +
-      `<div class="fh-catgroup">Oppure incolla il codice di una card</div>
+      `<div class="fh-catgroup">Oppure prendine una gia fatta</div>
+       <button type="button" class="fh-btn" data-import>Da un'altra plancia</button>
+       <div class="fh-catgroup">Oppure incolla il codice di una card</div>
        <textarea class="fh-json" data-paste placeholder='{"type": "tile", "entity": "light.salotto"}'></textarea>
-       <div class="fh-note" data-msg>Accetta JSON. Utile per copiare una card da un'altra dashboard.</div>
+       <div class="fh-note" data-msg>Accetta JSON.</div>
        <button type="button" class="fh-btn primary" data-addjson>Aggiungi dal codice</button>`;
     const scrim = this._sheet("Aggiungi una card", box);
     const wireItems = () => box.querySelectorAll("[data-i]").forEach(b => b.addEventListener("click", () => onPick(b)));
@@ -1079,6 +1223,14 @@ class FaberHome extends HTMLElement {
       }
     };
     wireItems();
+    box.querySelector("[data-import]").addEventListener("click", () => {
+      const sh = this._openImportSheet(cfg => {
+        this._cfg.pages[this._page].rows[ri].cols[ci].cards.push(cfg);
+        sh.remove();
+        this._renderPage();
+        this._openCardEditor(ri, ci, this._cfg.pages[this._page].rows[ri].cols[ci].cards.length - 1);
+      });
+    });
     box.querySelector("[data-addjson]").addEventListener("click", () => {
       const ta = box.querySelector("[data-paste]");
       const msg = box.querySelector("[data-msg]");
@@ -1256,8 +1408,18 @@ class FaberHome extends HTMLElement {
       <div class="fh-catlist">${cat.map((x, i) => x.g !== g ? "" :
         `<button type="button" class="fh-catitem" data-i="${i}">
            <ha-icon icon="${x.i}"></ha-icon><span>${fhEsc(x.n)}</span>
-         </button>`).join("")}</div>`).join("");
+         </button>`).join("")}</div>`).join("") +
+      `<div class="fh-catgroup">Oppure prendine una gia fatta</div>
+       <button type="button" class="fh-btn" data-import>Da un'altra plancia</button>`;
     const scrim = this._sheet("Aggiungi al popup", box);
+    box.querySelector("[data-import]").addEventListener("click", () => {
+      const sh = this._openImportSheet(cfg => {
+        list.push(cfg);
+        sh.remove();
+        scrim.remove();
+        this._editCardConfig(list, list.length - 1, done);
+      });
+    });
     box.querySelectorAll("[data-i]").forEach(b => b.addEventListener("click", () => {
       const fresh = JSON.parse(JSON.stringify(cat[parseInt(b.dataset.i, 10)].c));
       if ((fresh.type === "weather-forecast" || fresh.type === "custom:faber-weather") && !fresh.entity) {
@@ -2161,11 +2323,446 @@ customElements.define("faber-weather-editor", FaberWeatherEditor);
 
 
 
+/* ======================================================================== */
+/* CARD: CARICHI REALI                                                      */
+/* Rifacimento della "Riepilogo carichi reali" che stava sulla plancia come */
+/* button-card piena di template. Quella funzionava, ma per cambiarle una   */
+/* riga bisognava mettere le mani in un blocco di JavaScript dentro lo YAML,*/
+/* e i nomi dei dispositivi erano una mappa scritta a mano: si era gia      */
+/* disallineata (nomi per entita non piu nel gruppo, e il piano a induzione */
+/* appena aggiunto non compariva). Qui i nomi li chiede a Home Assistant.   */
+/* ======================================================================== */
+
+const FC_DEFAULTS = {
+  title: "Carichi reali",
+  totale: "",
+  gruppo: "",
+  sensori: [],
+  prezzo_kwh: 0.30,
+  soglia_media: 1500,
+  soglia_alta: 2500,
+  top: 5,
+  soglia_acceso: 5,
+  naviga: "",
+  nomi: {},
+};
+
+// Tre stati, tre tinte. Sempre sovrapposte al pannello, mai al posto suo:
+// una velatura trasparente messa "al posto" dello sfondo funziona solo
+// finche il fondo sotto e quello che immaginavi.
+const FC_TONI = {
+  calmo: { tinta: "rgba(56,224,138,.10)", bordo: "rgba(56,224,138,.30)", forte: "#38e08a", eti: "tutto tranquillo" },
+  medio: { tinta: "rgba(255,176,32,.12)", bordo: "rgba(255,176,32,.38)", forte: "#ffb020", eti: "consumo alto" },
+  alto: { tinta: "rgba(255,92,92,.14)", bordo: "rgba(255,92,92,.42)", forte: "#ff6b6b", eti: "attenzione" },
+};
+
+// Il nome buono di un sensore di potenza non e il suo friendly_name
+// ("Piano induzione Energy Meter 0 Potenza"): e il nome del DISPOSITIVO a
+// cui appartiene ("Piano induzione"). Quello lo sa Home Assistant, quindi
+// non serve piu nessun elenco scritto a mano che si disallinea da solo.
+function fcNomeSensore(hass, id, nomiCustom) {
+  if (nomiCustom && nomiCustom[id]) return nomiCustom[id];
+  const reg = (hass.entities || {})[id];
+  const dev = reg && reg.device_id ? (hass.devices || {})[reg.device_id] : null;
+  if (dev) {
+    const n = dev.name_by_user || dev.name;
+    // Il canale di un misuratore multicanale porta il numero nel nome del
+    // dispositivo figlio: "Piano induzione Energy Meter 0" -> "Piano induzione".
+    if (n) return n.replace(/\s*(energy meter|channel|canale|em)\s*\d+\s*$/i, "").trim() || n;
+  }
+  const st = hass.states[id];
+  const f = (st && st.attributes && st.attributes.friendly_name) || id;
+  return f.replace(/\s*(active power|apparent power|potenza attiva|potenza apparente|potenza|power|consumo)\s*\d*\s*$/i, "").trim() || f;
+}
+
+function fcNum(v) { const n = parseFloat(v); return isFinite(n) ? n : 0; }
+function fcW(n) { return Math.round(n).toLocaleString("it-IT"); }
+
+class FaberCarichi extends HTMLElement {
+  static getConfigElement() { return document.createElement("faber-carichi-editor"); }
+  static getStubConfig(hass) {
+    const st = (hass && hass.states) || {};
+    const pot = Object.keys(st).filter(id => id.startsWith("sensor.") && st[id].attributes.device_class === "power");
+    const gruppo = pot.find(id => (st[id].attributes.entity_id || []).length);
+    return Object.assign({}, FC_DEFAULTS, {
+      totale: pot.find(id => /generale|totale|casa|contatore|main/i.test(id)) || "",
+      gruppo: gruppo || "",
+    });
+  }
+
+  setConfig(config) {
+    // La configurazione che arriva da HA e congelata in profondita.
+    this._cfg = Object.assign({}, FC_DEFAULTS, JSON.parse(JSON.stringify(config || {})));
+    this._built = false;
+    if (this._hass) this._render();
+  }
+
+  set hass(h) {
+    this._hass = h;
+    this._render();
+  }
+
+  getCardSize() { return 5; }
+
+  _membri() {
+    const h = this._hass, c = this._cfg;
+    if (c.gruppo && h.states[c.gruppo]) {
+      const m = h.states[c.gruppo].attributes.entity_id;
+      if (Array.isArray(m) && m.length) return m;
+    }
+    return Array.isArray(c.sensori) ? c.sensori : [];
+  }
+
+  _dati() {
+    const h = this._hass, c = this._cfg;
+    const voci = this._membri()
+      .filter(id => h.states[id])
+      .map(id => ({ id, w: fcNum(h.states[id].state) }));
+    const monitorato = voci.reduce((s, v) => s + v.w, 0);
+    const senzaTotale = !c.totale || !h.states[c.totale];
+    const totale = senzaTotale ? monitorato : fcNum(h.states[c.totale].state);
+    const altro = Math.max(0, totale - monitorato);
+    const accesi = voci.filter(v => v.w >= (c.soglia_acceso || 0)).sort((a, b) => b.w - a.w);
+    const tono = totale >= c.soglia_alta ? "alto" : totale >= c.soglia_media ? "medio" : "calmo";
+    return { voci, accesi, monitorato, totale, altro, tono, senzaTotale };
+  }
+
+  _render() {
+    if (!this._hass || !this._cfg) return;
+    const c = this._cfg, d = this._dati(), t = FC_TONI[d.tono];
+
+    if (!this._built) {
+      this.innerHTML = `<style>${FC_CSS}</style><ha-card class="fc"><div class="fc-body"></div></ha-card>`;
+      this._card = this.querySelector(".fc");
+      this._body = this.querySelector(".fc-body");
+      this._card.addEventListener("click", e => {
+        if (e.target.closest("[data-riga]")) return;
+        if (this._cfg.naviga) {
+          history.pushState(null, "", this._cfg.naviga);
+          window.dispatchEvent(new CustomEvent("location-changed", { bubbles: true, composed: true }));
+        }
+      });
+      this._built = true;
+    }
+
+    this._card.style.backgroundImage = `linear-gradient(${t.tinta},${t.tinta})`;
+    this._card.style.borderColor = t.bordo;
+    this._card.style.cursor = c.naviga ? "pointer" : "default";
+
+    const perc = d.totale > 0 ? Math.min(100, (d.monitorato / d.totale) * 100) : 0;
+    const costo = (d.totale / 1000) * (c.prezzo_kwh || 0);
+    const max = d.accesi.length ? d.accesi[0].w : 0;
+    const lista = d.accesi.slice(0, c.top || 5);
+
+    this._body.innerHTML = `
+      <div class="fc-top">
+        <div class="fc-tit">
+          <div class="fc-t1">${fhEsc(c.title)}</div>
+          <div class="fc-t2" style="color:${t.forte}">${t.eti}</div>
+        </div>
+        <div class="fc-tot">
+          <div class="fc-big" style="color:${t.forte}">${fcW(d.totale)}<span>W</span></div>
+          <div class="fc-sub">${d.senzaTotale ? "somma dei monitorati" : "contatore di casa"}</div>
+        </div>
+      </div>
+
+      <div class="fc-barra">
+        <div class="fc-fill" style="width:${perc}%;background:${t.forte};box-shadow:0 0 12px ${t.forte}66"></div>
+      </div>
+      <div class="fc-leg">
+        <span><i style="background:${t.forte}"></i>Monitorato <b>${fcW(d.monitorato)} W</b></span>
+        <span><i class="ghost"></i>Non tracciato <b>${fcW(d.altro)} W</b></span>
+        <span class="fc-costo">${costo.toFixed(2).replace(".", ",")} &euro;/h</span>
+      </div>
+
+      ${lista.length ? `<div class="fc-lista">
+        ${lista.map(v => {
+          const q = max > 0 ? Math.max(4, (v.w / max) * 100) : 0;
+          return `<button type="button" class="fc-riga" data-riga="${fhEsc(v.id)}">
+            <span class="fc-nome">${fhEsc(fcNomeSensore(this._hass, v.id, c.nomi))}</span>
+            <span class="fc-track"><span class="fc-q" style="width:${q}%;background:${t.forte}"></span></span>
+            <span class="fc-w">${fcW(v.w)} W</span>
+          </button>`;
+        }).join("")}
+      </div>` : `<div class="fc-vuoto">Nessun carico acceso in questo momento.</div>`}
+
+      ${d.accesi.length > lista.length ? `<div class="fc-altri">e altri ${d.accesi.length - lista.length} accesi, sotto i ${fcW(lista[lista.length - 1].w)} W</div>` : ""}
+    `;
+
+    this._body.querySelectorAll("[data-riga]").forEach(b => b.addEventListener("click", e => {
+      e.stopPropagation();
+      this.dispatchEvent(new CustomEvent("hass-more-info", {
+        detail: { entityId: b.dataset.riga }, bubbles: true, composed: true,
+      }));
+    }));
+  }
+}
+
+const FC_CSS = `
+  .fc{display:block;position:relative;overflow:hidden;border-radius:22px;container-type:inline-size;
+    background-color:rgba(16,18,24,.82);border:1px solid rgba(255,255,255,.10);
+    backdrop-filter:blur(18px) saturate(140%);-webkit-backdrop-filter:blur(18px) saturate(140%);
+    color:#eaf1f8;box-shadow:0 10px 30px rgba(0,0,0,.28);transition:background-image .5s ease,border-color .5s ease}
+  .fc-body{padding:16px 16px 14px;display:flex;flex-direction:column;gap:12px;
+    font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  .fc-top{display:flex;align-items:flex-start;gap:12px}
+  .fc-tit{flex:1;min-width:0}
+  .fc-t1{font-size:15px;font-weight:800;letter-spacing:.2px}
+  .fc-t2{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:1.2px;margin-top:3px}
+  .fc-tot{text-align:right;flex:0 0 auto}
+  .fc-big{font-size:34px;font-weight:900;line-height:1;font-variant-numeric:tabular-nums}
+  .fc-big span{font-size:15px;font-weight:800;opacity:.75;margin-left:3px}
+  .fc-sub{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.6px;opacity:.6;margin-top:4px}
+  .fc-barra{height:9px;border-radius:6px;background:rgba(0,0,0,.32);overflow:hidden;border:1px solid rgba(255,255,255,.07)}
+  .fc-fill{height:100%;border-radius:6px;transition:width .6s cubic-bezier(.22,.9,.3,1)}
+  .fc-leg{display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:11.5px;font-weight:600;opacity:.88}
+  .fc-leg span{display:inline-flex;align-items:center;gap:5px}
+  .fc-leg b{font-weight:800;font-variant-numeric:tabular-nums}
+  .fc-leg i{width:8px;height:8px;border-radius:3px;display:inline-block}
+  .fc-leg i.ghost{background:rgba(255,255,255,.28)}
+  .fc-costo{margin-left:auto;font-weight:800;opacity:.7;font-variant-numeric:tabular-nums}
+  .fc-lista{display:flex;flex-direction:column;gap:2px;margin-top:2px}
+  .fc-riga{display:grid;grid-template-columns:minmax(0,1fr) 84px auto;align-items:center;gap:10px;
+    padding:7px 8px;border-radius:12px;border:none;background:transparent;color:inherit;
+    font:inherit;text-align:left;cursor:pointer;transition:background .18s ease}
+  .fc-riga:hover{background:rgba(255,255,255,.06)}
+  .fc-nome{font-size:13px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .fc-track{height:6px;border-radius:4px;background:rgba(255,255,255,.09);overflow:hidden}
+  .fc-q{display:block;height:100%;border-radius:4px;transition:width .6s cubic-bezier(.22,.9,.3,1)}
+  .fc-w{font-size:12.5px;font-weight:800;font-variant-numeric:tabular-nums;min-width:56px;text-align:right}
+  .fc-vuoto,.fc-altri{font-size:11.5px;font-weight:600;opacity:.55;text-align:center;padding:4px 0}
+  @container (max-width:340px){
+    .fc-big{font-size:28px}
+    .fc-riga{grid-template-columns:minmax(0,1fr) auto}
+    .fc-track{display:none}
+  }
+`;
+
+customElements.define("faber-carichi", FaberCarichi);
+
+/* --------------------------------------------------------- editor grafico */
+/* Tutto quello che nella vecchia card era JavaScript dentro lo YAML qui e   */
+/* un campo: contatore, gruppo, soglie, prezzo, quanti in classifica, e i    */
+/* soprannomi dei dispositivi presi in prestito da Home Assistant e          */
+/* modificabili solo se davvero non piacciono.                               */
+
+class FaberCarichiEditor extends HTMLElement {
+  setConfig(config) {
+    this._cfg = Object.assign({}, FC_DEFAULTS, JSON.parse(JSON.stringify(config || {})));
+    // HA richiama setConfig anche per i giri di ritorno partiti da qui: se in
+    // quel caso rifacessimo l'HTML, il campo perderebbe il fuoco a ogni
+    // lettera e sul telefono la tastiera si chiuderebbe di continuo.
+    if (this._interno) { this._interno = false; return; }
+    if (this._hass) this._render();
+  }
+  set hass(h) {
+    this._hass = h;
+    if (this._cfg && !this._fatto) { this._fatto = true; this._render(); }
+  }
+  _emit() {
+    this._interno = true;
+    this.dispatchEvent(new CustomEvent("config-changed", { detail: { config: this._cfg }, bubbles: true, composed: true }));
+  }
+  _set(k, v) { this._cfg = Object.assign({}, this._cfg, { [k]: v }); this._emit(); }
+
+  _nomeEnt(id) {
+    const s = this._hass.states[id];
+    return (s && s.attributes && s.attributes.friendly_name) || id;
+  }
+
+  // Un campo di testo che filtra invece di un <select> con centinaia di voci:
+  // in questa casa i sensori di potenza sono decine e i sensor totali oltre mille.
+  _picker(campo, etichetta, aiuto, filtro) {
+    const sel = this._cfg[campo] || "";
+    return `<div class="fce-f" data-pick="${campo}" data-filtro="${filtro}">
+      <label>${etichetta}</label>${aiuto ? `<span class="fce-h">${aiuto}</span>` : ""}
+      <div class="fce-pw">
+        <input type="text" class="fce-in fce-q" autocomplete="off" placeholder="Cerca..." value="${fhEsc(sel ? this._nomeEnt(sel) : "")}">
+        ${sel ? `<button type="button" class="fce-x" title="Svuota">&times;</button>` : ""}
+        <div class="fce-drop" hidden></div>
+      </div>
+      ${sel ? `<div class="fce-id">${fhEsc(sel)}</div>` : ""}
+    </div>`;
+  }
+
+  _candidati(filtro) {
+    const st = this._hass.states;
+    const ids = Object.keys(st).filter(id => id.startsWith("sensor."));
+    if (filtro === "gruppo") {
+      // Un gruppo utile e un sensore che porta con se l'elenco dei membri.
+      return ids.filter(id => Array.isArray(st[id].attributes.entity_id) && st[id].attributes.entity_id.length);
+    }
+    return ids.filter(id => st[id].attributes.device_class === "power");
+  }
+
+  _render() {
+    if (!this._cfg || !this._hass) return;
+    const c = this._cfg;
+    const membri = (() => {
+      if (c.gruppo && this._hass.states[c.gruppo]) {
+        const m = this._hass.states[c.gruppo].attributes.entity_id;
+        if (Array.isArray(m)) return m;
+      }
+      return Array.isArray(c.sensori) ? c.sensori : [];
+    })();
+
+    this.innerHTML = `<style>${FCE_CSS}</style>
+      <div class="fce">
+        <div class="fce-f">
+          <label>Titolo</label>
+          <input class="fce-in" id="fceTit" value="${fhEsc(c.title || "")}">
+        </div>
+
+        ${this._picker("totale", "Contatore di casa", "Il consumo totale reale. Se lo lasci vuoto, il numero grande diventa la somma dei monitorati.", "power")}
+        ${this._picker("gruppo", "Gruppo dei monitorati", "Il gruppo che raccoglie i sensori di potenza delle prese. La differenza col contatore e il consumo non tracciato.", "gruppo")}
+
+        <div class="fce-riga2">
+          <div class="fce-f">
+            <label>Consumo alto (W)</label>
+            <input class="fce-in" id="fceSm" type="number" min="0" step="50" value="${c.soglia_media}">
+          </div>
+          <div class="fce-f">
+            <label>Attenzione (W)</label>
+            <input class="fce-in" id="fceSa" type="number" min="0" step="50" value="${c.soglia_alta}">
+          </div>
+        </div>
+
+        <div class="fce-riga2">
+          <div class="fce-f">
+            <label>Prezzo energia (&euro;/kWh)</label>
+            <input class="fce-in" id="fcePr" type="number" min="0" step="0.01" value="${c.prezzo_kwh}">
+          </div>
+          <div class="fce-f">
+            <label>Quanti in classifica</label>
+            <select class="fce-in" id="fceTop">
+              ${[3, 5, 8, 10, 15].map(n => `<option value="${n}"${n === c.top ? " selected" : ""}>${n} carichi</option>`).join("")}
+            </select>
+          </div>
+        </div>
+
+        <div class="fce-riga2">
+          <div class="fce-f">
+            <label>Soglia "acceso" (W)</label>
+            <span class="fce-h">Sotto questo valore un carico non compare in classifica.</span>
+            <input class="fce-in" id="fceAcc" type="number" min="0" step="1" value="${c.soglia_acceso}">
+          </div>
+          <div class="fce-f">
+            <label>Al tocco vai a</label>
+            <span class="fce-h">Per esempio /plancia-telefono/energia. Vuoto = non fa niente.</span>
+            <input class="fce-in" id="fceNav" placeholder="/percorso/vista" value="${fhEsc(c.naviga || "")}">
+          </div>
+        </div>
+
+        <details class="fce-det"${Object.keys(c.nomi || {}).length ? " open" : ""}>
+          <summary>Nomi dei carichi (${membri.length})</summary>
+          <div class="fce-h" style="margin:6px 0 10px">I nomi arrivano da soli dal dispositivo a cui il sensore appartiene. Scrivi qui dentro solo quelli che vuoi cambiare.</div>
+          <div class="fce-nomi">
+            ${membri.length ? membri.map(id => `
+              <div class="fce-nr">
+                <span class="fce-auto" title="${fhEsc(id)}">${fhEsc(fcNomeSensore(this._hass, id, {}))}</span>
+                <input class="fce-in fce-nome" data-ent="${fhEsc(id)}" placeholder="lascia vuoto" value="${fhEsc((c.nomi || {})[id] || "")}">
+              </div>`).join("") : `<div class="fce-h">Scegli prima il gruppo dei monitorati.</div>`}
+          </div>
+        </details>
+      </div>`;
+
+    const q = s => this.querySelector(s);
+    q("#fceTit").addEventListener("input", e => this._set("title", e.target.value));
+    q("#fceSm").addEventListener("change", e => this._set("soglia_media", parseInt(e.target.value) || 0));
+    q("#fceSa").addEventListener("change", e => this._set("soglia_alta", parseInt(e.target.value) || 0));
+    q("#fcePr").addEventListener("change", e => this._set("prezzo_kwh", parseFloat(e.target.value) || 0));
+    q("#fceTop").addEventListener("change", e => this._set("top", parseInt(e.target.value)));
+    q("#fceAcc").addEventListener("change", e => this._set("soglia_acceso", parseFloat(e.target.value) || 0));
+    q("#fceNav").addEventListener("input", e => this._set("naviga", e.target.value));
+
+    this.querySelectorAll(".fce-nome").forEach(inp => inp.addEventListener("input", e => {
+      const nomi = Object.assign({}, this._cfg.nomi || {});
+      const v = e.target.value.trim();
+      if (v) nomi[e.target.dataset.ent] = v; else delete nomi[e.target.dataset.ent];
+      this._set("nomi", nomi);
+    }));
+
+    this.querySelectorAll("[data-pick]").forEach(box => this._wirePicker(box));
+  }
+
+  _wirePicker(box) {
+    const campo = box.dataset.pick, filtro = box.dataset.filtro;
+    const inp = box.querySelector(".fce-q");
+    const drop = box.querySelector(".fce-drop");
+    const x = box.querySelector(".fce-x");
+    const lista = () => {
+      const t = inp.value.toLowerCase().trim();
+      const parole = t.split(/\s+/).filter(Boolean);
+      return this._candidati(filtro)
+        .map(id => ({ id, txt: (id + " " + this._nomeEnt(id)).toLowerCase() }))
+        .filter(o => !parole.length || parole.every(p => o.txt.includes(p)))
+        .slice(0, 40);
+    };
+    const apri = () => {
+      const l = lista();
+      drop.innerHTML = l.length
+        ? l.map(o => `<button type="button" data-id="${fhEsc(o.id)}"><b>${fhEsc(this._nomeEnt(o.id))}</b><i>${fhEsc(o.id)}</i></button>`).join("")
+        : `<div class="fce-h" style="padding:10px">Nessun sensore trovato.</div>`;
+      drop.hidden = false;
+      drop.querySelectorAll("[data-id]").forEach(b => b.addEventListener("mousedown", e => {
+        e.preventDefault();
+        this._set(campo, b.dataset.id);
+        this._render();
+      }));
+    };
+    inp.addEventListener("focus", apri);
+    inp.addEventListener("input", apri);
+    inp.addEventListener("blur", () => setTimeout(() => { drop.hidden = true; }, 150));
+    if (x) x.addEventListener("click", () => { this._set(campo, ""); this._render(); });
+  }
+}
+
+const FCE_CSS = `
+  .fce{display:flex;flex-direction:column;gap:14px;padding:4px 2px;font-family:inherit}
+  .fce-f{display:flex;flex-direction:column;gap:5px;min-width:0}
+  .fce-f label{font-size:13px;font-weight:700;color:var(--primary-text-color)}
+  .fce-h{font-size:11.5px;line-height:1.45;color:var(--secondary-text-color)}
+  .fce-in{padding:9px 10px;border-radius:9px;font-size:14px;width:100%;box-sizing:border-box;font-family:inherit;
+    border:1px solid var(--divider-color);background:var(--card-background-color);color:var(--primary-text-color)}
+  .fce-riga2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .fce-pw{position:relative}
+  .fce-x{position:absolute;right:6px;top:50%;transform:translateY(-50%);width:24px;height:24px;border:none;
+    border-radius:50%;cursor:pointer;font-size:16px;line-height:1;background:var(--divider-color);color:var(--primary-text-color)}
+  .fce-drop{position:absolute;z-index:30;left:0;right:0;top:calc(100% + 4px);max-height:230px;overflow-y:auto;
+    border-radius:12px;border:1px solid var(--divider-color);background:var(--ha-card-background,var(--card-background-color));
+    box-shadow:0 12px 30px rgba(0,0,0,.35)}
+  .fce-drop button{display:flex;flex-direction:column;gap:1px;width:100%;text-align:left;padding:8px 11px;
+    border:none;background:none;cursor:pointer;font-family:inherit;color:var(--primary-text-color)}
+  .fce-drop button:hover{background:rgba(255,176,32,.14)}
+  .fce-drop b{font-size:13px;font-weight:700}
+  .fce-drop i{font-size:10.5px;font-style:normal;color:var(--secondary-text-color)}
+  .fce-id{font-size:10.5px;color:var(--secondary-text-color);font-family:ui-monospace,monospace}
+  .fce-det{border:1px solid var(--divider-color);border-radius:12px;padding:10px 12px}
+  .fce-det summary{font-size:13px;font-weight:700;cursor:pointer;color:var(--primary-text-color)}
+  .fce-nomi{display:flex;flex-direction:column;gap:6px;max-height:300px;overflow-y:auto}
+  .fce-nr{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px;align-items:center}
+  .fce-auto{font-size:12.5px;font-weight:600;color:var(--secondary-text-color);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  @media (max-width:480px){
+    .fce-riga2{grid-template-columns:1fr}
+    .fce-nr{grid-template-columns:1fr}
+  }
+`;
+
+customElements.define("faber-carichi-editor", FaberCarichiEditor);
+
+
 window.customCards = window.customCards || [];
 window.customCards.push({
   type: "faber-weather",
   name: "Faber Meteo",
   description: "Meteo nello stile della famiglia: temperatura grande, condizione in italiano, umidita/pressione/vento/direzione e i prossimi giorni.",
+  preview: true,
+  documentationURL: "https://github.com/cristianwebonline/ha-faber-home",
+});
+window.customCards.push({
+  type: "faber-carichi",
+  name: "Faber Carichi reali",
+  description: "Quanto tira davvero la casa: contatore, quanto e monitorato, quanto sfugge, e la classifica dei carichi accesi adesso.",
   preview: true,
   documentationURL: "https://github.com/cristianwebonline/ha-faber-home",
 });
