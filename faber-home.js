@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.3.0";
+const FH_VERSION = "0.3.1";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -249,7 +249,12 @@ class FhSky {
 // ---------------------------------------------------------------------------
 class FaberHome extends HTMLElement {
   setConfig(config) {
-    const src = config || {};
+    // Home Assistant consegna la configurazione CONGELATA (Object.freeze in
+    // profondita): senza una copia vera, aggiungere una card o una riga
+    // fallisce con "object is not extensible". Si clona tutto una volta sola,
+    // qui, e da li in poi si lavora su roba nostra e modificabile.
+    let src;
+    try { src = JSON.parse(JSON.stringify(config || {})); } catch (e) { src = Object.assign({}, config || {}); }
     const ap = src.appearance || {};
     this._cfg = Object.assign({}, FH_DEFAULTS, src, {
       appearance: {
