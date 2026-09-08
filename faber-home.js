@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.5.1";
+const FH_VERSION = "0.6.1";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -42,6 +42,35 @@ const FH_SKY = {
   dark: { top: "#1b2740", mid: "#0d1420", bot: "#080c14", ink: "#eaf1f8", muted: "#93a1b0",
     panel: "rgba(30,38,48,.78)", stroke: "rgba(255,255,255,.09)", navInk: "#eaf1f8" },
 };
+
+
+// Lo sfondo del pannello si tinge del tempo che fa, come la card meteo: col
+// sole un alone caldo in alto a destra, col temporale un viola cupo, con la
+// nebbia una foschia diffusa. E la stessa idea della card portata su tutta la
+// pagina, cosi il pannello "sa" che tempo fa anche prima di leggere i numeri.
+const FH_GLOW = {
+  sunny:            { c: "255,186,60",  x: "88%", y: "-6%",  r: "62%", a: .34, ad: .20 },
+  "clear-night":    { c: "120,132,255", x: "84%", y: "-8%",  r: "58%", a: .16, ad: .20 },
+  partlycloudy:     { c: "255,206,120", x: "86%", y: "-6%",  r: "56%", a: .20, ad: .12 },
+  cloudy:           { c: "150,170,195", x: "70%", y: "-10%", r: "70%", a: .22, ad: .16 },
+  rainy:            { c: "90,140,190",  x: "60%", y: "-12%", r: "78%", a: .26, ad: .22 },
+  pouring:          { c: "60,110,165",  x: "60%", y: "-12%", r: "80%", a: .32, ad: .26 },
+  snowy:            { c: "200,225,245", x: "70%", y: "-8%",  r: "72%", a: .30, ad: .18 },
+  "snowy-rainy":    { c: "170,205,235", x: "68%", y: "-10%", r: "74%", a: .28, ad: .18 },
+  fog:              { c: "205,200,190", x: "50%", y: "10%",  r: "95%", a: .30, ad: .18 },
+  hail:             { c: "140,180,215", x: "64%", y: "-10%", r: "76%", a: .28, ad: .20 },
+  windy:            { c: "150,195,180", x: "72%", y: "-8%",  r: "70%", a: .22, ad: .16 },
+  "windy-variant":  { c: "150,195,180", x: "72%", y: "-8%",  r: "70%", a: .22, ad: .16 },
+  lightning:        { c: "150,110,225", x: "62%", y: "-10%", r: "76%", a: .28, ad: .26 },
+  "lightning-rainy":{ c: "130,95,215",  x: "62%", y: "-10%", r: "78%", a: .30, ad: .28 },
+  exceptional:      { c: "245,140,110", x: "80%", y: "-8%",  r: "66%", a: .30, ad: .22 },
+};
+function fhGlowLayer(state, dark) {
+  const g = FH_GLOW[state];
+  if (!g) return "";
+  const a = dark ? g.ad : g.a;
+  return `radial-gradient(${g.r} ${g.r} at ${g.x} ${g.y},rgba(${g.c},${a}),rgba(${g.c},0) 70%)`;
+}
 
 function fhHm(s, fallback) {
   const m = /^(\d{1,2}):(\d{2})$/.exec(String(s || "").trim());
@@ -323,7 +352,13 @@ class FaberHome extends HTMLElement {
     // qui `color` (che serve alla tinta unita) faceva passare il cielo chiaro
     // per una fascia scura.
     const from = pb.from || sky.top, mid = pb.mid || sky.mid, to = pb.to || sky.bot;
-    return `radial-gradient(140% 110% at 20% -20%,${from},${mid} 45%,${to})`;
+    const base = `radial-gradient(140% 110% at 20% -20%,${from},${mid} 45%,${to})`;
+    // L'alone del tempo sta SOPRA il cielo: cosi la pagina cambia con il
+    // meteo senza perdere la differenza fra giorno e notte.
+    const w = this._cfg.header.weather;
+    const st = w && this._hass ? this._hass.states[w] : null;
+    const glow = st ? fhGlowLayer(st.state, this._isDark()) : "";
+    return glow ? `${glow},${base}` : base;
   }
 
   // Il tema può cambiare da solo mentre il pannello è acceso (alle 07:00 o
@@ -902,6 +937,14 @@ class FaberHome extends HTMLElement {
 
   _updateLive() {
     if (this._skyfx) this._skyfx.setScene(this._weatherMode(), this._isDark());
+    // Se cambia la condizione meteo cambia anche la tinta della pagina.
+    const w = this._cfg.header.weather;
+    const cond = w && this._hass && this._hass.states[w] ? this._hass.states[w].state : "";
+    if (cond !== this._lastCond) {
+      this._lastCond = cond;
+      const app = this.querySelector(".fh-app");
+      if (app) app.style.background = this._pageBackground();
+    }
     const box = this.querySelector("[data-chips]");
     if (box) box.innerHTML = this._chipsHTML();
     this._wireChips();
@@ -1100,52 +1143,88 @@ function fwSkin(state) {
   return Object.assign({ cap: sk.ink }, sk);
 }
 
-// Disegni morbidi al posto delle icone piatte: tratti pieni e arrotondati,
-// nessun contorno sottile. Sono nostri, non presi da nessuna parte.
-function fwArt(kind, size) {
+// Disegni morbidi al posto delle icone piatte, e soprattutto VIVI: il sole
+// gira, la pioggia cade, le nuvole scorrono, il fulmine lampeggia. Le
+// animazioni si fermano da sole se il sistema chiede meno movimento.
+function fwArt(kind, size, still) {
   const s = size || 76;
-  const S = v => `<svg viewBox="0 0 100 100" width="${s}" height="${s}" style="display:block;overflow:visible">${v}</svg>`;
-  const cloud = (x, y, sc, fill) => `<g transform="translate(${x} ${y}) scale(${sc})">
+  const cls = still ? "" : " fw-anim";
+  const S = v => `<svg class="fw-art-svg${cls}" viewBox="0 0 100 100" width="${s}" height="${s}" style="display:block;overflow:visible">${v}</svg>`;
+  const cloud = (x, y, sc, fill, klass) => `<g class="${klass || ""}" transform="translate(${x} ${y}) scale(${sc})">
     <path d="M26 62 Q10 62 10 49 Q10 37 23 36 Q27 22 42 22 Q58 22 62 35 Q78 34 80 47 Q82 62 66 62 Z" fill="${fill}"/></g>`;
   switch (kind) {
     case "sun": return S(`
       <g>
-        <circle cx="50" cy="50" r="30" fill="rgba(255,255,255,.35)"/>
+        <circle class="fw-halo" cx="50" cy="50" r="30" fill="rgba(255,255,255,.35)"/>
+        <g class="fw-rays">
+          ${[0, 45, 90, 135, 180, 225, 270, 315].map(d => `<rect x="47.5" y="6" width="5" height="12" rx="2.5" fill="#ffb020" transform="rotate(${d} 50 50)"/>`).join("")}
+        </g>
         <circle cx="50" cy="50" r="21" fill="#ffb020"/>
-        ${[0, 45, 90, 135, 180, 225, 270, 315].map(d => `<rect x="47.5" y="6" width="5" height="12" rx="2.5" fill="#ffb020" transform="rotate(${d} 50 50)"/>`).join("")}
       </g>`);
     case "moon": return S(`
       <g>
-        <circle cx="52" cy="48" r="30" fill="rgba(255,255,255,.10)"/>
+        <circle class="fw-halo" cx="52" cy="48" r="30" fill="rgba(255,255,255,.10)"/>
         <path d="M62 22 A28 28 0 1 0 62 78 A22 22 0 1 1 62 22 Z" fill="#ffd88a"/>
-        <circle cx="24" cy="24" r="2.4" fill="#fff5dd"/><circle cx="80" cy="30" r="1.8" fill="#fff5dd"/>
-        <circle cx="76" cy="72" r="2.1" fill="#fff5dd"/>
+        <circle class="fw-star fw-s1" cx="24" cy="24" r="2.4" fill="#fff5dd"/>
+        <circle class="fw-star fw-s2" cx="80" cy="30" r="1.8" fill="#fff5dd"/>
+        <circle class="fw-star fw-s3" cx="76" cy="72" r="2.1" fill="#fff5dd"/>
       </g>`);
     case "partly": return S(`
       <g>
-        <circle cx="36" cy="34" r="16" fill="#ffb020"/>
-        ${cloud(4, 12, .92, "#ffffff")}
+        <g class="fw-rays"><circle cx="36" cy="34" r="16" fill="#ffb020"/>
+          ${[0, 60, 120, 180, 240, 300].map(d => `<rect x="34" y="8" width="4" height="9" rx="2" fill="#ffb020" transform="rotate(${d} 36 34)"/>`).join("")}
+        </g>
+        ${cloud(4, 12, .92, "#ffffff", "fw-drift")}
       </g>`);
-    case "cloud": return S(`<g>${cloud(2, 8, 1, "#ffffff")}<g opacity=".55">${cloud(14, 22, .7, "#ffffff")}</g></g>`);
+    case "cloud": return S(`<g>${cloud(2, 8, 1, "#ffffff", "fw-drift")}
+      <g opacity=".55">${cloud(14, 22, .7, "#ffffff", "fw-drift2")}</g></g>`);
     case "rain": return S(`
-      <g>${cloud(2, 2, 1, "#ffffff")}
-        ${[26, 46, 66].map((x, i) => `<rect x="${x}" y="${70 + (i % 2) * 6}" width="6" height="18" rx="3" fill="#7fb2dd" transform="rotate(12 ${x} 70)"/>`).join("")}
+      <g>${cloud(2, 2, 1, "#ffffff", "fw-drift")}
+        ${[26, 46, 66].map((x, i) => `<rect class="fw-drop fw-d${i + 1}" x="${x}" y="66" width="6" height="17" rx="3" fill="#7fb2dd" transform="rotate(12 ${x} 66)"/>`).join("")}
       </g>`);
     case "snow": return S(`
-      <g>${cloud(2, 2, 1, "#ffffff")}
-        ${[28, 50, 70].map((x, i) => `<circle cx="${x}" cy="${78 + (i % 2) * 7}" r="4.5" fill="#ffffff"/>`).join("")}
+      <g>${cloud(2, 2, 1, "#ffffff", "fw-drift")}
+        ${[28, 50, 70].map((x, i) => `<circle class="fw-flake fw-d${i + 1}" cx="${x}" cy="72" r="4.5" fill="#ffffff"/>`).join("")}
       </g>`);
     case "fog": return S(`
       <g>${cloud(2, 0, 1, "#ffffff")}
-        ${[70, 80, 90].map((y, i) => `<rect x="${16 + i * 4}" y="${y}" width="${68 - i * 10}" height="6" rx="3" fill="#ffffff" opacity="${.75 - i * .18}"/>`).join("")}
+        ${[70, 80, 90].map((y, i) => `<rect class="fw-fog fw-d${i + 1}" x="${16 + i * 4}" y="${y}" width="${68 - i * 10}" height="6" rx="3" fill="#ffffff" opacity="${.75 - i * .18}"/>`).join("")}
       </g>`);
     case "storm": return S(`
-      <g>${cloud(2, 2, 1, "#ffffff")}
-        <path d="M52 66 L38 90 L50 88 L44 100 L64 76 L52 78 Z" fill="#ffd54a"/>
+      <g>${cloud(2, 2, 1, "#ffffff", "fw-drift")}
+        <path class="fw-bolt" d="M52 66 L38 90 L50 88 L44 100 L64 76 L52 78 Z" fill="#ffd54a"/>
       </g>`);
     default: return S(`<circle cx="50" cy="50" r="24" fill="#ffffff"/>`);
   }
 }
+
+// Le animazioni stanno in un unico blocco riusato dalla card e dal popup.
+const FW_ANIM_CSS = `
+  @keyframes fwSpin{to{transform:rotate(360deg)}}
+  @keyframes fwBreath{0%,100%{transform:scale(1);opacity:.75}50%{transform:scale(1.09);opacity:1}}
+  @keyframes fwDrift{0%,100%{transform:translateX(0)}50%{transform:translateX(5px)}}
+  @keyframes fwDrift2{0%,100%{transform:translateX(0)}50%{transform:translateX(-6px)}}
+  @keyframes fwFall{0%{transform:translateY(-6px);opacity:0}20%{opacity:1}100%{transform:translateY(24px);opacity:0}}
+  @keyframes fwSway{0%{transform:translate(0,-6px);opacity:0}25%{opacity:1}100%{transform:translate(6px,24px);opacity:0}}
+  @keyframes fwSlide{0%,100%{transform:translateX(0)}50%{transform:translateX(8px)}}
+  @keyframes fwFlash{0%,88%,100%{opacity:.25}90%,96%{opacity:1}}
+  @keyframes fwTwinkle{0%,100%{opacity:.35}50%{opacity:1}}
+  .fw-anim .fw-rays{transform-origin:50px 50px;animation:fwSpin 26s linear infinite}
+  .fw-anim .fw-halo{transform-origin:50px 50px;animation:fwBreath 5s ease-in-out infinite}
+  .fw-anim .fw-drift{animation:fwDrift 7s ease-in-out infinite}
+  .fw-anim .fw-drift2{animation:fwDrift2 9s ease-in-out infinite}
+  .fw-anim .fw-drop{animation:fwFall 1.4s linear infinite}
+  .fw-anim .fw-flake{animation:fwSway 3.2s linear infinite}
+  .fw-anim .fw-fog{animation:fwSlide 6s ease-in-out infinite}
+  .fw-anim .fw-bolt{animation:fwFlash 3.6s ease-in-out infinite}
+  .fw-anim .fw-star{animation:fwTwinkle 3s ease-in-out infinite}
+  .fw-anim .fw-d1{animation-delay:0s}
+  .fw-anim .fw-d2{animation-delay:.45s}
+  .fw-anim .fw-d3{animation-delay:.9s}
+  .fw-anim .fw-s2{animation-delay:1s}
+  .fw-anim .fw-s3{animation-delay:2s}
+  @media (prefers-reduced-motion: reduce){ .fw-anim *{animation:none !important} }
+`;
 
 class FaberWeather extends HTMLElement {
   setConfig(config) {
@@ -1216,14 +1295,13 @@ class FaberWeather extends HTMLElement {
         .fw-stat ha-icon{--mdc-icon-size:18px;opacity:.75}
         .fw-statval{font-size:13.5px;font-weight:800;font-variant-numeric:tabular-nums}
         .fw-statlab{font-size:8.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;opacity:.6}
-        .fw-days{display:flex;gap:8px;margin-top:10px;overflow-x:auto;scrollbar-width:none}
-        .fw-days::-webkit-scrollbar{display:none}
-        .fw-day{flex:1 0 66px;display:flex;flex-direction:column;align-items:center;gap:2px;padding:10px 4px;
-          border-radius:16px;background:${sk.soft}}
-        .fw-dayname{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;opacity:.6}
-        .fw-max{font-size:14px;font-weight:800;font-variant-numeric:tabular-nums}
-        .fw-min{font-size:11px;font-weight:700;opacity:.55;font-variant-numeric:tabular-nums}
+        .fw-next{display:flex;align-items:center;justify-content:space-between;width:100%;margin-top:12px;
+          padding:12px 16px;border:none;border-radius:16px;cursor:pointer;font:inherit;color:inherit;
+          background:${sk.soft};font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase}
+        .fw-next ha-icon{--mdc-icon-size:20px;opacity:.7}
+        .fw-next:hover{filter:brightness(1.06)}
         @container (max-width: 340px){ .fw-stats{grid-template-columns:repeat(2,1fr)} }
+        ${FW_ANIM_CSS}
       </style>
       <div class="fw">
         <div class="fw-title">${fhEsc(this._cfg.name || a.friendly_name || "Meteo")}</div>
@@ -1236,9 +1314,88 @@ class FaberWeather extends HTMLElement {
           </div>
         </div>
         <div class="fw-stats" data-stats>${this._statsHTML(a)}</div>
-        <div class="fw-days" data-days></div>
+        <button type="button" class="fw-next" data-next hidden>
+          <span>Prossimi giorni</span><ha-icon icon="mdi:chevron-right"></ha-icon>
+        </button>
       </div>`;
+    const nx = this.querySelector("[data-next]");
+    if (nx) nx.addEventListener("click", () => this._openForecast());
     this._paintDays();
+  }
+
+  // I giorni non stanno piu in fila dentro la card: occupavano spazio tutti i
+  // giorni per un dato che si guarda ogni tanto. Ora la card resta compatta e
+  // i giorni si aprono al tocco, con piu informazioni di quante ne stessero
+  // in una striscia (probabilita di pioggia e vento).
+  _openForecast() {
+    const st = this._hass.states[this._cfg.entity];
+    const sk = fwSkin(st ? st.state : "");
+    const fc = this._fc || [];
+    const prev = this.querySelector(".fw-scrim");
+    if (prev) prev.remove();
+    const scrim = document.createElement("div");
+    scrim.className = "fw-scrim";
+    scrim.innerHTML = `
+      <div class="fw-modal">
+        <div class="fw-mhead">
+          <div class="fw-mtitle">Prossimi giorni</div>
+          <button type="button" class="fw-mclose" data-close><ha-icon icon="mdi:close"></ha-icon></button>
+        </div>
+        <div class="fw-mlist">
+          ${fc.length ? fc.map(d => {
+            const dd = new Date(d.datetime);
+            const nome = dd.toLocaleDateString("it-IT", { weekday: "long" });
+            const data = dd.toLocaleDateString("it-IT", { day: "numeric", month: "short" });
+            const dsk = fwSkin(d.condition);
+            const extra = [];
+            if (d.precipitation_probability != null) extra.push(`<span><ha-icon icon="mdi:water"></ha-icon>${Math.round(d.precipitation_probability)}%</span>`);
+            if (d.wind_speed != null) extra.push(`<span><ha-icon icon="mdi:weather-windy"></ha-icon>${Math.round(d.wind_speed)} km/h</span>`);
+            return `<div class="fw-mrow">
+              <div class="fw-mart">${fwArt(dsk.art, 40, true)}</div>
+              <div class="fw-mday">
+                <div class="fw-mname">${fhEsc(nome)}</div>
+                <div class="fw-mmeta">${fhEsc(data)} · ${fhEsc(FH_WEATHER_IT[d.condition] || d.condition || "")}</div>
+                ${extra.length ? `<div class="fw-mextra">${extra.join("")}</div>` : ""}
+              </div>
+              <div class="fw-mtemp">
+                <div class="fw-mmax">${d.temperature != null ? Math.round(d.temperature) + "\u00b0" : "–"}</div>
+                <div class="fw-mmin">${d.templow != null ? Math.round(d.templow) + "\u00b0" : ""}</div>
+              </div>
+            </div>`;
+          }).join("") : `<div class="fw-mempty">Previsioni non disponibili.</div>`}
+        </div>
+      </div>`;
+    const style = document.createElement("style");
+    style.textContent = `
+      .fw-scrim{position:fixed;inset:0;z-index:30;background:rgba(6,9,14,.6);backdrop-filter:blur(6px);
+        display:flex;align-items:flex-end;justify-content:center;
+        font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}
+      .fw-modal{width:100%;max-width:560px;max-height:82vh;display:flex;flex-direction:column;color:${sk.ink};
+        background:linear-gradient(160deg,${sk.a},${sk.b});border-radius:26px 26px 0 0;
+        box-shadow:0 -18px 50px rgba(0,0,0,.5);animation:fwUp .22s ease-out}
+      @keyframes fwUp{from{transform:translateY(18px);opacity:.6}to{transform:translateY(0);opacity:1}}
+      .fw-mhead{display:flex;align-items:center;gap:10px;padding:18px 20px 6px}
+      .fw-mtitle{flex:1;font-size:18px;font-weight:800;letter-spacing:-.01em}
+      .fw-mclose{width:34px;height:34px;border-radius:50%;border:none;cursor:pointer;color:inherit;
+        background:${sk.soft};display:flex;align-items:center;justify-content:center}
+      .fw-mlist{overflow-y:auto;padding:6px 16px 22px;display:flex;flex-direction:column;gap:8px}
+      .fw-mrow{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:18px;background:${sk.soft}}
+      .fw-mart{flex:0 0 auto}
+      .fw-mday{flex:1;min-width:0}
+      .fw-mname{font-size:14.5px;font-weight:800;text-transform:capitalize}
+      .fw-mmeta{font-size:11.5px;font-weight:600;opacity:.66;text-transform:capitalize}
+      .fw-mextra{display:flex;gap:12px;margin-top:4px;font-size:11px;font-weight:700;opacity:.7}
+      .fw-mextra span{display:flex;align-items:center;gap:3px}
+      .fw-mextra ha-icon{--mdc-icon-size:13px}
+      .fw-mtemp{text-align:right;flex:0 0 auto}
+      .fw-mmax{font-size:19px;font-weight:800;font-variant-numeric:tabular-nums}
+      .fw-mmin{font-size:12.5px;font-weight:700;opacity:.55;font-variant-numeric:tabular-nums}
+      .fw-mempty{padding:24px;text-align:center;opacity:.7;font-size:13px}
+      ${FW_ANIM_CSS}`;
+    scrim.appendChild(style);
+    scrim.addEventListener("click", e => { if (e.target === scrim) scrim.remove(); });
+    scrim.querySelector("[data-close]").addEventListener("click", () => scrim.remove());
+    this.appendChild(scrim);
   }
 
   _statHTML(icon, label, value) {
@@ -1258,19 +1415,8 @@ class FaberWeather extends HTMLElement {
   }
 
   _paintDays() {
-    const box = this.querySelector("[data-days]");
-    if (!box) return;
-    const fc = (this._fc || []).slice(0, Math.max(0, this._cfg.days || 4));
-    box.innerHTML = fc.map(d => {
-      const day = new Date(d.datetime).toLocaleDateString("it-IT", { weekday: "short" }).replace(".", "");
-      const sk = fwSkin(d.condition);
-      return `<div class="fw-day">
-        <div class="fw-dayname">${fhEsc(day)}</div>
-        ${fwArt(sk.art, 30)}
-        <div class="fw-max">${d.temperature != null ? Math.round(d.temperature) + "\u00b0" : "–"}</div>
-        <div class="fw-min">${d.templow != null ? Math.round(d.templow) + "\u00b0" : ""}</div>
-      </div>`;
-    }).join("");
+    const nx = this.querySelector("[data-next]");
+    if (nx) nx.hidden = !((this._fc || []).length && (this._cfg.days || 0) !== 0);
   }
 
   _patch() {
