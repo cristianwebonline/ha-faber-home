@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.3.1";
+const FH_VERSION = "0.3.2";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -708,7 +708,14 @@ class FaberHome extends HTMLElement {
     box.querySelectorAll("[data-i]").forEach(b => b.addEventListener("click", () => {
       const item = cat[parseInt(b.dataset.i, 10)];
       const cards = this._cfg.pages[this._page].rows[ri].cols[ci].cards;
-      cards.push(JSON.parse(JSON.stringify(item.c)));
+      const fresh = JSON.parse(JSON.stringify(item.c));
+      // Una card meteo senza entita nasce gia rotta, e in casa il meteo e
+      // quasi sempre uno solo: si precompila, poi si cambia dall'editor.
+      if (fresh.type === "weather-forecast" && !fresh.entity) {
+        const w = Object.keys(this._hass.states).filter(e => e.startsWith("weather."));
+        if (w.length) fresh.entity = this._cfg.header.weather && w.includes(this._cfg.header.weather) ? this._cfg.header.weather : w[0];
+      }
+      cards.push(fresh);
       scrim.remove();
       this._renderPage();
       // Si apre subito la configurazione: una card appena messa e quasi
@@ -737,15 +744,23 @@ class FaberHome extends HTMLElement {
     let editor = null;
     try {
       const helpers = await this._helpers();
+      let klass = null;
       if (cardCfg.type.startsWith("custom:")) {
-        const tag = cardCfg.type.slice(7);
-        const klass = customElements.get(tag);
-        if (klass && klass.getConfigElement) editor = await klass.getConfigElement();
+        klass = customElements.get(cardCfg.type.slice(7));
       } else if (helpers && helpers.createCardElement) {
+        // Istanziare la card serve a farne caricare il modulo, ma se la
+        // configurazione e ancora incompleta (entita vuota, appena aggiunta)
+        // Home Assistant restituisce una card d'errore: da quella non si
+        // ricava nessun editor. Quindi si prende la classe dal registro dei
+        // custom element per nome, che e la strada affidabile.
         const tmp = helpers.createCardElement(cardCfg);
-        const klass = tmp && tmp.constructor;
-        if (klass && klass.getConfigElement) editor = await klass.getConfigElement();
+        if (tmp && tmp.tagName && tmp.tagName.toLowerCase() !== "hui-error-card") klass = tmp.constructor;
+        if (!klass || !klass.getConfigElement) {
+          const tag = "hui-" + cardCfg.type.replace(/_/g, "-") + "-card";
+          klass = customElements.get(tag) || klass;
+        }
       }
+      if (klass && klass.getConfigElement) editor = await klass.getConfigElement();
     } catch (e) { editor = null; }
 
     if (editor) {
