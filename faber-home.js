@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.24.0";
+const FH_VERSION = "0.25.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -77,6 +77,20 @@ function fhHm(s, fallback) {
   const m = /^(\d{1,2}):(\d{2})$/.exec(String(s || "").trim());
   if (!m) return fallback;
   return Math.min(23, +m[1]) * 60 + Math.min(59, +m[2]);
+}
+
+// Un colpetto quando si preme un comando: sul telefono conferma che il tocco
+// e arrivato, senza aspettare che l'apparecchio risponda (a volte ci mette
+// qualche secondo, e nel dubbio si preme due volte). Breve di proposito:
+// una vibrazione lunga da fastidio addosso.
+// Non e supportata ovunque (iOS non ce l'ha, e alcuni browser la danno solo
+// dentro un vero gesto dell'utente): si prova e se non c'e pazienza.
+function fhVibra(ms) {
+  try {
+    if (navigator.vibrate && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      navigator.vibrate(ms || 12);
+    }
+  } catch (e) { /* niente */ }
 }
 
 function fhEsc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
@@ -507,6 +521,7 @@ class FaberHome extends HTMLElement {
   // Il numero della pagina da solo non basta a ritrovarla dopo un
   // salvataggio: le pagine si spostano. Si tiene anche il nome.
   _vaiPagina(i) {
+    fhVibra(8);
     this._page = i;
     const pg = this._cfg.pages[i];
     this._pageId = pg ? pg.id : null;
@@ -2286,7 +2301,7 @@ class FaberHome extends HTMLElement {
       // comandi della card (accendere una presa) invece di aprire il popup.
       const tap = document.createElement("div");
       tap.className = "fh-tap";
-      tap.addEventListener("click", e => { e.stopPropagation(); this._openCardPopup(cardCfg); });
+      tap.addEventListener("click", e => { e.stopPropagation(); fhVibra(8); this._openCardPopup(cardCfg); });
       wrap.appendChild(tap);
       wrap.classList.add("has-popup");
     }
@@ -3555,6 +3570,7 @@ class FaberClima extends HTMLElement {
   }
 
   _srv(servizio, dati) {
+    fhVibra();
     this._hass.callService("climate", servizio, Object.assign({ entity_id: this._cfg.climate }, dati));
   }
 
@@ -3717,6 +3733,8 @@ class FaberClima extends HTMLElement {
     const bp = this._body.querySelector("[data-presa]");
     if (bp) bp.addEventListener("click", () => {
       const dom = this._cfg.presa.split(".")[0];
+      // Un colpetto piu deciso: qui si toglie la CORRENTE, non si spegne.
+      fhVibra(25);
       this._hass.callService(dom, presaOn ? "turn_off" : "turn_on", { entity_id: this._cfg.presa });
     });
     this._body.querySelector("[data-power]").addEventListener("click", () => {
@@ -4717,6 +4735,7 @@ class FaberPersona extends HTMLElement {
       this._body = this.querySelector(".fp-body");
       this._card.addEventListener("click", e => {
         if (e.target.closest("[data-stop]")) return;
+        fhVibra(8);
         if (this._cfg.person) this.dispatchEvent(new CustomEvent("hass-more-info", {
           detail: { entityId: this._cfg.person }, bubbles: true, composed: true }));
       });
