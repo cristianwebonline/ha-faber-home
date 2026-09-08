@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.4.0";
+const FH_VERSION = "0.5.1";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -991,6 +991,8 @@ const FH_CSS = `
   .fh-editlabel ha-icon{--mdc-icon-size:17px}
   .fh-btn{padding:8px 14px;border-radius:999px;cursor:pointer;font:inherit;font-size:12.5px;font-weight:700;
     border:1px solid var(--fh-stroke,rgba(255,255,255,.12));background:transparent;color:var(--fh-ink,#eaf1f8)}
+  .fh-sheet .fh-btn{border-color:var(--divider-color);color:var(--primary-text-color)}
+  .fh-sheet .fh-ic{border-color:var(--divider-color);background:var(--card-background-color);color:var(--secondary-text-color)}
   .fh-btn.primary{border-color:rgba(255,176,32,.6);background:linear-gradient(135deg,rgba(255,176,32,.3),rgba(255,176,32,.14));color:#ffe9c2}
   .fh-rowwrap{display:flex;flex-direction:column;gap:8px}
   .fh-tools{display:flex;align-items:center;gap:4px;flex-wrap:wrap;padding:5px 8px;border-radius:12px;
@@ -1021,29 +1023,34 @@ const FH_CSS = `
   /* ---- fogli ---- */
   .fh-scrim{position:fixed;inset:0;z-index:20;background:rgba(4,6,10,.62);backdrop-filter:blur(6px);
     display:flex;align-items:flex-end;justify-content:center}
+  /* Il foglio ospita gli editor veri di Home Assistant, che si colorano con
+     le variabili del tema di HA: se gli imponiamo la nostra tavolozza il loro
+     testo diventa illeggibile. Quindi qui si usa il tema di Home Assistant. */
   .fh-sheet{width:100%;max-width:620px;max-height:86vh;display:flex;flex-direction:column;
-    background:var(--fh-panel,rgba(24,30,40,.98));border:1px solid var(--fh-stroke,rgba(255,255,255,.1));
+    background:var(--ha-card-background,var(--card-background-color,#1c1f26));
+    color:var(--primary-text-color);
+    border:1px solid var(--divider-color);
     border-bottom:none;border-radius:24px 24px 0 0;box-shadow:0 -16px 50px rgba(0,0,0,.55)}
   .fh-sheethead{display:flex;align-items:center;gap:10px;padding:14px 16px 8px}
-  .fh-sheettitle{flex:1;font-size:16px;font-weight:800;color:var(--fh-ink,#eaf1f8)}
+  .fh-sheettitle{flex:1;font-size:16px;font-weight:800;color:var(--primary-text-color)}
   .fh-sheetbody{overflow-y:auto;padding:4px 16px 24px;display:flex;flex-direction:column;gap:10px}
   .fh-catgroup{font-size:10.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
-    color:var(--fh-muted,#93a1b0);margin-top:8px}
+    color:var(--secondary-text-color);margin-top:8px}
   .fh-catlist{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px}
   .fh-catitem{display:flex;align-items:center;gap:8px;padding:11px;border-radius:14px;cursor:pointer;font:inherit;
-    border:1px solid var(--fh-stroke,rgba(255,255,255,.1));background:rgba(255,255,255,.04);
-    color:var(--fh-ink,#eaf1f8);font-size:12.5px;font-weight:700;text-align:left}
+    border:1px solid var(--divider-color);background:var(--card-background-color);
+    color:var(--primary-text-color);font-size:12.5px;font-weight:700;text-align:left}
   .fh-catitem ha-icon{--mdc-icon-size:20px;color:#ffb020;flex:0 0 auto}
   .fh-catitem:hover{border-color:rgba(255,176,32,.5)}
   .fh-json{width:100%;min-height:120px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;
     line-height:1.45;padding:10px;border-radius:12px;box-sizing:border-box;
-    border:1px solid var(--fh-stroke,rgba(255,255,255,.12));background:rgba(0,0,0,.25);color:var(--fh-ink,#eaf1f8)}
-  .fh-note{font-size:11.5px;color:var(--fh-muted,#93a1b0)}
+    border:1px solid var(--divider-color);background:var(--card-background-color);color:var(--primary-text-color)}
+  .fh-note{font-size:11.5px;color:var(--secondary-text-color)}
   .fh-pagerow{display:flex;align-items:center;gap:6px;padding:8px;border-radius:12px;
-    border:1px solid var(--fh-stroke,rgba(255,255,255,.1));background:rgba(255,255,255,.04)}
+    border:1px solid var(--divider-color);background:var(--card-background-color)}
   .fh-pagerow ha-icon{--mdc-icon-size:18px;color:#ffb020;flex:0 0 auto}
   .fh-input{flex:1;min-width:0;padding:8px 10px;border-radius:9px;font:inherit;font-size:13px;
-    border:1px solid var(--fh-stroke,rgba(255,255,255,.12));background:rgba(0,0,0,.2);color:var(--fh-ink,#eaf1f8)}
+    border:1px solid var(--divider-color);background:var(--card-background-color);color:var(--primary-text-color)}
   .fh-input.small{flex:0 0 110px}
   @container fh (max-width: 560px){
     .fh-head{padding:14px 14px 6px}
@@ -1067,6 +1074,79 @@ function fwDir(deg) {
   return FW_DIR[Math.round(((+deg % 360) / 22.5)) % 16];
 }
 
+// La card prende il COLORE DEL TEMPO invece di stare in un guscio neutro:
+// col sole e ambra calda, di notte indaco, con la pioggia azzurro piombo.
+// E il testo e una tinta scura dello stesso colore, non bianco su grigio —
+// e questo, piu delle icone, a togliere l'aria da cruscotto.
+const FW_SKIN = {
+  sunny:            { a: "#ffe6ad", b: "#ffc768", ink: "#6b4310", soft: "rgba(255,255,255,.55)", cap: "#8a5c1c", art: "sun" },
+  "clear-night":    { a: "#39406f", b: "#232a52", ink: "#f0eeff", soft: "rgba(255,255,255,.12)", cap: "#bdb8e6", art: "moon" },
+  partlycloudy:     { a: "#dfe9f5", b: "#bcd0e6", ink: "#2b3a4d", soft: "rgba(255,255,255,.6)",  cap: "#4d6076", art: "partly" },
+  cloudy:           { a: "#e2e7ee", b: "#c3ccd8", ink: "#2f3946", soft: "rgba(255,255,255,.6)",  cap: "#525f6e", art: "cloud" },
+  rainy:            { a: "#cbdded", b: "#9fbdd6", ink: "#1e3245", soft: "rgba(255,255,255,.5)",  art: "rain", cap: "#3c5b75" },
+  pouring:          { a: "#b9d0e4", b: "#87a9c7", ink: "#16283a", soft: "rgba(255,255,255,.45)", art: "rain", cap: "#33506b" },
+  snowy:            { a: "#eef5fb", b: "#d3e6f3", ink: "#23374b", soft: "rgba(255,255,255,.65)", cap: "#456079", art: "snow" },
+  "snowy-rainy":    { a: "#e4eef7", b: "#c6dcec", ink: "#22364a", soft: "rgba(255,255,255,.6)",  cap: "#44607a", art: "snow" },
+  fog:              { a: "#e9e7e1", b: "#cfccc4", ink: "#3a3830", soft: "rgba(255,255,255,.6)",  cap: "#5d5a50", art: "fog" },
+  hail:             { a: "#dce8f2", b: "#b6cddf", ink: "#1f3345", soft: "rgba(255,255,255,.5)",  cap: "#3e5a72", art: "snow" },
+  windy:            { a: "#e3ece9", b: "#c2d5cf", ink: "#263b36", soft: "rgba(255,255,255,.6)",  cap: "#476059", art: "cloud" },
+  "windy-variant":  { a: "#e3ece9", b: "#c2d5cf", ink: "#263b36", soft: "rgba(255,255,255,.6)",  cap: "#476059", art: "cloud" },
+  lightning:        { a: "#ded4f2", b: "#b9a6e0", ink: "#2f2153", soft: "rgba(255,255,255,.5)",  cap: "#513c7d", art: "storm" },
+  "lightning-rainy":{ a: "#d6cbee", b: "#ad98da", ink: "#2a1d4d", soft: "rgba(255,255,255,.45)", cap: "#4a3572", art: "storm" },
+  exceptional:      { a: "#ffdcd2", b: "#f6b09b", ink: "#5c2415", soft: "rgba(255,255,255,.5)",  cap: "#8a4230", art: "sun" },
+};
+function fwSkin(state) {
+  const sk = FW_SKIN[state] || FW_SKIN.partlycloudy;
+  return Object.assign({ cap: sk.ink }, sk);
+}
+
+// Disegni morbidi al posto delle icone piatte: tratti pieni e arrotondati,
+// nessun contorno sottile. Sono nostri, non presi da nessuna parte.
+function fwArt(kind, size) {
+  const s = size || 76;
+  const S = v => `<svg viewBox="0 0 100 100" width="${s}" height="${s}" style="display:block;overflow:visible">${v}</svg>`;
+  const cloud = (x, y, sc, fill) => `<g transform="translate(${x} ${y}) scale(${sc})">
+    <path d="M26 62 Q10 62 10 49 Q10 37 23 36 Q27 22 42 22 Q58 22 62 35 Q78 34 80 47 Q82 62 66 62 Z" fill="${fill}"/></g>`;
+  switch (kind) {
+    case "sun": return S(`
+      <g>
+        <circle cx="50" cy="50" r="30" fill="rgba(255,255,255,.35)"/>
+        <circle cx="50" cy="50" r="21" fill="#ffb020"/>
+        ${[0, 45, 90, 135, 180, 225, 270, 315].map(d => `<rect x="47.5" y="6" width="5" height="12" rx="2.5" fill="#ffb020" transform="rotate(${d} 50 50)"/>`).join("")}
+      </g>`);
+    case "moon": return S(`
+      <g>
+        <circle cx="52" cy="48" r="30" fill="rgba(255,255,255,.10)"/>
+        <path d="M62 22 A28 28 0 1 0 62 78 A22 22 0 1 1 62 22 Z" fill="#ffd88a"/>
+        <circle cx="24" cy="24" r="2.4" fill="#fff5dd"/><circle cx="80" cy="30" r="1.8" fill="#fff5dd"/>
+        <circle cx="76" cy="72" r="2.1" fill="#fff5dd"/>
+      </g>`);
+    case "partly": return S(`
+      <g>
+        <circle cx="36" cy="34" r="16" fill="#ffb020"/>
+        ${cloud(4, 12, .92, "#ffffff")}
+      </g>`);
+    case "cloud": return S(`<g>${cloud(2, 8, 1, "#ffffff")}<g opacity=".55">${cloud(14, 22, .7, "#ffffff")}</g></g>`);
+    case "rain": return S(`
+      <g>${cloud(2, 2, 1, "#ffffff")}
+        ${[26, 46, 66].map((x, i) => `<rect x="${x}" y="${70 + (i % 2) * 6}" width="6" height="18" rx="3" fill="#7fb2dd" transform="rotate(12 ${x} 70)"/>`).join("")}
+      </g>`);
+    case "snow": return S(`
+      <g>${cloud(2, 2, 1, "#ffffff")}
+        ${[28, 50, 70].map((x, i) => `<circle cx="${x}" cy="${78 + (i % 2) * 7}" r="4.5" fill="#ffffff"/>`).join("")}
+      </g>`);
+    case "fog": return S(`
+      <g>${cloud(2, 0, 1, "#ffffff")}
+        ${[70, 80, 90].map((y, i) => `<rect x="${16 + i * 4}" y="${y}" width="${68 - i * 10}" height="6" rx="3" fill="#ffffff" opacity="${.75 - i * .18}"/>`).join("")}
+      </g>`);
+    case "storm": return S(`
+      <g>${cloud(2, 2, 1, "#ffffff")}
+        <path d="M52 66 L38 90 L50 88 L44 100 L64 76 L52 78 Z" fill="#ffd54a"/>
+      </g>`);
+    default: return S(`<circle cx="50" cy="50" r="24" fill="#ffffff"/>`);
+  }
+}
+
 class FaberWeather extends HTMLElement {
   setConfig(config) {
     if (!config || !config.entity) throw new Error("Scegli un'entita meteo");
@@ -1075,9 +1155,10 @@ class FaberWeather extends HTMLElement {
   }
   set hass(hass) {
     this._hass = hass;
-    const dark = !!(hass.themes && hass.themes.darkMode);
-    if (!this._built || this._dark !== dark) {
-      this._dark = dark; this._built = true;
+    const st = hass.states[this._cfg.entity];
+    const cond = st ? st.state : "";
+    if (!this._built || cond !== this._cond) {
+      this._cond = cond; this._built = true;
       this._render();
       this._loadForecast();
     } else this._patch();
@@ -1101,11 +1182,64 @@ class FaberWeather extends HTMLElement {
       });
       const res = r && r.response && r.response[this._cfg.entity];
       this._fc = (res && res.forecast) || [];
-      this._patch();
+      this._paintDays();
     } catch (e) { this._fc = []; }
     this._fcTimer = setTimeout(() => this._loadForecast(), 15 * 60 * 1000);
   }
   disconnectedCallback() { if (this._fcTimer) clearTimeout(this._fcTimer); }
+
+  _render() {
+    const st = this._hass.states[this._cfg.entity];
+    if (!st) { this.innerHTML = `<div style="padding:16px">Entita meteo non trovata.</div>`; return; }
+    const a = st.attributes;
+    const sk = fwSkin(st.state);
+    const unit = a.temperature_unit || "°C";
+    const oggi = new Date().toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" });
+    this.innerHTML = `
+      <style>
+        .fw{container-type:inline-size;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+          position:relative;overflow:hidden;padding:22px 24px 18px;color:${sk.ink};border-radius:26px;
+          background:linear-gradient(150deg,${sk.a},${sk.b});
+          box-shadow:0 14px 34px rgba(20,26,40,.16)}
+        .fw-title{font-size:clamp(20px,6.5cqw,26px);font-weight:800;letter-spacing:-.02em;line-height:1.1}
+        .fw-sub{margin-top:3px;font-size:12.5px;font-weight:600;opacity:.72;text-transform:capitalize}
+        .fw-mid{display:flex;align-items:center;gap:6px;margin-top:6px}
+        .fw-art{flex:0 0 auto;margin-left:-6px}
+        .fw-tempbox{flex:1;min-width:0;text-align:right}
+        .fw-temp{font-size:clamp(46px,17cqw,68px);font-weight:800;line-height:1;letter-spacing:-.045em;
+          font-variant-numeric:tabular-nums}
+        .fw-temp sup{font-size:.34em;font-weight:700;vertical-align:super;margin-left:2px;letter-spacing:0}
+        .fw-cap{margin-top:2px;font-size:11px;font-weight:600;opacity:.66}
+        .fw-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:18px}
+        .fw-stat{display:flex;flex-direction:column;align-items:center;gap:3px;padding:11px 4px;border-radius:16px;
+          background:${sk.soft}}
+        .fw-stat ha-icon{--mdc-icon-size:18px;opacity:.75}
+        .fw-statval{font-size:13.5px;font-weight:800;font-variant-numeric:tabular-nums}
+        .fw-statlab{font-size:8.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;opacity:.6}
+        .fw-days{display:flex;gap:8px;margin-top:10px;overflow-x:auto;scrollbar-width:none}
+        .fw-days::-webkit-scrollbar{display:none}
+        .fw-day{flex:1 0 66px;display:flex;flex-direction:column;align-items:center;gap:2px;padding:10px 4px;
+          border-radius:16px;background:${sk.soft}}
+        .fw-dayname{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;opacity:.6}
+        .fw-max{font-size:14px;font-weight:800;font-variant-numeric:tabular-nums}
+        .fw-min{font-size:11px;font-weight:700;opacity:.55;font-variant-numeric:tabular-nums}
+        @container (max-width: 340px){ .fw-stats{grid-template-columns:repeat(2,1fr)} }
+      </style>
+      <div class="fw">
+        <div class="fw-title">${fhEsc(this._cfg.name || a.friendly_name || "Meteo")}</div>
+        <div class="fw-sub" data-sub>${fhEsc(FH_WEATHER_IT[st.state] || st.state)} · ${fhEsc(oggi)}</div>
+        <div class="fw-mid">
+          <div class="fw-art" data-art>${fwArt(sk.art, 84)}</div>
+          <div class="fw-tempbox">
+            <div class="fw-temp" data-temp>${a.temperature != null ? Math.round(a.temperature) : "–"}<sup>${fhEsc(unit)}</sup></div>
+            <div class="fw-cap">temperatura attuale</div>
+          </div>
+        </div>
+        <div class="fw-stats" data-stats>${this._statsHTML(a)}</div>
+        <div class="fw-days" data-days></div>
+      </div>`;
+    this._paintDays();
+  }
 
   _statHTML(icon, label, value) {
     if (value == null || value === "") return "";
@@ -1114,68 +1248,11 @@ class FaberWeather extends HTMLElement {
       <div class="fw-statlab">${fhEsc(label)}</div></div>`;
   }
 
-  _render() {
-    const st = this._hass.states[this._cfg.entity];
-    if (!st) { this.innerHTML = `<div style="padding:16px">Entita meteo non trovata.</div>`; return; }
-    const a = st.attributes;
-    const dark = this._dark;
-    const ink = dark ? "#eaf1f8" : "#101722";
-    const muted = dark ? "#93a1b0" : "#41506a";
-    const panel = dark ? "rgba(30,38,48,.72)" : "rgba(255,255,255,.72)";
-    const stroke = dark ? "rgba(255,255,255,.09)" : "rgba(15,23,42,.10)";
-    const unit = (a.temperature_unit || "°C");
-    this.innerHTML = `
-      <style>
-        .fw{container-type:inline-size;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
-          position:relative;overflow:hidden;padding:16px 18px;color:${ink};border-radius:20px;
-          background:${panel};border:1px solid ${stroke};backdrop-filter:blur(14px);
-          -webkit-backdrop-filter:blur(14px);box-shadow:0 8px 22px rgba(0,0,0,${dark ? ".3" : ".12"})}
-        .fw::before{content:"";position:absolute;inset:0;pointer-events:none;
-          background:radial-gradient(120% 70% at 85% -20%,rgba(255,176,32,${dark ? ".14" : ".22"}),transparent 62%)}
-        .fw-top{position:relative;display:flex;align-items:center;gap:14px}
-        .fw-main{flex:1;min-width:0}
-        .fw-name{font-size:13px;font-weight:700;color:${muted};overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-        .fw-temp{font-size:clamp(38px,14cqw,54px);font-weight:800;line-height:1.02;letter-spacing:-.02em;
-          font-variant-numeric:tabular-nums}
-        .fw-cond{font-size:13.5px;font-weight:700;color:${muted};text-transform:capitalize}
-        .fw-icon{flex:0 0 auto}
-        .fw-icon ha-icon{--mdc-icon-size:64px;color:#ffb020}
-        .fw-stats{position:relative;display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-top:14px}
-        .fw-stat{display:flex;flex-direction:column;align-items:center;gap:2px;padding:9px 4px;border-radius:14px;
-          background:${dark ? "rgba(255,255,255,.05)" : "rgba(15,23,42,.05)"};border:1px solid ${stroke}}
-        .fw-stat ha-icon{--mdc-icon-size:17px;color:${muted}}
-        .fw-statval{font-size:13px;font-weight:800;font-variant-numeric:tabular-nums}
-        .fw-statlab{font-size:9px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:${muted}}
-        .fw-days{position:relative;display:flex;gap:7px;margin-top:12px;overflow-x:auto;scrollbar-width:none}
-        .fw-days::-webkit-scrollbar{display:none}
-        .fw-day{flex:1 0 62px;display:flex;flex-direction:column;align-items:center;gap:3px;padding:9px 4px;
-          border-radius:14px;background:${dark ? "rgba(255,255,255,.04)" : "rgba(15,23,42,.04)"};border:1px solid ${stroke}}
-        .fw-dayname{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:${muted}}
-        .fw-day ha-icon{--mdc-icon-size:22px;color:#ffb020}
-        .fw-max{font-size:13px;font-weight:800;font-variant-numeric:tabular-nums}
-        .fw-min{font-size:11px;font-weight:700;color:${muted};font-variant-numeric:tabular-nums}
-        @container (max-width: 330px){ .fw-stats{grid-template-columns:repeat(2,1fr)} }
-      </style>
-      <div class="fw">
-        <div class="fw-top">
-          <div class="fw-main">
-            <div class="fw-name">${fhEsc(this._cfg.name || a.friendly_name || "Meteo")}</div>
-            <div class="fw-temp" data-temp>${fhEsc(a.temperature != null ? Math.round(a.temperature) : "–")}<span style="font-size:.42em;vertical-align:super">${fhEsc(unit)}</span></div>
-            <div class="fw-cond" data-cond>${fhEsc(FH_WEATHER_IT[st.state] || st.state)}</div>
-          </div>
-          <div class="fw-icon"><ha-icon data-wicon icon="${fhEsc(FH_WEATHER_ICON[st.state] || "mdi:weather-partly-cloudy")}"></ha-icon></div>
-        </div>
-        <div class="fw-stats" data-stats>${this._statsHTML(a)}</div>
-        <div class="fw-days" data-days></div>
-      </div>`;
-    this._paintDays();
-  }
-
   _statsHTML(a) {
     return [
       this._statHTML("mdi:water-percent", "Umidita", a.humidity != null ? a.humidity + "%" : ""),
-      this._statHTML("mdi:gauge", "Pressione", a.pressure != null ? Math.round(a.pressure) + " " + (a.pressure_unit || "hPa") : ""),
-      this._statHTML("mdi:weather-windy", "Vento", a.wind_speed != null ? Math.round(a.wind_speed) + " " + (a.wind_speed_unit || "km/h") : ""),
+      this._statHTML("mdi:gauge", "Pressione", a.pressure != null ? Math.round(a.pressure) + " hPa" : ""),
+      this._statHTML("mdi:weather-windy", "Vento", a.wind_speed != null ? Math.round(a.wind_speed) + " km/h" : ""),
       this._statHTML("mdi:compass-outline", "Direzione", fwDir(a.wind_bearing)),
     ].join("");
   }
@@ -1183,13 +1260,13 @@ class FaberWeather extends HTMLElement {
   _paintDays() {
     const box = this.querySelector("[data-days]");
     if (!box) return;
-    const fc = (this._fc || []).slice(0, Math.max(1, this._cfg.days || 4));
-    if (!fc.length) { box.innerHTML = ""; return; }
+    const fc = (this._fc || []).slice(0, Math.max(0, this._cfg.days || 4));
     box.innerHTML = fc.map(d => {
-      const day = new Date(d.datetime).toLocaleDateString("it-IT", { weekday: "short" });
+      const day = new Date(d.datetime).toLocaleDateString("it-IT", { weekday: "short" }).replace(".", "");
+      const sk = fwSkin(d.condition);
       return `<div class="fw-day">
-        <div class="fw-dayname">${fhEsc(day.replace(".", ""))}</div>
-        <ha-icon icon="${fhEsc(FH_WEATHER_ICON[d.condition] || "mdi:weather-partly-cloudy")}"></ha-icon>
+        <div class="fw-dayname">${fhEsc(day)}</div>
+        ${fwArt(sk.art, 30)}
         <div class="fw-max">${d.temperature != null ? Math.round(d.temperature) + "\u00b0" : "–"}</div>
         <div class="fw-min">${d.templow != null ? Math.round(d.templow) + "\u00b0" : ""}</div>
       </div>`;
@@ -1201,14 +1278,9 @@ class FaberWeather extends HTMLElement {
     if (!st) return;
     const a = st.attributes;
     const t = this.querySelector("[data-temp]");
-    if (t) t.innerHTML = `${a.temperature != null ? Math.round(a.temperature) : "–"}<span style="font-size:.42em;vertical-align:super">${fhEsc(a.temperature_unit || "°C")}</span>`;
-    const c = this.querySelector("[data-cond]");
-    if (c) c.textContent = FH_WEATHER_IT[st.state] || st.state;
-    const ic = this.querySelector("[data-wicon]");
-    if (ic) ic.setAttribute("icon", FH_WEATHER_ICON[st.state] || "mdi:weather-partly-cloudy");
+    if (t) t.innerHTML = `${a.temperature != null ? Math.round(a.temperature) : "–"}<sup>${fhEsc(a.temperature_unit || "°C")}</sup>`;
     const sb = this.querySelector("[data-stats]");
     if (sb) sb.innerHTML = this._statsHTML(a);
-    this._paintDays();
   }
 }
 customElements.define("faber-weather", FaberWeather);
@@ -1227,18 +1299,17 @@ class FaberWeatherEditor extends HTMLElement {
   _render() {
     if (!this._cfg || !this._hass) return;
     const w = Object.keys(this._hass.states).filter(e => e.startsWith("weather."));
+    const inp = "padding:9px 10px;border-radius:8px;font-size:14px;width:100%;box-sizing:border-box;" +
+      "border:1px solid var(--divider-color);background:var(--card-background-color);color:var(--primary-text-color)";
     this.innerHTML = `<div style="display:flex;flex-direction:column;gap:12px;padding:6px 2px;font-family:inherit">
       <label style="font-size:13px;font-weight:600">Entita meteo</label>
-      <select id="fwEnt" style="padding:9px 10px;border-radius:8px;font-size:14px;width:100%;
-        border:1px solid var(--divider-color);background:var(--card-background-color);color:var(--primary-text-color)">
+      <select id="fwEnt" style="${inp}">
         ${w.map(e => `<option value="${e}"${e === this._cfg.entity ? " selected" : ""}>${fhEsc((this._hass.states[e].attributes.friendly_name) || e)}</option>`).join("")}
       </select>
       <label style="font-size:13px;font-weight:600">Nome mostrato (facoltativo)</label>
-      <input id="fwName" value="${fhEsc(this._cfg.name || "")}" style="padding:9px 10px;border-radius:8px;font-size:14px;width:100%;
-        border:1px solid var(--divider-color);background:var(--card-background-color);color:var(--primary-text-color)">
+      <input id="fwName" value="${fhEsc(this._cfg.name || "")}" style="${inp}">
       <label style="font-size:13px;font-weight:600">Giorni di previsione</label>
-      <input id="fwDays" type="number" min="0" max="7" value="${this._cfg.days ?? 4}" style="padding:9px 10px;border-radius:8px;font-size:14px;width:100%;
-        border:1px solid var(--divider-color);background:var(--card-background-color);color:var(--primary-text-color)">
+      <input id="fwDays" type="number" min="0" max="7" value="${this._cfg.days ?? 4}" style="${inp}">
     </div>`;
     const q = id => this.querySelector(id);
     q("#fwEnt").addEventListener("change", e => { this._cfg = Object.assign({}, this._cfg, { entity: e.target.value }); this._emit(); });
