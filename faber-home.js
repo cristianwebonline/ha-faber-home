@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.15.1";
+const FH_VERSION = "0.15.2";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -300,10 +300,17 @@ class FaberHome extends HTMLElement {
     // sulla Home ogni volta che si salvava qualcosa. Si torna dov'eri,
     // ritrovando la pagina per NOME e non per numero (le pagine si possono
     // spostare o cancellare mentre modifichi).
+    // Dopo un salvataggio Home Assistant non richiama questo metodo sullo
+    // stesso elemento: ne costruisce uno NUOVO. Ricordarsi la pagina in una
+    // proprieta dell'oggetto quindi non serve a niente - il nuovo nasce
+    // smemorato ed e per questo che si finiva sbalzati sulla Home.
+    // La pagina vive nell'indirizzo (#clima): sopravvive alla ricostruzione,
+    // torna indietro col tasto del browser e si puo mandare a qualcuno.
     const pagine = this._cfg.pages;
+    const voluta = this._pageId || decodeURIComponent((location.hash || "").slice(1));
     let torna = 0;
-    if (this._pageId) {
-      const i = pagine.findIndex(pg => pg.id === this._pageId);
+    if (voluta) {
+      const i = pagine.findIndex(pg => pg.id === voluta);
       if (i >= 0) torna = i;
     }
     this._page = torna;
@@ -501,6 +508,11 @@ class FaberHome extends HTMLElement {
     this._page = i;
     const pg = this._cfg.pages[i];
     this._pageId = pg ? pg.id : null;
+    // replaceState e non pushState: cambiare pagina dentro il pannello non
+    // deve riempire la cronologia del browser di passi indietro.
+    if (this._pageId) {
+      try { history.replaceState(history.state, "", "#" + encodeURIComponent(this._pageId)); } catch (e) { /* niente */ }
+    }
     this._renderNav();
     this._renderPage();
   }
