@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.19.2";
+const FH_VERSION = "0.20.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -3710,11 +3710,16 @@ class FaberClima extends HTMLElement {
 
     const disegna = () => {
       const qualcosa = Object.keys(orariOn).length || Object.keys(orariOff).length;
+      // Solo spegnimenti e nessuna accensione: e un caso legittimo, ma con la
+      // presa gestita ha una conseguenza che va detta prima, non scoperta.
+      const soloSpegnimento = Object.keys(orariOff).filter(k => orariOff[k]).length > 0
+        && Object.keys(orariOn).filter(k => orariOn[k]).length === 0;
       body.innerHTML = `
         <div class="fk-mh">
           <div class="fk-mt">Programmazione</div>
-          ${(cfgOn || cfgOff) ? `<button type="button" class="fk-sw${attivo ? " on" : ""}" data-sw
-            title="${attivo ? "Sospendi il programma" : "Riattiva il programma"}"><span></span></button>` : ""}
+          ${(cfgOn || cfgOff) ? `<span class="fk-swlab">${attivo ? "Attivo" : "Sospeso"}</span>
+            <button type="button" class="fk-sw${attivo ? " on" : ""}" data-sw
+            title="${attivo ? "Sospendi: gli orari restano scritti" : "Riattiva con gli orari di prima"}"><span></span></button>` : ""}
           <button type="button" class="fk-mx" data-chiudi>&times;</button>
         </div>
 
@@ -3777,7 +3782,14 @@ class FaberClima extends HTMLElement {
           ` : ""}
         ` : `<div class="fk-mnota">Per far gestire anche la presa, collegala prima nelle impostazioni della card.</div>`}
 
-        ${(cfgOn || cfgOff) ? `<div class="fk-mstato ${attivo ? "acceso" : "spento"}">${attivo ? "Programma attivo" : "Programma presente ma sospeso"}</div>` : ""}
+        ${(soloSpegnimento && p.gestisciSpina && haPresa) ? `<div class="fk-mavviso">
+          Hai messo solo orari di spegnimento e stai gestendo la presa: dopo lo spegnimento <b>la presa resta staccata</b>,
+          e il climatizzatore non rispondera al telecomando finche non la riaccendi a mano dalla card.
+          Se non lo vuoi, togli la spunta alla presa oppure metti anche un orario di accensione.
+        </div>` : ""}
+
+        ${(cfgOn || cfgOff) ? `<div class="fk-mstato ${attivo ? "acceso" : "spento"}">${attivo
+          ? "Programma attivo" : "Programma sospeso &mdash; gli orari restano scritti, riaccendi l'interruttore in alto quando torni"}</div>` : ""}
 
         <div class="fk-mfoot">
           <span class="fk-mmsg" data-msg></span>
@@ -3878,10 +3890,24 @@ class FaberClima extends HTMLElement {
         leggiCampi();
         msg("Salvo...");
         try {
+          // Se il programma era sospeso deve restare sospeso: uno che parte
+          // per una settimana, corregge un orario e salva, non si aspetta di
+          // ritrovarselo acceso. Riscrivere la configurazione lo riattiva,
+          // quindi si rimette a posto subito dopo.
+          const eraSospeso = (cfgOn || cfgOff) && !attivo;
           await this._scriviProgramma("on", nome, orariOn, p);
           await this._scriviProgramma("off", nome, orariOff, p);
-          msg("Salvato.");
-          setTimeout(() => scrim.remove(), 900);
+          if (eraSospeso) {
+            await new Promise(r => setTimeout(r, 900));
+            for (const q of ["on", "off"]) {
+              const e = this._timerEntita(q);
+              if (e) await this._hass.callService("automation", "turn_off", { entity_id: e });
+            }
+            msg("Salvato. Il programma resta sospeso.");
+          } else {
+            msg("Salvato.");
+          }
+          setTimeout(() => scrim.remove(), 1200);
         } catch (e) {
           msg("Non sono riuscito a salvare: " + ((e && e.message) || e));
         }
@@ -4133,6 +4159,7 @@ const FK_CSS = `
     border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:inherit}
   .fk-mb.primario{border-color:rgba(167,139,250,.6);background:rgba(167,139,250,.22);color:#ddd6fe}
   .fk-mb.piccolo{padding:6px 10px;font-size:11px}
+  .fk-swlab{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;opacity:.6;flex:0 0 auto}
   .fk-sw{width:44px;height:25px;border-radius:14px;cursor:pointer;flex:0 0 auto;padding:0;position:relative;
     border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.08);transition:background .25s,border-color .25s}
   .fk-sw span{position:absolute;top:2px;left:2px;width:19px;height:19px;border-radius:50%;
