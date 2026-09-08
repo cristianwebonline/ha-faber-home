@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.18.1";
+const FH_VERSION = "0.18.2";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -4414,7 +4414,8 @@ class FaberPersonaEditor extends HTMLElement {
           <input class="fpe-in" id="fpN" value="${fhEsc(c.name || "")}"></div>
 
         <div class="fpe-f"><label>Avatar animati</label>
-          <span class="fpe-h">Scegli una GIF per ogni situazione. Il file entra <b>dentro la card</b>: non devi copiarlo da nessuna parte, e si vede da qualunque telefono. Home Assistant non permette a una card di scrivere nella cartella <code>www</code>, quindi ho tolto il problema invece di aggirarlo. Per file grandi (oltre 600 KB) conviene comunque metterli in <code>config/www</code> e scrivere qui <code>/local/nome.gif</code>.</span>
+          <span class="fpe-h"><b>Il modo migliore</b>: metti le GIF in <code>config/www</code> e qui scrivi <code>/local/nome.gif</code>. Cosi il telefono le scarica una volta e poi se le tiene, e non pesano sulla dashboard. Ci arrivi da Windows con <code>\homeassistant\config\www</code> (Samba), oppure trascinandole dentro <b>Studio Code Server</b>.<br>
+            Il tasto <b>Scegli</b> qui sotto mette invece la GIF <b>dentro la card</b>: comodo dal telefono e senza copiare niente, ma il file finisce nella configurazione della dashboard, che viene riletta a ogni apertura e riscritta a ogni salvataggio. Va bene per immagini piccole, sotto i 150 KB.</span>
           <div class="fpe-slot">
             ${slots.map(sl => {
               const v = mappa[sl.k] || "";
@@ -4431,7 +4432,7 @@ class FaberPersonaEditor extends HTMLElement {
           </div>
           <input type="file" accept="image/gif,image/png,image/jpeg,image/webp" id="fpFile" hidden>
           <div class="fpe-h" id="fpMsg"></div>
-          <details class="fpe-det"><summary>Scrivere gli indirizzi a mano</summary>
+          <details class="fpe-det" open><summary>Scrivere gli indirizzi a mano (consigliato)</summary>
             <span class="fpe-h">Una riga per stato, <b>stato|indirizzo</b>. Stati: <b>casa</b>, <b>fuori</b>, <b>zona</b>, il nome di una zona, oppure <b>*</b> per una GIF sempre valida.</span>
             <textarea class="fpe-in fpe-ta" id="fpA" placeholder="casa|/local/cristian-casa.gif">${fhEsc(c.avatars || "")}</textarea>
           </details>
@@ -4480,8 +4481,15 @@ class FaberPersonaEditor extends HTMLElement {
       // Un file troppo grande finirebbe dentro la configurazione della
       // dashboard, che si carica a ogni apertura: meglio dirlo che rallentare
       // tutto in silenzio.
-      if (f.size > 2 * 1024 * 1024) {
-        m.textContent = "Questa immagine pesa " + Math.round(f.size / 1024) + " KB: troppo. Mettila in config/www e scrivi l'indirizzo /local/... a mano.";
+      const kb = Math.round(f.size / 1024);
+      // Sopra questa taglia il danno e concreto: il file, gonfiato di un terzo
+      // dalla codifica, viaggia dentro la configurazione della dashboard a
+      // ogni apertura e a ogni salvataggio. Meglio rifiutare che rallentare
+      // tutto in silenzio.
+      if (f.size > 800 * 1024) {
+        m.innerHTML = "Pesa " + kb + " KB: troppo per stare dentro la card (diventerebbero ~"
+          + Math.round(kb * 1.34) + " KB dentro la dashboard, ricaricati ogni volta). "
+          + "Mettila in <code>config/www</code> e scrivi qui <code>/local/" + fhEsc(f.name) + "</code>.";
         return;
       }
       m.textContent = "Leggo " + f.name + "...";
@@ -4491,9 +4499,13 @@ class FaberPersonaEditor extends HTMLElement {
         this._set("avatars", scriviMappa());
         this._render();
         const m2 = this.querySelector("#fpMsg");
-        if (m2) m2.textContent = f.size > 600 * 1024
-          ? "Aggiunta (" + Math.round(f.size / 1024) + " KB). E pesantina: se la dashboard rallenta, alleggeriscila."
-          : "Aggiunta.";
+        if (!m2) return;
+        if (kb > 150) {
+          m2.innerHTML = "Aggiunta, ma pesa " + kb + " KB: la dashboard si ricarichera piu lenta. "
+            + "Meglio metterla in <code>config/www</code> e scrivere <code>/local/" + fhEsc(f.name) + "</code>.";
+        } else {
+          m2.textContent = "Aggiunta (" + kb + " KB).";
+        }
       };
       fr.onerror = () => { m.textContent = "Non sono riuscito a leggere il file."; };
       fr.readAsDataURL(f);
