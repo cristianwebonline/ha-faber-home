@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.15.0";
+const FH_VERSION = "0.15.1";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -3155,6 +3155,7 @@ class FaberClima extends HTMLElement {
   setConfig(config) {
     this._cfg = Object.assign({}, FK_DEFAULTS, JSON.parse(JSON.stringify(config || {})));
     this._built = false;
+    this._imp = null;
     if (this._hass) this._render();
   }
   set hass(h) { this._hass = h; this._render(); }
@@ -3176,9 +3177,30 @@ class FaberClima extends HTMLElement {
     this._hass.callService("climate", servizio, Object.assign({ entity_id: this._cfg.climate }, dati));
   }
 
+  // Un'impronta di cio che la card mostra davvero. Serve perche _render viene
+  // chiamato a ogni cambio di stato in casa - con decine di sensori, molte
+  // volte al secondo - e ogni volta rifaceva l'HTML da capo: la fila dei
+  // programmi tornava all'inizio proprio mentre la stavi scorrendo.
+  _impronta(st) {
+    if (!st) return "vuoto";
+    const a = st.attributes;
+    const c = this._cfg;
+    const v = id => { const x = id && this._hass.states[id]; return x ? x.state : ""; };
+    return [st.state, a.temperature, a.current_temperature, a.fan_mode, a.swing_mode,
+      a.preset_mode, a.hvac_action, (a.hvac_modes || []).join(","),
+      v(c.temp), v(c.humidity), v(c.power), v(c.presa),
+      c.name, c.mostra_ventola, c.mostra_alette, c.mostra_programmi].join("|");
+  }
+
   _render() {
     if (!this._hass || !this._cfg) return;
     const st = this._st();
+
+    // Niente e cambiato: non si tocca nulla. Cosi lo scorrimento resta dove
+    // l'hai lasciato e il browser non lavora per niente.
+    const imp = this._impronta(st);
+    if (this._built && imp === this._imp) return;
+    this._imp = imp;
 
     if (!this._built) {
       this.innerHTML = `<style>${FK_CSS}</style><ha-card class="fk"><div class="fk-body"></div></ha-card>`;
@@ -3232,6 +3254,10 @@ class FaberClima extends HTMLElement {
     const puoTemp = (f & 1) && obiettivo != null && !["fan_only", "dry", "off"].includes(modo);
 
     this._card.classList.toggle("staccato", senzaCorrente);
+
+    // Anche quando il ridisegno serve davvero, le file tornano dov'erano.
+    const scorri = {};
+    this._body.querySelectorAll(".fk-rscroll").forEach(r => { scorri[r.dataset.riga] = r.scrollLeft; });
 
     this._body.innerHTML = `
       <div class="fk-top">
@@ -3298,6 +3324,10 @@ class FaberClima extends HTMLElement {
       ${prog.length ? this._riga("Programma", "preset", prog, a.preset_mode, FK_PROGRAMMI) : ""}
     `;
 
+    this._body.querySelectorAll(".fk-rscroll").forEach(r => {
+      if (scorri[r.dataset.riga] != null) r.scrollLeft = scorri[r.dataset.riga];
+    });
+
     const q = sel => this._body.querySelectorAll(sel);
     const bp = this._body.querySelector("[data-presa]");
     if (bp) bp.addEventListener("click", () => {
@@ -3325,7 +3355,7 @@ class FaberClima extends HTMLElement {
   _riga(etichetta, chiave, valori, attuale, mappa) {
     return `<div class="fk-riga">
       <div class="fk-rlab">${fhEsc(etichetta)}</div>
-      <div class="fk-rscroll">
+      <div class="fk-rscroll" data-riga="${fhEsc(chiave)}">
         ${valori.map(v => `<button type="button" class="fk-pill${v === attuale ? " sel" : ""}"
           data-${chiave}="${fhEsc(v)}">${fhEsc(fkNome(mappa, v))}</button>`).join("")}
       </div>
