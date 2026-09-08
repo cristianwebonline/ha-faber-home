@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.19.1";
+const FH_VERSION = "0.19.2";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -4408,6 +4408,22 @@ function fpDa(iso) {
   return "da " + g + (g === 1 ? " giorno" : " giorni");
 }
 
+// /config/www e il percorso sul DISCO; dal browser quella stessa cartella si
+// chiama /local. Scriverlo sbagliato non da nemmeno un errore: Home Assistant
+// risponde con la propria pagina web al posto dell'immagine, quindi si vede un
+// riquadro vuoto e non si capisce perche. Meglio correggerlo che lasciarlo
+// sbagliare in silenzio.
+function fpIndirizzo(v) {
+  if (!v) return v;
+  const t = String(v).trim();
+  if (/^(https?:|data:|\/local\/|\/api\/|\/hacsfiles\/|\/media\/)/i.test(t)) return t;
+  const m = t.match(/^\/?(?:config\/)?www\/(.+)$/i);
+  if (m) return "/local/" + m[1];
+  // Anche il solo nome del file: quasi sempre e una cosa messa in www.
+  if (/^[^/\:]+\.(gif|png|jpe?g|webp|svg)$/i.test(t)) return "/local/" + t;
+  return t;
+}
+
 class FaberPersona extends HTMLElement {
   static getConfigElement() { return document.createElement("faber-persona-editor"); }
   static getStubConfig(hass) {
@@ -4430,7 +4446,7 @@ class FaberPersona extends HTMLElement {
     (this._cfg.avatars || "").split("\n").map(r => r.trim()).filter(Boolean).forEach(riga => {
       const i = riga.indexOf("|");
       if (i < 0) return;
-      m[riga.slice(0, i).trim().toLowerCase()] = riga.slice(i + 1).trim();
+      m[riga.slice(0, i).trim().toLowerCase()] = fpIndirizzo(riga.slice(i + 1).trim());
     });
     return m;
   }
@@ -4637,7 +4653,7 @@ class FaberPersonaEditor extends HTMLElement {
     const mappa = {};
     (c.avatars || "").split("\n").map(r => r.trim()).filter(Boolean).forEach(riga => {
       const k = riga.indexOf("|");
-      if (k > 0) mappa[riga.slice(0, k).trim().toLowerCase()] = riga.slice(k + 1).trim();
+      if (k > 0) mappa[riga.slice(0, k).trim().toLowerCase()] = fpIndirizzo(riga.slice(k + 1).trim());
     });
     const slots = [
       { k: "casa", t: "Quando e a casa" },
