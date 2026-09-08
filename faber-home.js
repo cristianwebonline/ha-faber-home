@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.18.2";
+const FH_VERSION = "0.18.3";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -4414,7 +4414,7 @@ class FaberPersonaEditor extends HTMLElement {
           <input class="fpe-in" id="fpN" value="${fhEsc(c.name || "")}"></div>
 
         <div class="fpe-f"><label>Avatar animati</label>
-          <span class="fpe-h"><b>Il modo migliore</b>: metti le GIF in <code>config/www</code> e qui scrivi <code>/local/nome.gif</code>. Cosi il telefono le scarica una volta e poi se le tiene, e non pesano sulla dashboard. Ci arrivi da Windows con <code>\homeassistant\config\www</code> (Samba), oppure trascinandole dentro <b>Studio Code Server</b>.<br>
+          <span class="fpe-h"><b>Il modo migliore</b>: metti le GIF in <code>config/www</code> e qui scrivi <code>/local/nome.gif</code>. Cosi il telefono le scarica una volta e poi se le tiene, e non pesano sulla dashboard. Ci arrivi da Windows con <code>\\homeassistant\config\www</code> (Samba), oppure trascinandole dentro <b>Studio Code Server</b>.<br>
             Il tasto <b>Scegli</b> qui sotto mette invece la GIF <b>dentro la card</b>: comodo dal telefono e senza copiare niente, ma il file finisce nella configurazione della dashboard, che viene riletta a ogni apertura e riscritta a ogni salvataggio. Va bene per immagini piccole, sotto i 150 KB.</span>
           <div class="fpe-slot">
             ${slots.map(sl => {
