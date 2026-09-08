@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.10.0";
+const FH_VERSION = "0.10.1";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -1603,7 +1603,12 @@ const FH_CSS = `
   .fh-ic{width:36px;height:36px;border-radius:50%;border:1px solid var(--fh-stroke,rgba(255,255,255,.09));
     background:var(--fh-panel,rgba(255,255,255,.05));color:var(--fh-muted,#93a1b0);cursor:pointer;display:flex;align-items:center;justify-content:center}
   .fh-ic ha-icon{--mdc-icon-size:19px}
-  .fh-main{position:relative;z-index:1;flex:1;padding:8px 16px 110px;display:flex;flex-direction:column;gap:14px}
+  /* Niente z-index qui: dandogliene uno, questo contenitore diventa un
+     "mondo" a se e ci imprigiona dentro i popup delle card (che hanno
+     priorita 9). Risultato: la barra in basso, che sta fuori, ci finiva
+     sopra. Senza z-index il popup di una card compete davvero con la barra
+     e le passa davanti, come deve. */
+  .fh-main{position:relative;flex:1;padding:8px 16px 110px;display:flex;flex-direction:column;gap:14px}
   .fh-row{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start}
   .fh-col{display:flex;flex-direction:column;gap:14px;min-width:240px}
   .fh-cardwrap{display:block}
