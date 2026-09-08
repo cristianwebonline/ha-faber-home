@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.26.0";
+const FH_VERSION = "0.27.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -571,18 +571,28 @@ class FaberHome extends HTMLElement {
     if (this._ro) { this._ro.disconnect(); this._ro = null; this._roTarget = null; }
   }
 
+  // Le pagine da mostrare nella barra. Con una pagina per stanza la barra
+  // diventerebbe lunghissima e inutile: quelle nascoste restano raggiungibili
+  // dalle card che ci portano, e in modifica si vedono comunque (senno non si
+  // potrebbero piu sistemare).
+  _pagineVisibili() {
+    return this._cfg.pages
+      .map((pg, i) => ({ pg, i }))
+      .filter(x => this._edit || !x.pg.nascosta);
+  }
+
   _renderNav() {
     const nav = this.querySelector("[data-nav]");
     if (!nav) return;
-    const pages = this._cfg.pages;
+    const voci = this._pagineVisibili();
     // Il cerchio ambra rialzato NON è una voce fissa: marca la pagina attiva,
     // e si sposta quando cambi pagina.
-    nav.innerHTML = `<div class="fh-navbar">${pages.map((p, i) => i === this._page
+    nav.innerHTML = `<div class="fh-navbar">${voci.map(({ pg: p, i }) => i === this._page
       ? `<button type="button" class="fh-navitem active" data-page="${i}">
            <span class="fh-navcircle"><ha-icon icon="${fhEsc(p.icon || "mdi:circle")}"></ha-icon></span>
            <span class="fh-navlabel">${fhEsc(p.title || "")}</span>
          </button>`
-      : `<button type="button" class="fh-navitem" data-page="${i}">
+      : `<button type="button" class="fh-navitem${p.nascosta ? " nascosta" : ""}" data-page="${i}">
            <ha-icon icon="${fhEsc(p.icon || "mdi:circle-outline")}"></ha-icon>
            <span class="fh-navlabel">${fhEsc(p.title || "")}</span>
          </button>`).join("")}</div>`;
@@ -1439,6 +1449,24 @@ class FaberHome extends HTMLElement {
   // Il sensore di un certo mestiere che sta in quella stanza: cosi la card
   // della stanza mostra subito temperatura e umidita senza chiederle.
   // L'icona della barra in basso, indovinata dal nome della stanza.
+  // Dove mettere una card nuova: in una riga che c'e gia, come colonna in
+  // piu, cosi sta accanto alle altre e si puo spostare e ridimensionare. Una
+  // riga nuova si crea solo se non ce ne sono, o se quella e gia piena.
+  _mettiCard(card, inCima) {
+    const righe = this._cfg.pages[this._page].rows;
+    const i = inCima ? 0 : righe.length - 1;
+    const riga = righe[i];
+    if (riga && (riga.cols || []).length < 6) {
+      const col = { span: 1, cards: [card] };
+      if (inCima) riga.cols.unshift(col); else riga.cols.push(col);
+      return { ri: i, ci: inCima ? 0 : riga.cols.length - 1, di: 0 };
+    }
+    const nuova = { cols: [{ span: 1, cards: [card] }] };
+    if (inCima) { righe.unshift(nuova); return { ri: 0, ci: 0, di: 0 }; }
+    righe.push(nuova);
+    return { ri: righe.length - 1, ci: 0, di: 0 };
+  }
+
   _iconaStanza(nome) {
     const n = (nome || "").toLowerCase();
     const mappa = [
@@ -1541,6 +1569,9 @@ class FaberHome extends HTMLElement {
         const id = scelta.name.toLowerCase().replace(/[^a-z0-9]+/gi, "_").replace(/^_|_$/g, "") || fhUid("st");
         const gia = this._cfg.pages.findIndex(pg => pg.id === id);
         const pagina = {
+          // Nascosta dalla barra: ci si arriva dalla card della stanza. Con
+          // dieci stanze una barra da dieci voci non si usa.
+          nascosta: true,
           id, title: scelta.name, icon: this._iconaStanza(scelta.name),
           rows: scelte.length ? [{ n_tel: 2, cols: cols.filter(c => c.length).map(c => ({ span: 1, cards: c })) }] : [],
         };
@@ -1565,13 +1596,15 @@ class FaberHome extends HTMLElement {
           power: "", energy: "", switch: "", climate: "", device_id: "", group: "",
           soglia: 10, soglia_freddo: 18, soglia_caldo: 26, prezzo_kwh: 0.30, storico_giorni: 14,
         };
-        const righe = this._cfg.pages[this._page].rows;
-        const riga = { cols: [{ span: 1, cards: [card] }] };
-        if (inCima) righe.unshift(riga); else righe.push(riga);
+        // In una riga gia esistente, non in una tutta sua: da sola occupava
+        // l'intera larghezza e non si poteva ne affiancare ad altre card ne
+        // stringere, perche in una riga a una colonna non c'e spazio in cui
+        // spostarsi.
+        const dove = this._mettiCard(card, inCima);
         const sc2 = this.querySelector(".fh-scrim");
         if (sc2) sc2.remove();
         this._renderPage();
-        this._openCardEditor(inCima ? 0 : righe.length - 1, 0, 0);
+        this._openCardEditor(dove.ri, dove.ci, dove.di);
       });
       box.querySelector("#rmAdd").addEventListener("click", () => {
         const scelte = proposte.filter(x => selezione[x.d.id]).map(x => x.card);
@@ -2090,18 +2123,23 @@ class FaberHome extends HTMLElement {
           <ha-icon icon="${fhEsc(pg.icon || "mdi:circle-outline")}"></ha-icon>
           <input class="fh-input" data-title value="${fhEsc(pg.title || "")}" placeholder="Nome pagina">
           <input class="fh-input small" data-icon value="${fhEsc(pg.icon || "")}" placeholder="mdi:home">
+          <button type="button" class="fh-tool${pg.nascosta ? "" : " acceso"}" data-act="vedi"
+            title="${pg.nascosta ? "Nascosta dalla barra in basso" : "Si vede nella barra in basso"}">
+            <ha-icon icon="${pg.nascosta ? "mdi:eye-off-outline" : "mdi:eye-outline"}"></ha-icon></button>
           <button type="button" class="fh-tool" data-act="up" title="Su"><ha-icon icon="mdi:arrow-up"></ha-icon></button>
           <button type="button" class="fh-tool" data-act="down" title="Giu"><ha-icon icon="mdi:arrow-down"></ha-icon></button>
           <button type="button" class="fh-tool" data-act="del" title="Elimina"><ha-icon icon="mdi:delete-outline"></ha-icon></button>
         </div>`).join("") +
-        `<button type="button" class="fh-btn primary" data-addpage>+ Aggiungi pagina</button>`;
+        `<div class="fh-note">L'occhio nasconde una pagina dalla barra in basso: resta raggiungibile dalle card che ci portano, e qui in modifica si vede sempre. Con una pagina per ogni stanza la barra diventerebbe altrimenti lunghissima.</div>
+         <button type="button" class="fh-btn primary" data-addpage>+ Aggiungi pagina</button>`;
       box.querySelectorAll(".fh-pagerow").forEach(row => {
         const i = parseInt(row.dataset.p, 10);
         row.querySelector("[data-title]").addEventListener("input", e => { this._cfg.pages[i].title = e.target.value; });
         row.querySelector("[data-icon]").addEventListener("change", e => { this._cfg.pages[i].icon = e.target.value; draw(); this._renderNav(); });
         row.querySelectorAll("[data-act]").forEach(b => b.addEventListener("click", () => {
           const a = b.dataset.act, pages = this._cfg.pages;
-          if (a === "up" && i > 0) { const [x] = pages.splice(i, 1); pages.splice(i - 1, 0, x); }
+          if (a === "vedi") { pages[i].nascosta = !pages[i].nascosta; }
+          else if (a === "up" && i > 0) { const [x] = pages.splice(i, 1); pages.splice(i - 1, 0, x); }
           else if (a === "down" && i < pages.length - 1) { const [x] = pages.splice(i, 1); pages.splice(i + 1, 0, x); }
           else if (a === "del") {
             if (pages.length === 1) return;
@@ -2518,7 +2556,10 @@ const FH_CSS = `
     max-width:560px;margin:0 auto;padding:8px 10px;pointer-events:auto;
     background:var(--fh-panel,rgba(30,38,48,.78));border:1px solid var(--fh-stroke,rgba(255,255,255,.09));border-radius:26px;
     backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);box-shadow:0 12px 30px rgba(0,0,0,.45)}
-  .fh-navitem{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:3px;
+  .fh-navitem.nascosta{opacity:.45}
+  .fh-navitem.nascosta::after{content:"";position:absolute;top:6px;right:8px;width:5px;height:5px;
+    border-radius:50%;background:var(--fh-muted,#93a1b0)}
+  .fh-navitem{position:relative;flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:3px;
     padding:7px 4px;border:none;background:none;cursor:pointer;font:inherit;color:var(--fh-muted,#93a1b0);transition:color .2s}
   .fh-navitem ha-icon{--mdc-icon-size:23px}
   .fh-navlabel{font-size:10.5px;font-weight:700;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -2570,6 +2611,7 @@ const FH_CSS = `
     display:flex;align-items:center;justify-content:center;flex:0 0 auto}
   .fh-tool ha-icon{--mdc-icon-size:16px}
   .fh-tool:hover{color:var(--fh-ink,#eaf1f8)}
+  .fh-tool.acceso{border-color:rgba(255,176,32,.5);background:rgba(255,176,32,.16);color:#ffe9c2}
   .fh-span{width:28px;height:28px;border-radius:8px;cursor:pointer;font:inherit;font-size:12px;font-weight:800;
     border:1px solid var(--fh-stroke,rgba(255,255,255,.12));background:transparent;color:var(--fh-muted,#93a1b0)}
   .fh-span.sel{border-color:rgba(255,176,32,.6);background:rgba(255,176,32,.18);color:#ffe9c2}
