@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.18.3";
+const FH_VERSION = "0.18.4";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -4383,7 +4383,12 @@ class FaberPersonaEditor extends HTMLElement {
     if (!this._cfg || !this._hass) return;
     const c = this._cfg;
     const persone = Object.keys(this._hass.states).filter(e => e.startsWith("person."));
-    const zone = Object.keys(this._hass.states).filter(e => e.startsWith("zone.") && e !== "zone.home");
+    // Si scartano le zone PASSIVE: una zona passiva non diventa mai lo stato
+    // della persona (serve solo nelle condizioni), quindi un avatar per quella
+    // zona non comparirebbe mai. Offrirlo sarebbe promettere una cosa che non
+    // puo succedere.
+    const zone = Object.keys(this._hass.states).filter(e =>
+      e.startsWith("zone.") && e !== "zone.home" && !this._hass.states[e].attributes.passive);
     const nomeZona = z => (this._hass.states[z].attributes.friendly_name || z.slice(5));
     // Le "zone" di Home Assistant sono luoghi sulla mappa (il lavoro, la
     // scuola), non stanze della casa: per questo fra loro compare "Lavoro Eva".
