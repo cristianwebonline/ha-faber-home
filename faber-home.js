@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.32.0";
+const FH_VERSION = "0.33.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -2913,12 +2913,38 @@ function fwSkin(state) {
 // Disegni morbidi al posto delle icone piatte, e soprattutto VIVI: il sole
 // gira, la pioggia cade, le nuvole scorrono, il fulmine lampeggia. Le
 // animazioni si fermano da sole se il sistema chiede meno movimento.
+// La fase della luna dalla data: giorni passati dal novilunio del 6 gennaio
+// 2000 alle 18:14 UTC, divisi per il mese sinodico. Per un disegno basta e
+// avanza: l'errore e di qualche ora su un ciclo di ventinove giorni e mezzo.
+const FW_SINODICO = 29.530588853;
+
+function fwFaseLuna(quando) {
+  const d = quando instanceof Date && !isNaN(quando.getTime()) ? quando : new Date();
+  const rif = Date.UTC(2000, 0, 6, 18, 14, 0);
+  let p = ((d.getTime() - rif) / 86400000 / FW_SINODICO) % 1;
+  if (p < 0) p += 1;
+  return { p, k: (1 - Math.cos(2 * Math.PI * p)) / 2, nome: fwNomeFase(p) };
+}
+
+// I nomi che si usano davvero guardando in su, non le otto etichette inglesi.
+function fwNomeFase(p) {
+  const g = p * FW_SINODICO;
+  if (g < 1.1 || g > 28.4) return "Luna nuova";
+  if (g < 6.4) return "Luna crescente";
+  if (g < 8.4) return "Primo quarto";
+  if (g < 13.8) return "Gibbosa crescente";
+  if (g < 15.8) return "Luna piena";
+  if (g < 21.2) return "Gibbosa calante";
+  if (g < 23.2) return "Ultimo quarto";
+  return "Luna calante";
+}
+
 // I gradienti hanno bisogno di un nome unico: lo stesso sole compare nella
 // card e in ogni riga delle previsioni, e due <defs> con lo stesso id nella
 // stessa pagina si sovrascrivono a vicenda.
 let FW_SEME = 0;
 
-function fwArt(kind, size, still) {
+function fwArt(kind, size, still, quando) {
   const s = size || 76;
   const cls = still ? "" : " fw-anim";
   const u = "fw" + (++FW_SEME);
@@ -2961,14 +2987,55 @@ function fwArt(kind, size, still) {
         <circle cx="50" cy="50" r="22.5" fill="url(#${u}d)"/>
         <path d="M36 41 Q44 32 57 33" fill="none" stroke="rgba(255,255,255,.55)" stroke-width="3" stroke-linecap="round"/>
       </g>`);
-    case "moon": return S(`
-      <g>
-        <circle class="fw-halo" cx="52" cy="48" r="30" fill="rgba(255,255,255,.10)"/>
-        <path d="M62 22 A28 28 0 1 0 62 78 A22 22 0 1 1 62 22 Z" fill="#ffd88a"/>
-        <circle class="fw-star fw-s1" cx="24" cy="24" r="2.4" fill="#fff5dd"/>
-        <circle class="fw-star fw-s2" cx="80" cy="30" r="1.8" fill="#fff5dd"/>
-        <circle class="fw-star fw-s3" cx="76" cy="72" r="2.1" fill="#fff5dd"/>
-      </g>`);
+    // La luna non e piu una falce sempre uguale: e quella di stanotte. Il
+    // confine fra luce e ombra e una mezza ellisse che si stringe fino a
+    // diventare una riga dritta al quarto e poi si riapre dall'altra parte;
+    // con la stessa forma si ritaglia il disco illuminato, cosi i crateri si
+    // vedono solo dove batte il sole. Nelle previsioni prende la data del
+    // giorno, quindi la luna di giovedi e davvero quella di giovedi.
+    case "moon": {
+      const f = fwFaseLuna(quando);
+      const r = 26, cx = 50, cy = 50;
+      const d0 = Math.cos(2 * Math.PI * f.p);
+      const rx = (Math.abs(d0) * r).toFixed(2);
+      const cresce = f.p < 0.5;
+      const su = `${cx} ${cy - r}`, giu = `${cx} ${cy + r}`;
+      // Andando dal basso verso l'alto, sweep 0 curva a destra e 1 a sinistra.
+      const fuori = cresce ? 1 : 0;
+      const term = cresce ? (d0 > 0 ? 0 : 1) : (d0 < 0 ? 0 : 1);
+      const luce = `M ${su} A ${r} ${r} 0 0 ${fuori} ${giu} A ${rx} ${r} 0 0 ${term} ${su} Z`;
+      // A luna nuova non resta niente da illuminare: senza un filo di bordo
+      // sembrerebbe che il disegno non sia arrivato.
+      const nuova = f.k < 0.035;
+      return S(`
+        <defs>
+          <radialGradient id="${u}l" cx="36%" cy="30%" r="78%">
+            <stop offset="0%" stop-color="#fffdf3"/>
+            <stop offset="55%" stop-color="#ffeec4"/>
+            <stop offset="100%" stop-color="#e9c887"/>
+          </radialGradient>
+          <radialGradient id="${u}g" cx="50%" cy="50%" r="50%">
+            <stop offset="50%" stop-color="rgba(255,236,190,.26)"/>
+            <stop offset="100%" stop-color="rgba(255,236,190,0)"/>
+          </radialGradient>
+          <clipPath id="${u}c"><path d="${luce}"/></clipPath>
+        </defs>
+        <g>
+          <title>${fhEsc(f.nome)} · ${Math.round(f.k * 100)}% illuminata</title>
+          <circle class="fw-halo" cx="${cx}" cy="${cy}" r="42" fill="url(#${u}g)"/>
+          <circle cx="${cx}" cy="${cy}" r="${r}" fill="rgba(255,255,255,.06)"
+            stroke="rgba(255,246,222,${nuova ? ".40" : ".16"})" stroke-width="1"/>
+          ${nuova ? "" : `<path d="${luce}" fill="url(#${u}l)"/>
+          <g clip-path="url(#${u}c)" fill="#c2a26a" opacity=".26">
+            <circle cx="43" cy="41" r="6.2"/><circle cx="58" cy="58" r="4.6"/>
+            <circle cx="47" cy="63" r="3.1"/><circle cx="61" cy="39" r="2.7"/>
+            <circle cx="37" cy="55" r="2.3"/><circle cx="52" cy="48" r="1.9"/>
+          </g>`}
+          <circle class="fw-star fw-s1" cx="20" cy="22" r="2.4" fill="#fff5dd"/>
+          <circle class="fw-star fw-s2" cx="83" cy="28" r="1.8" fill="#fff5dd"/>
+          <circle class="fw-star fw-s3" cx="79" cy="76" r="2.1" fill="#fff5dd"/>
+        </g>`);
+    }
     case "partly": return S(`
       <defs>
         <radialGradient id="${u}d" cx="38%" cy="32%" r="72%">
@@ -3167,7 +3234,7 @@ class FaberWeather extends HTMLElement {
             if (d.precipitation_probability != null) extra.push(`<span><ha-icon icon="mdi:water"></ha-icon>${Math.round(d.precipitation_probability)}%</span>`);
             if (d.wind_speed != null) extra.push(`<span><ha-icon icon="mdi:weather-windy"></ha-icon>${Math.round(d.wind_speed)} km/h</span>`);
             return `<div class="fw-mrow">
-              <div class="fw-mart">${fwArt(dsk.art, 40)}</div>
+              <div class="fw-mart">${fwArt(dsk.art, 40, false, dd)}</div>
               <div class="fw-mday">
                 <div class="fw-mname">${fhEsc(nome)}</div>
                 <div class="fw-mmeta">${fhEsc(data)} · ${fhEsc(FH_WEATHER_IT[d.condition] || d.condition || "")}</div>
