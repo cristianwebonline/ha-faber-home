@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.9.0";
+const FH_VERSION = "0.9.1";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -717,13 +717,28 @@ class FaberHome extends HTMLElement {
   // nativo di Home Assistant per le cose di tutti i giorni.
   _catalog() {
     return [
-      { g: "Faber", n: "Mini Card - dispositivo", i: "mdi:power-socket-eu", c: { type: "custom:mini-card", name: "Dispositivo", icon_type: "generic", mode: "device", switch: "", power: "" } },
-      { g: "Faber", n: "Mini Card - stanza", i: "mdi:sofa", c: { type: "custom:mini-card", name: "Stanza", icon_type: "livingroom", mode: "room", path: "" } },
+      { g: "Faber", n: "Mini Card - dispositivo", i: "mdi:power-socket-eu", c: { type: "custom:mini-card", name: "Dispositivo", icon_type: "generic", mode: "device",
+        power: "", energy: "", switch: "", temp: "", humidity: "", climate: "", device_id: "", path: "", group: "",
+        soglia: 10, soglia_freddo: 18, soglia_caldo: 26, prezzo_kwh: 0.30, storico_giorni: 14 } },
+      { g: "Faber", n: "Mini Card - stanza", i: "mdi:sofa", c: { type: "custom:mini-card", name: "Stanza", icon_type: "livingroom", mode: "room",
+        power: "", energy: "", switch: "", temp: "", humidity: "", climate: "", device_id: "", path: "", group: "",
+        soglia: 10, soglia_freddo: 18, soglia_caldo: 26, prezzo_kwh: 0.30, storico_giorni: 14 } },
       { g: "Faber", n: "Smart Card (tela)", i: "mdi:palette-swatch-outline", c: { type: "custom:smart-card", name: "Smart Card", canvas: { w: 100, h: 50 }, elements: [] } },
-      { g: "Faber", n: "Consumi di casa", i: "mdi:lightning-bolt", c: { type: "custom:energia-consumi-card", title: "Consumi di casa", days_back: 8, prezzo_kwh: 0.3 } },
-      { g: "Faber", n: "Centro bucato", i: "mdi:washing-machine", c: { type: "custom:centro-bucato-card", kind: "lavatrice", name: "Lavatrice", power: "" } },
-      { g: "Faber", n: "Centro elettrodomestici", i: "mdi:dishwasher", c: { type: "custom:centro-elettrodomestici-card", kind: "lavastoviglie", name: "Lavastoviglie", power: "" } },
-      { g: "Faber", n: "Centro sicurezza", i: "mdi:shield-lock", c: { type: "custom:centro-sicurezza-card", name: "Porta blindata", lock: "" } },
+      { g: "Faber", n: "Meteo", i: "mdi:weather-partly-cloudy", c: { type: "custom:faber-weather", entity: "", days: 4 } },
+      { g: "Faber", n: "Consumi di casa", i: "mdi:lightning-bolt", c: { type: "custom:energia-consumi-card", title: "Consumi di casa", days_back: 8,
+        open_on: "today", prezzo_kwh: 0.30, soglia_media: 33, soglia_alta: 66, lampeggio_record: true } },
+      { g: "Faber", n: "Lavatrice", i: "mdi:washing-machine", c: { type: "custom:centro-bucato-card", kind: "lavatrice", name: "Lavatrice",
+        power: "", energy: "", switch: "", soglia: 10, soglia_centrifuga: 300, soglia_riscaldamento: 1500, prezzo_kwh: 0.30, storico_giorni: 14 } },
+      { g: "Faber", n: "Asciugatrice", i: "mdi:tumble-dryer", c: { type: "custom:centro-bucato-card", kind: "asciugatrice", name: "Asciugatrice",
+        power: "", energy: "", switch: "", soglia: 10, soglia_riscaldamento: 800, prezzo_kwh: 0.30, storico_giorni: 14 } },
+      { g: "Faber", n: "Lavastoviglie", i: "mdi:dishwasher", c: { type: "custom:centro-elettrodomestici-card", kind: "lavastoviglie", name: "Lavastoviglie",
+        power: "", energy: "", switch: "", soglia: 10, soglia_riscaldamento: 1200, prezzo_kwh: 0.30, storico_giorni: 14 } },
+      { g: "Faber", n: "Forno", i: "mdi:stove", c: { type: "custom:centro-elettrodomestici-card", kind: "forno", name: "Forno",
+        power: "", energy: "", switch: "", soglia: 15, preriscaldo_min: 10, prezzo_kwh: 0.30, storico_giorni: 14 } },
+      { g: "Faber", n: "Frigorifero", i: "mdi:fridge", c: { type: "custom:centro-elettrodomestici-card", kind: "frigorifero", name: "Frigorifero",
+        power: "", energy: "", switch: "", soglia: 15, prezzo_kwh: 0.30, storico_giorni: 14 } },
+      { g: "Faber", n: "Porta blindata", i: "mdi:shield-lock", c: { type: "custom:centro-sicurezza-card", name: "Porta blindata",
+        lock: "", door_sensor: "", battery: "", sensors: "" } },
       { g: "Home Assistant", n: "Tessera (tile)", i: "mdi:card-outline", c: { type: "tile", entity: "" } },
       { g: "Faber", n: "Meteo", i: "mdi:weather-partly-cloudy", c: { type: "custom:faber-weather", entity: "", days: 4 } },
       { g: "Home Assistant", n: "Meteo (nativa)", i: "mdi:weather-cloudy", c: { type: "weather-forecast", entity: "", forecast_type: "daily" } },
@@ -768,7 +783,14 @@ class FaberHome extends HTMLElement {
     const dom = id => id.split(".")[0];
     const dc = id => (this._hass.states[id].attributes.device_class || "");
     const scarto = /child_lock|backlight|remote_access|identify|led|beep|lock_sound|power_on_state|indicator/i;
-    const byDc = (d, cls) => ids.find(id => dom(id) === d && dc(id) === cls);
+    // Molte prese espongono DUE sensori di potenza: quello del carico attaccato
+    // e quello che consuma la presa stessa (di solito con "device" nel nome).
+    // Serve il primo: e quello che dice se la lavatrice sta lavorando.
+    const propria = /(^|_)device_(power|energy|current|voltage)$|standby/i;
+    const byDc = (d, cls) => {
+      const c = ids.filter(id => dom(id) === d && dc(id) === cls);
+      return c.find(id => !propria.test(id)) || c[0];
+    };
     const sw = ids.filter(id => dom(id) === "switch" && !scarto.test(id));
     const lights = ids.filter(id => dom(id) === "light");
     return {
@@ -1475,7 +1497,12 @@ const FH_CSS = `
     border:1px solid var(--fh-stroke,rgba(255,255,255,.12));background:transparent;color:var(--fh-ink,#eaf1f8)}
   .fh-sheet .fh-btn{border-color:var(--divider-color);color:var(--primary-text-color)}
   .fh-sheet .fh-ic{border-color:var(--divider-color);background:var(--card-background-color);color:var(--secondary-text-color)}
-  .fh-btn.primary{border-color:rgba(255,176,32,.6);background:linear-gradient(135deg,rgba(255,176,32,.3),rgba(255,176,32,.14));color:#ffe9c2}
+  /* Il testo del tasto principale segue l'inchiostro del tema: era crema
+     fisso, e sul pannello chiaro di giorno spariva dentro l'ambra. */
+  .fh-btn.primary{border-color:rgba(255,176,32,.75);
+    background:linear-gradient(135deg,rgba(255,176,32,.42),rgba(255,176,32,.22));
+    color:var(--fh-ink,#eaf1f8)}
+  .fh-sheet .fh-btn.primary{color:var(--primary-text-color)}
   .fh-rowwrap{display:flex;flex-direction:column;gap:8px}
   .fh-tools{display:flex;align-items:center;gap:4px;flex-wrap:wrap;padding:5px 8px;border-radius:12px;
     background:rgba(255,176,32,.10);border:1px dashed rgba(255,176,32,.35)}
