@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.2.0";
+const FH_VERSION = "0.2.1";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -31,9 +31,14 @@ const FH_DEFAULTS = {
 
 // Tavolozze del guscio: due mondi completi, non un'inversione meccanica.
 // Di giorno il cielo è chiaro e le scritte scure; di notte il contrario.
+// Il chiaro NON è carta bianca: è cielo. Le card di famiglia sono scure per
+// scelta, e su un bianco quasi puro sembravano macchie appoggiate; su un
+// azzurro di giornata diventano oggetti contro il cielo, che è l'effetto
+// giusto. Il grigio del testo è anche più scuro di prima: sopra il chiaro la
+// data spariva.
 const FH_SKY = {
-  light: { top: "#dceaf7", mid: "#eef4fb", bot: "#f7fafd", ink: "#141922", muted: "#5b6472",
-    panel: "rgba(255,255,255,.72)", stroke: "rgba(15,23,42,.10)", navInk: "#141922" },
+  light: { top: "#a9c9ea", mid: "#cadcf0", bot: "#e4eef8", ink: "#101722", muted: "#41506a",
+    panel: "rgba(255,255,255,.78)", stroke: "rgba(15,23,42,.12)", navInk: "#101722" },
   dark: { top: "#1b2740", mid: "#0d1420", bot: "#080c14", ink: "#eaf1f8", muted: "#93a1b0",
     panel: "rgba(30,38,48,.78)", stroke: "rgba(255,255,255,.09)", navInk: "#eaf1f8" },
 };
