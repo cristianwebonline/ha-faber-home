@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.2.3";
+const FH_VERSION = "0.3.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -379,6 +379,7 @@ class FaberHome extends HTMLElement {
           </div>
           <div class="fh-chips" data-chips>${this._chipsHTML()}</div>
           <div class="fh-headicons">
+            <button type="button" class="fh-ic" data-act="edit" title="Modifica"><ha-icon icon="mdi:pencil"></ha-icon></button>
             <button type="button" class="fh-ic" data-act="reload" title="Ricarica"><ha-icon icon="mdi:refresh"></ha-icon></button>
             <button type="button" class="fh-ic" data-act="ha" title="Home Assistant"><ha-icon icon="mdi:home-assistant"></ha-icon></button>
           </div>
@@ -400,7 +401,8 @@ class FaberHome extends HTMLElement {
     this._applyScene(false);
     this._watchTheme();
     this.querySelectorAll(".fh-ic").forEach(b => b.addEventListener("click", () => {
-      if (b.dataset.act === "reload") location.reload();
+      if (b.dataset.act === "edit") this._toggleEdit();
+      else if (b.dataset.act === "reload") location.reload();
       else if (b.dataset.act === "ha") {
         history.pushState(null, "", "/lovelace");
         window.dispatchEvent(new CustomEvent("location-changed", { bubbles: true, composed: true }));
@@ -467,30 +469,376 @@ class FaberHome extends HTMLElement {
     const page = this._cfg.pages[this._page];
     this._cardEls.clear();
     main.innerHTML = "";
+    main.classList.toggle("editing", !!this._edit);
+
+    if (this._edit) main.appendChild(this._editBarEl());
+
     if (!page || !page.rows || !page.rows.length) {
-      main.innerHTML = `<div class="fh-empty">
-        <ha-icon icon="mdi:view-dashboard-outline"></ha-icon>
-        <div>Questa pagina è vuota.</div>
-        <small>La modalità modifica arriva nella prossima tappa: per ora le card si aggiungono dalla configurazione del pannello.</small>
-      </div>`;
+      const empty = document.createElement("div");
+      empty.className = "fh-empty";
+      empty.innerHTML = `<ha-icon icon="mdi:view-dashboard-outline"></ha-icon>
+        <div>Questa pagina e vuota.</div>
+        <small>${this._edit ? "Aggiungi una riga qui sotto per cominciare." : "Tocca la matita in alto per aggiungere le card."}</small>`;
+      main.appendChild(empty);
+      if (this._edit) main.appendChild(this._addRowEl());
       return;
     }
+
     const helpers = await this._helpers();
-    page.rows.forEach(row => {
+    page.rows.forEach((row, ri) => {
       const rowEl = document.createElement("div");
-      rowEl.className = "fh-row";
-      (row.cols || []).forEach(col => {
+      rowEl.className = "fh-rowwrap";
+      if (this._edit) rowEl.appendChild(this._rowToolsEl(ri));
+
+      const inner = document.createElement("div");
+      inner.className = "fh-row";
+      (row.cols || []).forEach((col, ci) => {
         const colEl = document.createElement("div");
         colEl.className = "fh-col";
         colEl.style.flex = `${col.span || 1} 1 0`;
-        (col.cards || []).forEach(cardCfg => {
+        if (this._edit) colEl.appendChild(this._colToolsEl(ri, ci));
+        (col.cards || []).forEach((cardCfg, di) => {
           const el = this._createCard(cardCfg, helpers);
-          if (el) { colEl.appendChild(el); this._cardEls.set(el, el); }
+          if (!el) return;
+          if (this._edit) {
+            const box = document.createElement("div");
+            box.className = "fh-cardedit";
+            box.appendChild(this._cardToolsEl(ri, ci, di));
+            box.appendChild(el);
+            // In modifica il tocco non deve accendere una presa ne aprire un
+            // popup: uno strato trasparente sopra la card intercetta tutto.
+            const shield = document.createElement("div");
+            shield.className = "fh-shield";
+            box.appendChild(shield);
+            colEl.appendChild(box);
+          } else {
+            colEl.appendChild(el);
+          }
         });
-        rowEl.appendChild(colEl);
+        if (this._edit) colEl.appendChild(this._addCardEl(ri, ci));
+        inner.appendChild(colEl);
       });
+      rowEl.appendChild(inner);
       main.appendChild(rowEl);
     });
+    if (this._edit) main.appendChild(this._addRowEl());
+  }
+
+  // --------------------------------------------------------------- modifica
+  _toggleEdit() {
+    this._edit = !this._edit;
+    // Si tiene una copia prima di toccare qualcosa: "Annulla" deve poter
+    // riportare tutto com'era, senza ricaricare la pagina.
+    if (this._edit) this._snapshot = JSON.stringify(this._cfg);
+    this._renderNav();
+    this._renderPage();
+  }
+
+  _btn(icon, title, act) {
+    return `<button type="button" class="fh-tool" data-act="${act}" title="${fhEsc(title)}"><ha-icon icon="${icon}"></ha-icon></button>`;
+  }
+
+  _editBarEl() {
+    const el = document.createElement("div");
+    el.className = "fh-editbar";
+    el.innerHTML = `<span class="fh-editlabel"><ha-icon icon="mdi:pencil"></ha-icon> Stai modificando</span>
+      <button type="button" class="fh-btn" data-act="pagine">Pagine</button>
+      <button type="button" class="fh-btn" data-act="annulla">Annulla</button>
+      <button type="button" class="fh-btn primary" data-act="salva">Salva</button>`;
+    el.querySelectorAll("[data-act]").forEach(b => b.addEventListener("click", () => {
+      const a = b.dataset.act;
+      if (a === "salva") this._save();
+      else if (a === "annulla") {
+        if (this._snapshot) this._cfg = JSON.parse(this._snapshot);
+        this._page = Math.min(this._page, this._cfg.pages.length - 1);
+        this._edit = false;
+        this._renderNav(); this._renderPage();
+      } else if (a === "pagine") this._openPageSheet();
+    }));
+    return el;
+  }
+
+  _rowToolsEl(ri) {
+    const el = document.createElement("div");
+    el.className = "fh-tools";
+    el.innerHTML = `<span class="fh-toolslabel">Riga ${ri + 1}</span>
+      ${this._btn("mdi:table-column-plus-after", "Aggiungi colonna", "addcol")}
+      ${this._btn("mdi:arrow-up", "Sposta su", "up")}
+      ${this._btn("mdi:arrow-down", "Sposta giu", "down")}
+      ${this._btn("mdi:delete-outline", "Elimina riga", "del")}`;
+    const rows = this._cfg.pages[this._page].rows;
+    el.querySelectorAll("[data-act]").forEach(b => b.addEventListener("click", () => {
+      const a = b.dataset.act;
+      if (a === "addcol") rows[ri].cols.push({ span: 1, cards: [] });
+      else if (a === "up" && ri > 0) { const [r] = rows.splice(ri, 1); rows.splice(ri - 1, 0, r); }
+      else if (a === "down" && ri < rows.length - 1) { const [r] = rows.splice(ri, 1); rows.splice(ri + 1, 0, r); }
+      else if (a === "del") rows.splice(ri, 1);
+      this._renderPage();
+    }));
+    return el;
+  }
+
+  _colToolsEl(ri, ci) {
+    const col = this._cfg.pages[this._page].rows[ri].cols[ci];
+    const el = document.createElement("div");
+    el.className = "fh-tools sub";
+    el.innerHTML = `<span class="fh-toolslabel">Larghezza</span>
+      ${[1, 2, 3].map(n => `<button type="button" class="fh-span${(col.span || 1) === n ? " sel" : ""}" data-span="${n}">${n}</button>`).join("")}
+      ${this._btn("mdi:delete-outline", "Elimina colonna", "delcol")}`;
+    el.querySelectorAll("[data-span]").forEach(b => b.addEventListener("click", () => {
+      col.span = parseInt(b.dataset.span, 10); this._renderPage();
+    }));
+    el.querySelectorAll("[data-act]").forEach(b => b.addEventListener("click", () => {
+      this._cfg.pages[this._page].rows[ri].cols.splice(ci, 1); this._renderPage();
+    }));
+    return el;
+  }
+
+  _cardToolsEl(ri, ci, di) {
+    const el = document.createElement("div");
+    el.className = "fh-tools card";
+    // Le frecce spostano la card fra le colonne: su schermo tattile sono molto
+    // piu affidabili del trascinamento, che sul telefono litiga con lo
+    // scorrimento della pagina (lezione della Smart Card).
+    el.innerHTML = `${this._btn("mdi:cog-outline", "Configura", "cfg")}
+      ${this._btn("mdi:content-copy", "Duplica", "dup")}
+      ${this._btn("mdi:arrow-left", "Colonna precedente", "left")}
+      ${this._btn("mdi:arrow-right", "Colonna successiva", "right")}
+      ${this._btn("mdi:delete-outline", "Elimina", "del")}`;
+    const cols = this._cfg.pages[this._page].rows[ri].cols;
+    el.querySelectorAll("[data-act]").forEach(b => b.addEventListener("click", () => {
+      const a = b.dataset.act;
+      const cards = cols[ci].cards;
+      if (a === "cfg") { this._openCardEditor(ri, ci, di); return; }
+      if (a === "dup") cards.splice(di + 1, 0, JSON.parse(JSON.stringify(cards[di])));
+      else if (a === "del") cards.splice(di, 1);
+      else if (a === "left" && ci > 0) { const [c] = cards.splice(di, 1); cols[ci - 1].cards.push(c); }
+      else if (a === "right" && ci < cols.length - 1) { const [c] = cards.splice(di, 1); cols[ci + 1].cards.push(c); }
+      this._renderPage();
+    }));
+    return el;
+  }
+
+  _addCardEl(ri, ci) {
+    const el = document.createElement("button");
+    el.type = "button";
+    el.className = "fh-addcard";
+    el.innerHTML = `<ha-icon icon="mdi:plus"></ha-icon> Card`;
+    el.addEventListener("click", () => this._openPicker(ri, ci));
+    return el;
+  }
+
+  _addRowEl() {
+    const el = document.createElement("button");
+    el.type = "button";
+    el.className = "fh-addrow";
+    el.innerHTML = `<ha-icon icon="mdi:plus"></ha-icon> Aggiungi riga`;
+    el.addEventListener("click", () => {
+      this._cfg.pages[this._page].rows.push({ cols: [{ span: 1, cards: [] }] });
+      this._renderPage();
+    });
+    return el;
+  }
+
+
+  // ----------------------------------------------------------- fogli a comparsa
+  // Un solo foglio alla volta, chiuso toccando fuori o la X: e il modo in cui
+  // si configura stando col telefono in una mano.
+  _sheet(title, bodyEl) {
+    const prev = this.querySelector(".fh-scrim");
+    if (prev) prev.remove();
+    const scrim = document.createElement("div");
+    scrim.className = "fh-scrim";
+    const sheet = document.createElement("div");
+    sheet.className = "fh-sheet";
+    sheet.innerHTML = `<div class="fh-sheethead">
+        <div class="fh-sheettitle">${fhEsc(title)}</div>
+        <button type="button" class="fh-ic" data-close><ha-icon icon="mdi:close"></ha-icon></button>
+      </div>`;
+    const body = document.createElement("div");
+    body.className = "fh-sheetbody";
+    body.appendChild(bodyEl);
+    sheet.appendChild(body);
+    scrim.appendChild(sheet);
+    scrim.addEventListener("click", e => { if (e.target === scrim) scrim.remove(); });
+    sheet.querySelector("[data-close]").addEventListener("click", () => scrim.remove());
+    this.querySelector(".fh-app").appendChild(scrim);
+    return scrim;
+  }
+
+  // Catalogo: le card di famiglia con uno stub gia pronto, piu qualche tipo
+  // nativo di Home Assistant per le cose di tutti i giorni.
+  _catalog() {
+    return [
+      { g: "Faber", n: "Mini Card - dispositivo", i: "mdi:power-socket-eu", c: { type: "custom:mini-card", name: "Dispositivo", icon_type: "generic", mode: "device", switch: "", power: "" } },
+      { g: "Faber", n: "Mini Card - stanza", i: "mdi:sofa", c: { type: "custom:mini-card", name: "Stanza", icon_type: "livingroom", mode: "room", path: "" } },
+      { g: "Faber", n: "Smart Card (tela)", i: "mdi:palette-swatch-outline", c: { type: "custom:smart-card", name: "Smart Card", canvas: { w: 100, h: 50 }, elements: [] } },
+      { g: "Faber", n: "Consumi di casa", i: "mdi:lightning-bolt", c: { type: "custom:energia-consumi-card", title: "Consumi di casa", days_back: 8, prezzo_kwh: 0.3 } },
+      { g: "Faber", n: "Centro bucato", i: "mdi:washing-machine", c: { type: "custom:centro-bucato-card", kind: "lavatrice", name: "Lavatrice", power: "" } },
+      { g: "Faber", n: "Centro elettrodomestici", i: "mdi:dishwasher", c: { type: "custom:centro-elettrodomestici-card", kind: "lavastoviglie", name: "Lavastoviglie", power: "" } },
+      { g: "Faber", n: "Centro sicurezza", i: "mdi:shield-lock", c: { type: "custom:centro-sicurezza-card", name: "Porta blindata", lock: "" } },
+      { g: "Home Assistant", n: "Tessera (tile)", i: "mdi:card-outline", c: { type: "tile", entity: "" } },
+      { g: "Home Assistant", n: "Meteo", i: "mdi:weather-partly-cloudy", c: { type: "weather-forecast", entity: "", forecast_type: "daily" } },
+      { g: "Home Assistant", n: "Grafico storico", i: "mdi:chart-line", c: { type: "history-graph", entities: [] } },
+      { g: "Home Assistant", n: "Testo (markdown)", i: "mdi:format-text", c: { type: "markdown", content: "Scrivi qui" } },
+      { g: "Home Assistant", n: "Pulsante", i: "mdi:gesture-tap-button", c: { type: "button", entity: "" } },
+      { g: "Home Assistant", n: "Telecamera", i: "mdi:cctv", c: { type: "picture-entity", entity: "", camera_view: "auto" } },
+    ];
+  }
+
+  _openPicker(ri, ci) {
+    const box = document.createElement("div");
+    const cat = this._catalog();
+    const groups = [...new Set(cat.map(x => x.g))];
+    box.innerHTML = groups.map(g => `<div class="fh-catgroup">${fhEsc(g)}</div>
+      <div class="fh-catlist">${cat.map((x, i) => x.g !== g ? "" :
+        `<button type="button" class="fh-catitem" data-i="${i}">
+           <ha-icon icon="${x.i}"></ha-icon><span>${fhEsc(x.n)}</span>
+         </button>`).join("")}</div>`).join("") +
+      `<div class="fh-catgroup">Oppure incolla il codice di una card</div>
+       <textarea class="fh-json" data-paste placeholder='{"type": "tile", "entity": "light.salotto"}'></textarea>
+       <div class="fh-note" data-msg>Accetta JSON. Utile per copiare una card da un'altra dashboard.</div>
+       <button type="button" class="fh-btn primary" data-addjson>Aggiungi dal codice</button>`;
+    const scrim = this._sheet("Aggiungi una card", box);
+    box.querySelectorAll("[data-i]").forEach(b => b.addEventListener("click", () => {
+      const item = cat[parseInt(b.dataset.i, 10)];
+      const cards = this._cfg.pages[this._page].rows[ri].cols[ci].cards;
+      cards.push(JSON.parse(JSON.stringify(item.c)));
+      scrim.remove();
+      this._renderPage();
+      // Si apre subito la configurazione: una card appena messa e quasi
+      // sempre da collegare a un'entita, altrimenti resta vuota e sembra rotta.
+      this._openCardEditor(ri, ci, cards.length - 1);
+    }));
+    box.querySelector("[data-addjson]").addEventListener("click", () => {
+      const ta = box.querySelector("[data-paste]");
+      const msg = box.querySelector("[data-msg]");
+      let parsed;
+      try { parsed = JSON.parse(ta.value); } catch (e) { msg.textContent = "JSON non valido: " + e.message; return; }
+      if (!parsed || !parsed.type) { msg.textContent = "Manca il campo 'type': non sembra una card."; return; }
+      this._cfg.pages[this._page].rows[ri].cols[ci].cards.push(parsed);
+      scrim.remove();
+      this._renderPage();
+    });
+  }
+
+  // Si riusa l'editor VERO della card (getConfigElement), mai riscritto qui:
+  // stesso principio di Faber Layout.
+  async _openCardEditor(ri, ci, di) {
+    const cards = this._cfg.pages[this._page].rows[ri].cols[ci].cards;
+    const cardCfg = cards[di];
+    if (!cardCfg) return;
+    const box = document.createElement("div");
+    let editor = null;
+    try {
+      const helpers = await this._helpers();
+      if (cardCfg.type.startsWith("custom:")) {
+        const tag = cardCfg.type.slice(7);
+        const klass = customElements.get(tag);
+        if (klass && klass.getConfigElement) editor = await klass.getConfigElement();
+      } else if (helpers && helpers.createCardElement) {
+        const tmp = helpers.createCardElement(cardCfg);
+        const klass = tmp && tmp.constructor;
+        if (klass && klass.getConfigElement) editor = await klass.getConfigElement();
+      }
+    } catch (e) { editor = null; }
+
+    if (editor) {
+      editor.hass = this._hass;
+      try { editor.setConfig(cardCfg); } catch (e) { /* editor schizzinoso: resta il codice sotto */ }
+      editor.addEventListener("config-changed", ev => {
+        if (ev.detail && ev.detail.config) {
+          cards[di] = ev.detail.config;
+          this._renderPage();
+        }
+      });
+      box.appendChild(editor);
+    } else {
+      // Nessun editor grafico disponibile: si modifica il codice, che e
+      // meglio di un vicolo cieco.
+      const ta = document.createElement("textarea");
+      ta.className = "fh-json";
+      ta.value = JSON.stringify(cardCfg, null, 2);
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "fh-btn primary";
+      btn.textContent = "Applica";
+      const msg = document.createElement("div");
+      msg.className = "fh-note";
+      msg.textContent = "Questa card non ha un editor grafico: si configura col codice.";
+      btn.addEventListener("click", () => {
+        try { cards[di] = JSON.parse(ta.value); } catch (e) { msg.textContent = "JSON non valido: " + e.message; return; }
+        this._renderPage();
+        msg.textContent = "Applicato.";
+      });
+      box.appendChild(msg); box.appendChild(ta); box.appendChild(btn);
+    }
+    this._sheet("Configura la card", box);
+  }
+
+  _openPageSheet() {
+    const box = document.createElement("div");
+    const draw = () => {
+      box.innerHTML = this._cfg.pages.map((pg, i) => `
+        <div class="fh-pagerow" data-p="${i}">
+          <ha-icon icon="${fhEsc(pg.icon || "mdi:circle-outline")}"></ha-icon>
+          <input class="fh-input" data-title value="${fhEsc(pg.title || "")}" placeholder="Nome pagina">
+          <input class="fh-input small" data-icon value="${fhEsc(pg.icon || "")}" placeholder="mdi:home">
+          <button type="button" class="fh-tool" data-act="up" title="Su"><ha-icon icon="mdi:arrow-up"></ha-icon></button>
+          <button type="button" class="fh-tool" data-act="down" title="Giu"><ha-icon icon="mdi:arrow-down"></ha-icon></button>
+          <button type="button" class="fh-tool" data-act="del" title="Elimina"><ha-icon icon="mdi:delete-outline"></ha-icon></button>
+        </div>`).join("") +
+        `<button type="button" class="fh-btn primary" data-addpage>+ Aggiungi pagina</button>`;
+      box.querySelectorAll(".fh-pagerow").forEach(row => {
+        const i = parseInt(row.dataset.p, 10);
+        row.querySelector("[data-title]").addEventListener("input", e => { this._cfg.pages[i].title = e.target.value; });
+        row.querySelector("[data-icon]").addEventListener("change", e => { this._cfg.pages[i].icon = e.target.value; draw(); this._renderNav(); });
+        row.querySelectorAll("[data-act]").forEach(b => b.addEventListener("click", () => {
+          const a = b.dataset.act, pages = this._cfg.pages;
+          if (a === "up" && i > 0) { const [x] = pages.splice(i, 1); pages.splice(i - 1, 0, x); }
+          else if (a === "down" && i < pages.length - 1) { const [x] = pages.splice(i, 1); pages.splice(i + 1, 0, x); }
+          else if (a === "del") {
+            if (pages.length === 1) return;
+            pages.splice(i, 1);
+          }
+          this._page = Math.min(this._page, this._cfg.pages.length - 1);
+          draw(); this._renderNav(); this._renderPage();
+        }));
+      });
+      box.querySelector("[data-addpage]").addEventListener("click", () => {
+        this._cfg.pages.push({ id: fhUid("pg"), title: "Nuova", icon: "mdi:circle-outline", rows: [] });
+        draw(); this._renderNav();
+      });
+    };
+    draw();
+    this._sheet("Pagine", box);
+  }
+
+  // Salvataggio: si rilegge la configurazione fresca della dashboard, si
+  // sostituisce SOLO la nostra card e si riscrive. Cosi non si calpesta
+  // niente che sia cambiato nel frattempo.
+  async _save() {
+    const urlPath = location.pathname.split("/").filter(Boolean)[0];
+    const bar = this.querySelector(".fh-editbar");
+    const say = t => { const l = bar && bar.querySelector(".fh-editlabel"); if (l) l.textContent = t; };
+    try {
+      say("Salvo...");
+      const dash = await this._hass.callWS({ type: "lovelace/config", url_path: urlPath });
+      let done = false;
+      (dash.views || []).forEach(v => {
+        (v.cards || []).forEach((c, i) => {
+          if (c && c.type === "custom:faber-home") { v.cards[i] = this._cfg; done = true; }
+        });
+      });
+      if (!done) { say("Non trovo questo pannello nella dashboard."); return; }
+      await this._hass.callWS({ type: "lovelace/config/save", url_path: urlPath, config: dash });
+      this._snapshot = JSON.stringify(this._cfg);
+      this._edit = false;
+      this._renderNav();
+      this._renderPage();
+    } catch (e) {
+      say("Errore nel salvataggio: " + (e && e.message ? e.message : e));
+    }
   }
 
   async _helpers() {
@@ -603,6 +951,70 @@ const FH_CSS = `
     box-shadow:0 8px 22px rgba(255,176,32,.42),0 2px 6px rgba(0,0,0,.3);
     border:2px solid var(--fh-panel,rgba(13,20,32,.9))}
   .fh-navcircle ha-icon{--mdc-icon-size:27px;color:#1c1400}
+
+  /* ---- modalita modifica ---- */
+  .fh-editbar{position:sticky;top:0;z-index:4;display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+    padding:10px 12px;border-radius:16px;margin-bottom:4px;
+    background:var(--fh-panel,rgba(30,38,48,.9));border:1px solid rgba(255,176,32,.45);
+    backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+  .fh-editlabel{flex:1;min-width:120px;display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:800;color:#ffb020}
+  .fh-editlabel ha-icon{--mdc-icon-size:17px}
+  .fh-btn{padding:8px 14px;border-radius:999px;cursor:pointer;font:inherit;font-size:12.5px;font-weight:700;
+    border:1px solid var(--fh-stroke,rgba(255,255,255,.12));background:transparent;color:var(--fh-ink,#eaf1f8)}
+  .fh-btn.primary{border-color:rgba(255,176,32,.6);background:linear-gradient(135deg,rgba(255,176,32,.3),rgba(255,176,32,.14));color:#ffe9c2}
+  .fh-rowwrap{display:flex;flex-direction:column;gap:8px}
+  .fh-tools{display:flex;align-items:center;gap:4px;flex-wrap:wrap;padding:5px 8px;border-radius:12px;
+    background:rgba(255,176,32,.10);border:1px dashed rgba(255,176,32,.35)}
+  .fh-tools.sub{background:rgba(255,255,255,.05);border-style:solid;border-color:var(--fh-stroke,rgba(255,255,255,.1))}
+  .fh-tools.card{border:none;background:none;padding:0 0 4px;justify-content:flex-end}
+  .fh-toolslabel{flex:1;min-width:52px;font-size:10.5px;font-weight:800;letter-spacing:.05em;
+    text-transform:uppercase;color:var(--fh-muted,#93a1b0)}
+  .fh-tool{width:30px;height:30px;border-radius:9px;border:1px solid var(--fh-stroke,rgba(255,255,255,.12));
+    background:var(--fh-panel,rgba(255,255,255,.06));color:var(--fh-muted,#93a1b0);cursor:pointer;
+    display:flex;align-items:center;justify-content:center;flex:0 0 auto}
+  .fh-tool ha-icon{--mdc-icon-size:16px}
+  .fh-tool:hover{color:var(--fh-ink,#eaf1f8)}
+  .fh-span{width:28px;height:28px;border-radius:8px;cursor:pointer;font:inherit;font-size:12px;font-weight:800;
+    border:1px solid var(--fh-stroke,rgba(255,255,255,.12));background:transparent;color:var(--fh-muted,#93a1b0)}
+  .fh-span.sel{border-color:rgba(255,176,32,.6);background:rgba(255,176,32,.18);color:#ffe9c2}
+  .fh-cardedit{position:relative;display:flex;flex-direction:column}
+  /* Lo scudo impedisce che, mentre sistemi il layout, un tocco accenda una
+     presa o apra un popup. */
+  .fh-shield{position:absolute;left:0;right:0;bottom:0;top:34px;border-radius:16px;cursor:default;
+    background:rgba(255,176,32,.05);outline:1px dashed rgba(255,176,32,.35);outline-offset:-2px}
+  .fh-addcard,.fh-addrow{display:flex;align-items:center;justify-content:center;gap:6px;cursor:pointer;
+    font:inherit;font-size:12.5px;font-weight:700;padding:11px;border-radius:14px;
+    border:1px dashed var(--fh-stroke,rgba(255,255,255,.2));background:transparent;color:var(--fh-muted,#93a1b0)}
+  .fh-addrow{margin-top:4px}
+  .fh-addcard:hover,.fh-addrow:hover{color:var(--fh-ink,#eaf1f8);border-color:rgba(255,176,32,.5)}
+  .fh-addcard ha-icon,.fh-addrow ha-icon{--mdc-icon-size:17px}
+  /* ---- fogli ---- */
+  .fh-scrim{position:fixed;inset:0;z-index:20;background:rgba(4,6,10,.62);backdrop-filter:blur(6px);
+    display:flex;align-items:flex-end;justify-content:center}
+  .fh-sheet{width:100%;max-width:620px;max-height:86vh;display:flex;flex-direction:column;
+    background:var(--fh-panel,rgba(24,30,40,.98));border:1px solid var(--fh-stroke,rgba(255,255,255,.1));
+    border-bottom:none;border-radius:24px 24px 0 0;box-shadow:0 -16px 50px rgba(0,0,0,.55)}
+  .fh-sheethead{display:flex;align-items:center;gap:10px;padding:14px 16px 8px}
+  .fh-sheettitle{flex:1;font-size:16px;font-weight:800;color:var(--fh-ink,#eaf1f8)}
+  .fh-sheetbody{overflow-y:auto;padding:4px 16px 24px;display:flex;flex-direction:column;gap:10px}
+  .fh-catgroup{font-size:10.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
+    color:var(--fh-muted,#93a1b0);margin-top:8px}
+  .fh-catlist{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px}
+  .fh-catitem{display:flex;align-items:center;gap:8px;padding:11px;border-radius:14px;cursor:pointer;font:inherit;
+    border:1px solid var(--fh-stroke,rgba(255,255,255,.1));background:rgba(255,255,255,.04);
+    color:var(--fh-ink,#eaf1f8);font-size:12.5px;font-weight:700;text-align:left}
+  .fh-catitem ha-icon{--mdc-icon-size:20px;color:#ffb020;flex:0 0 auto}
+  .fh-catitem:hover{border-color:rgba(255,176,32,.5)}
+  .fh-json{width:100%;min-height:120px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;
+    line-height:1.45;padding:10px;border-radius:12px;box-sizing:border-box;
+    border:1px solid var(--fh-stroke,rgba(255,255,255,.12));background:rgba(0,0,0,.25);color:var(--fh-ink,#eaf1f8)}
+  .fh-note{font-size:11.5px;color:var(--fh-muted,#93a1b0)}
+  .fh-pagerow{display:flex;align-items:center;gap:6px;padding:8px;border-radius:12px;
+    border:1px solid var(--fh-stroke,rgba(255,255,255,.1));background:rgba(255,255,255,.04)}
+  .fh-pagerow ha-icon{--mdc-icon-size:18px;color:#ffb020;flex:0 0 auto}
+  .fh-input{flex:1;min-width:0;padding:8px 10px;border-radius:9px;font:inherit;font-size:13px;
+    border:1px solid var(--fh-stroke,rgba(255,255,255,.12));background:rgba(0,0,0,.2);color:var(--fh-ink,#eaf1f8)}
+  .fh-input.small{flex:0 0 110px}
   @media (max-width:520px){
     .fh-head{padding:14px 14px 6px}
     .fh-main{padding:6px 12px 108px}
