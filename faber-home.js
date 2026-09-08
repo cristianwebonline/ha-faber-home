@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.27.1";
+const FH_VERSION = "0.28.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -345,8 +345,33 @@ class FaberHome extends HTMLElement {
 
   getCardSize() { return 20; }
 
-  connectedCallback() { if (this._skyfx) this._skyfx.start(); this._startClock(); this._watchTheme(); }
-  disconnectedCallback() {
+  connectedCallback() {
+    if (this._skyfx) this._skyfx.start();
+    this._startClock();
+    this._watchTheme();
+    // Una card che porta a una pagina cambia solo l'indirizzo. Se il pannello
+    // e gia aperto nessuno lo rimonta, quindi senza stare in ascolto il tocco
+    // non farebbe assolutamente nulla.
+    if (!this._ascoltoHash) {
+      this._ascoltoHash = () => {
+        // Puo scattare prima che la configurazione sia arrivata: senza questo
+        // controllo sarebbe un errore silenzioso al primo caricamento.
+        if (!this._cfg || !this._cfg.pages) return;
+        const voluta = decodeURIComponent((location.hash || "").slice(1));
+        if (!voluta || voluta === this._pageId) return;
+        const i = this._cfg.pages.findIndex(pg => pg.id === voluta);
+        if (i >= 0 && i !== this._page) {
+          this._page = i;
+          this._pageId = voluta;
+          this._renderNav();
+          this._renderPage();
+        }
+      };
+      window.addEventListener("hashchange", this._ascoltoHash);
+      window.addEventListener("location-changed", this._ascoltoHash);
+    }
+  }
+  _fermaTutto() {
     if (this._skyfx) this._skyfx.stop();
     if (this._themeTimer) { clearInterval(this._themeTimer); this._themeTimer = null; }
     if (this._timer) { clearInterval(this._timer); this._timer = null; }
@@ -562,7 +587,16 @@ class FaberHome extends HTMLElement {
     }
   }
 
+  // UNO solo: ce n'erano due nella stessa classe, e il secondo cancellava il
+  // primo senza dare errore. Risultato: uscendo dal pannello il cielo animato
+  // e l'orologio continuavano a girare in sottofondo.
   disconnectedCallback() {
+    this._fermaTutto();
+    if (this._ascoltoHash) {
+      window.removeEventListener("hashchange", this._ascoltoHash);
+      window.removeEventListener("location-changed", this._ascoltoHash);
+      this._ascoltoHash = null;
+    }
     // Uscendo dal pannello la barra torna come l'utente l'aveva.
     if (this._sidebarNascosta) {
       this._dockSidebar(this._sidebarPrima || "auto");
@@ -1583,10 +1617,29 @@ class FaberHome extends HTMLElement {
           rows: scelte.length ? [{ n_tel: 2, cols: cols.filter(c => c.length).map(c => ({ span: 1, cards: c })) }] : [],
         };
         if (gia >= 0) this._cfg.pages[gia] = pagina; else this._cfg.pages.push(pagina);
+
+        // Insieme alla pagina nasce la card che ci porta, gia collegata. Una
+        // pagina nascosta dalla barra senza niente che ci porti sarebbe
+        // irraggiungibile, e collegarla dopo vuol dire indovinare l'indirizzo.
+        const base = location.pathname.replace(/\/+$/, "");
+        this._mettiCard({
+          type: "custom:mini-card",
+          name: scelta.name,
+          icon_type: this._guessIcon(scelta.name),
+          mode: "room",
+          taglia: "quadrata",
+          path: base + "#" + id,
+          temp: this._sensoreArea(scelta.area_id, "temperature"),
+          humidity: this._sensoreArea(scelta.area_id, "humidity"),
+          power: "", energy: "", switch: "", climate: "", device_id: "", group: "",
+          soglia: 10, soglia_freddo: 18, soglia_caldo: 26, prezzo_kwh: 0.30, storico_giorni: 14,
+        }, true);
+
         const sc3 = this.querySelector(".fh-scrim");
         if (sc3) sc3.remove();
-        // Ci si va subito: e la conferma che e stata creata.
-        this._vaiPagina(this._cfg.pages.findIndex(pg => pg.id === id));
+        // Si resta dove si era: la card appena creata e li, e si vede.
+        this._renderNav();
+        this._renderPage();
       });
 
       box.querySelector("#rmLink").addEventListener("click", () => {
@@ -1597,7 +1650,8 @@ class FaberHome extends HTMLElement {
           name: scelta.name,
           icon_type: this._guessIcon(scelta.name),
           mode: "room",
-          path: pag ? pag.path : "",
+          taglia: "quadrata",
+          path: pag ? location.pathname.replace(/\/+$/, "") + pag.path : "",
           temp: this._sensoreArea(scelta.area_id, "temperature"),
           humidity: this._sensoreArea(scelta.area_id, "humidity"),
           power: "", energy: "", switch: "", climate: "", device_id: "", group: "",
