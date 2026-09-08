@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.17.0";
+const FH_VERSION = "0.18.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -994,7 +994,7 @@ class FaberHome extends HTMLElement {
       { g: "Faber", n: "Smart Card (tela)", i: "mdi:palette-swatch-outline", c: { type: "custom:smart-card", name: "Smart Card", canvas: { w: 100, h: 50 }, elements: [] } },
       { g: "Faber", n: "Meteo", i: "mdi:weather-partly-cloudy", c: { type: "custom:faber-weather", entity: "", days: 4 } },
       { g: "Faber", n: "Persona (avatar animato)", i: "mdi:account-heart", c: { type: "custom:faber-persona",
-        person: "", name: "", avatars: "", forma: "cerchio",
+        person: "", name: "", avatars: "", forma: "cerchio", grandezza: "media",
         mostra_distanza: true, mostra_indirizzo: true, mostra_batteria: true } },
       { g: "Faber", n: "Clima / condizionatore", i: "mdi:air-conditioner", c: { type: "custom:faber-clima",
         climate: "", name: "", temp: "", humidity: "", power: "", presa: "", aspetto: "auto",
@@ -3298,7 +3298,7 @@ class FaberClima extends HTMLElement {
       a.preset_mode, a.hvac_action, (a.hvac_modes || []).join(","),
       v(c.temp), v(c.humidity), v(c.power), v(c.presa),
       c.name, c.mostra_ventola, c.mostra_alette, c.mostra_programmi, c.aspetto,
-      this._timerEntita() ? this._hass.states[this._timerEntita()].state : ""].join("|");
+      ["on", "off"].map(q => { const e = this._timerEntita(q); return e ? this._hass.states[e].state : ""; }).join(",")].join("|");
   }
 
   _render() {
@@ -3339,8 +3339,10 @@ class FaberClima extends HTMLElement {
     const presaSt = this._cfg.presa ? this._hass.states[this._cfg.presa] : null;
     const presaOn = presaSt ? presaSt.state === "on" : true;
     const senzaCorrente = !!presaSt && !presaOn;
-    const tEnt = this._timerEntita();
-    const timerAcceso = !!tEnt && this._hass.states[tEnt].state === "on";
+    const timerAcceso = ["on", "off"].some(q => {
+      const e = this._timerEntita(q);
+      return e && this._hass.states[e].state === "on";
+    });
 
     // La tinta della card segue il modo, sovrapposta al pannello.
     this._card.style.backgroundImage = acceso
@@ -3461,134 +3463,244 @@ class FaberClima extends HTMLElement {
   }
 
 
-  // ------------------------------------------------------------------ timer
-  // Il timer NON e un conto alla rovescia del browser: quello morirebbe
-  // chiudendo la pagina o bloccando il telefono, e sarebbe una bugia. Qui si
-  // scrive una VERA automazione di Home Assistant, che si vede e si modifica
-  // anche da Impostazioni. Spegne il climatizzatore (set_hvac_mode: off), non
-  // stacca la corrente: sono due cose diverse.
-  _timerId() { return "faber_clima_" + (this._cfg.climate || "").replace(/[^a-z0-9]+/gi, "_").toLowerCase(); }
 
-  // L'entita dell'automazione si ritrova dal suo id interno, non dal nome:
-  // il nome lo slugifica Home Assistant e non e prevedibile.
-  _timerEntita() {
-    const id = this._timerId();
+  // =================================================================== timer
+  // Non un conto alla rovescia del browser (morirebbe chiudendo la pagina):
+  // due VERE automazioni di Home Assistant, una per l'accensione e una per lo
+  // spegnimento, visibili e modificabili anche da Impostazioni.
+  //
+  // Ogni giorno puo avere il suo orario. Si ottiene con un trigger per giorno
+  // (che porta l'id del giorno) e una condizione che accoppia "quale trigger e
+  // scattato" con "che giorno e oggi": cosi le azioni si scrivono una volta
+  // sola invece di ripeterle sette volte.
+  _timerId(quale) {
+    const slug = (this._cfg.climate || "").replace(/[^a-z0-9]+/gi, "_").toLowerCase();
+    return "faber_clima_" + quale + "_" + slug;
+  }
+
+  // L'entita dell'automazione si ritrova dal suo id interno, non dal nome: il
+  // nome lo slugifica Home Assistant e non e prevedibile.
+  _timerEntita(quale) {
+    const id = this._timerId(quale || "off");
     return Object.keys(this._hass.states).find(e =>
       e.startsWith("automation.") && this._hass.states[e].attributes.id === id) || null;
   }
 
-  async _leggiTimer() {
-    try {
-      return await this._hass.callApi("get", "config/automation/config/" + this._timerId());
-    } catch (e) {
-      return null; // non c'e ancora: e la condizione normale, non un errore
-    }
+  async _leggiTimer(quale) {
+    try { return await this._hass.callApi("get", "config/automation/config/" + this._timerId(quale)); }
+    catch (e) { return null; }
+  }
+
+  _minutiDa(v) {
+    if (v == null) return 0;
+    if (typeof v === "number") return Math.round(v / 60);
+    if (typeof v === "object") return (v.hours || 0) * 60 + (v.minutes || 0) + Math.round((v.seconds || 0) / 60);
+    const m = String(v).match(/^(\d+):(\d+)/);
+    return m ? parseInt(m[1], 10) * 60 + parseInt(m[2], 10) : 0;
+  }
+
+  _hhmm(t) { return String(t || "").slice(0, 5); }
+
+  _sommaMinuti(hhmm, minuti) {
+    const [h, m] = this._hhmm(hhmm).split(":").map(Number);
+    let tot = h * 60 + m + minuti;
+    tot = ((tot % 1440) + 1440) % 1440;
+    return String(Math.floor(tot / 60)).padStart(2, "0") + ":" + String(tot % 60).padStart(2, "0");
+  }
+
+  // Rilegge il programma dalle automazioni: sono loro la fonte della verita,
+  // cosi la card non puo mostrare una cosa e farne un'altra.
+  _leggiOrari(cfg, anticipo) {
+    const out = {};
+    if (!cfg) return out;
+    (cfg.triggers || cfg.trigger || []).forEach(t => {
+      if (!t || !t.id || typeof t.at !== "string") return;
+      out[t.id] = anticipo ? this._sommaMinuti(t.at, anticipo) : this._hhmm(t.at);
+    });
+    return out;
   }
 
   async _openTimer() {
     const scrim = document.createElement("div");
     scrim.className = "fk-scrim";
-    const nome = this._cfg.name || (this._st() && this._st().attributes.friendly_name) || "Clima";
-    scrim.innerHTML = `<div class="fk-modal"><div class="fk-mbody">Leggo il timer...</div></div>`;
+    const st = this._st();
+    const nome = this._cfg.name || (st && st.attributes.friendly_name) || "Clima";
+    scrim.innerHTML = `<div class="fk-modal"><div class="fk-mbody">Leggo il programma...</div></div>`;
     scrim.addEventListener("click", e => { if (e.target === scrim) scrim.remove(); });
     this.appendChild(scrim);
     const body = scrim.querySelector(".fk-mbody");
 
-    const cfg = await this._leggiTimer();
-    const ent = this._timerEntita();
-    const attivo = ent ? this._hass.states[ent].state === "on" : false;
+    const cfgOn = await this._leggiTimer("on");
+    const cfgOff = await this._leggiTimer("off");
+    const entOn = this._timerEntita("on"), entOff = this._timerEntita("off");
+    const attivo = (entOn && this._hass.states[entOn].state === "on")
+      || (entOff && this._hass.states[entOff].state === "on");
 
-    // Si rilegge cosa c'e gia impostato dall'automazione stessa: e lei la
-    // fonte della verita, cosi la card non puo dire una cosa diversa da
-    // quella che succedera davvero.
-    let ora = "23:00";
-    let tipo = "nessuno";
-    let giorni = [];
-    if (cfg) {
-      const trg = (cfg.triggers || cfg.trigger || [])[0] || {};
-      if (typeof trg.at === "string") ora = trg.at.slice(0, 5);
-      const cond = (cfg.conditions || cfg.condition || []).find(c => c && c.weekday);
-      if (cond) { tipo = "settimanale"; giorni = [].concat(cond.weekday); }
-      else if (JSON.stringify(cfg.actions || cfg.action || []).includes("automation.turn_off")) tipo = "unatantum";
-      else tipo = "giornaliero";
-      if (!attivo) tipo = tipo; // lo stato acceso/spento e a parte
+    // --------------------------------------------- cosa c'e gia impostato
+    const azOn = (cfgOn && (cfgOn.actions || cfgOn.action)) || [];
+    const azOff = (cfgOff && (cfgOff.actions || cfgOff.action)) || [];
+    const spinaOn = azOn.some(a => a && a.action === "switch.turn_on");
+    const spinaOff = azOff.some(a => a && a.action === "switch.turn_off");
+    const attesa = azOff.find(a => a && a.wait_for_trigger);
+    const ritardo = azOn.find(a => a && a.delay);
+
+    const p = {
+      gestisciSpina: !!(spinaOn || spinaOff),
+      anticipo: ritardo ? this._minutiDa(ritardo.delay) : 10,
+      soglia: 10,
+      minuti: 10,
+      modo: "cool",
+      temp: null,
+    };
+    if (attesa) {
+      const tr = (attesa.wait_for_trigger || [])[0] || {};
+      if (typeof tr.below === "number") p.soglia = tr.below;
+      p.minuti = this._minutiDa(tr.for) || 10;
     }
+    const azModo = azOn.find(a => a && a.action === "climate.set_hvac_mode");
+    if (azModo && azModo.data) p.modo = azModo.data.hvac_mode;
+    const azTemp = azOn.find(a => a && a.action === "climate.set_temperature");
+    if (azTemp && azTemp.data) p.temp = azTemp.data.temperature;
 
-    const GG = [["mon", "Lun"], ["tue", "Mar"], ["wed", "Mer"], ["thu", "Gio"], ["fri", "Ven"], ["sat", "Sab"], ["sun", "Dom"]];
+    const orariOn = this._leggiOrari(cfgOn, p.gestisciSpina ? p.anticipo : 0);
+    const orariOff = this._leggiOrari(cfgOff, 0);
+
+    const GG = [["mon", "Lunedi"], ["tue", "Martedi"], ["wed", "Mercoledi"], ["thu", "Giovedi"],
+                ["fri", "Venerdi"], ["sat", "Sabato"], ["sun", "Domenica"]];
+    const a = st ? st.attributes : {};
+    const modi = (a.hvac_modes || []).filter(x => x !== "off");
+    if (!modi.includes(p.modo)) p.modo = modi[0] || "heat";
+    const haPresa = !!this._cfg.presa;
+    const haPotenza = !!this._cfg.power;
+
+    const leggiCampi = () => {
+      body.querySelectorAll("[data-on],[data-off]").forEach(i => {
+        const g = i.dataset.on || i.dataset.off;
+        if (i.dataset.on !== undefined) { if (i.value) orariOn[g] = i.value; else delete orariOn[g]; }
+        else { if (i.value) orariOff[g] = i.value; else delete orariOff[g]; }
+      });
+      const q = id => body.querySelector(id);
+      if (q("#pAnt")) p.anticipo = parseInt(q("#pAnt").value, 10) || 0;
+      if (q("#pSog")) p.soglia = parseFloat(q("#pSog").value) || 0;
+      if (q("#pMin")) p.minuti = parseInt(q("#pMin").value, 10) || 0;
+      if (q("#pTemp")) p.temp = q("#pTemp").value === "" ? null : parseFloat(q("#pTemp").value);
+    };
 
     const disegna = () => {
+      const qualcosa = Object.keys(orariOn).length || Object.keys(orariOff).length;
       body.innerHTML = `
         <div class="fk-mh">
-          <div class="fk-mt">Timer di spegnimento</div>
+          <div class="fk-mt">Programmazione</div>
           <button type="button" class="fk-mx" data-chiudi>&times;</button>
         </div>
-        <div class="fk-mnota">Spegne <b>${fhEsc(nome)}</b> all'ora scelta &mdash; il comando di spegnimento, non la presa: la corrente resta attaccata.</div>
+        <div class="fk-mnota">Ogni giorno puo avere i suoi orari. Lascia vuoto per non fare niente quel giorno.</div>
 
-        <div class="fk-mgruppo">Quando</div>
-        <div class="fk-tipi">
-          ${[["nessuno", "Nessuno"], ["unatantum", "Una volta sola"], ["giornaliero", "Tutti i giorni"], ["settimanale", "Certi giorni"]]
-            .map(([k, t]) => `<button type="button" class="fk-tipo${tipo === k ? " sel" : ""}" data-tipo="${k}">${t}</button>`).join("")}
+        <div class="fk-tab">
+          <div class="fk-tr fk-th"><span></span><span>Accendi</span><span>Spegni</span></div>
+          ${GG.map(([k, t]) => `<div class="fk-tr">
+            <span class="fk-gnome">${t}</span>
+            <input type="time" data-on="${k}" value="${fhEsc(orariOn[k] || "")}">
+            <input type="time" data-off="${k}" value="${fhEsc(orariOff[k] || "")}">
+          </div>`).join("")}
+        </div>
+        <div class="fk-mrighe">
+          <button type="button" class="fk-mb piccolo" data-copia>Copia lunedi su tutti</button>
+          <button type="button" class="fk-mb piccolo" data-feriali>Solo lun-ven</button>
+          <button type="button" class="fk-mb piccolo" data-svuota>Svuota</button>
         </div>
 
-        ${tipo !== "nessuno" ? `
-          <div class="fk-mgruppo">A che ora</div>
-          <input type="time" class="fk-mora" id="fkOra" value="${fhEsc(ora)}">
-          ${tipo === "settimanale" ? `
-            <div class="fk-mgruppo">In quali giorni</div>
-            <div class="fk-gg">${GG.map(([k, t]) =>
-              `<button type="button" class="fk-g${giorni.includes(k) ? " sel" : ""}" data-g="${k}">${t}</button>`).join("")}</div>` : ""}
-          ${tipo === "unatantum" ? `<div class="fk-mnota">Dopo aver spento una volta il timer si disattiva da solo.</div>` : ""}
-        ` : `<div class="fk-mnota">${cfg ? "Il timer esistente verra cancellato." : "Nessun timer impostato."}</div>`}
+        <div class="fk-mgruppo">Quando accende</div>
+        <div class="fk-rscroll2">
+          ${modi.map(k => {
+            const mm = FK_MODI[k] || { t: k };
+            return `<button type="button" class="fk-pill${p.modo === k ? " sel" : ""}" data-modo="${fhEsc(k)}">${fhEsc(mm.t)}</button>`;
+          }).join("")}
+        </div>
+        <label class="fk-mriga"><span>Temperatura (vuoto = non la tocca)</span>
+          <input type="number" id="pTemp" min="${a.min_temp ?? 7}" max="${a.max_temp ?? 35}" step="${a.target_temp_step || 1}"
+            value="${p.temp == null ? "" : p.temp}"></label>
 
-        ${(cfg && attivo && tipo !== "nessuno") ? `<div class="fk-mstato acceso">Timer attivo</div>`
-          : (cfg && !attivo) ? `<div class="fk-mstato spento">Timer presente ma disattivato</div>` : ""}
+        ${haPresa ? `
+          <div class="fk-mgruppo">Presa di corrente</div>
+          <label class="fk-mck"><input type="checkbox" id="pSpina"${p.gestisciSpina ? " checked" : ""}>
+            <span>Gestisci anche la presa</span></label>
+          <div class="fk-mnota">Se la lasci spenta, il programma tocca solo il climatizzatore e la presa resta come l'hai messa tu.</div>
+          ${p.gestisciSpina ? `
+            <label class="fk-mriga"><span>Accendi la presa quanti minuti prima</span>
+              <input type="number" id="pAnt" min="1" max="60" value="${p.anticipo}"></label>
+            <label class="fk-mriga"><span>Spegni la presa dopo quanti minuti sotto soglia</span>
+              <input type="number" id="pMin" min="1" max="120" value="${p.minuti}"></label>
+            <label class="fk-mriga"><span>Soglia di potenza (W)</span>
+              <input type="number" id="pSog" min="0" max="5000" step="1" value="${p.soglia}"></label>
+            ${!haPotenza ? `<div class="fk-mavviso">Non hai collegato un sensore di potenza a questa card: non posso sapere quando il climatizzatore ha finito. Spegnero la presa ${p.minuti} minuti dopo lo spegnimento, a tempo.</div>` : ""}
+          ` : ""}
+        ` : `<div class="fk-mnota">Per far gestire anche la presa, collegala prima nelle impostazioni della card.</div>`}
+
+        ${(cfgOn || cfgOff) ? `<div class="fk-mstato ${attivo ? "acceso" : "spento"}">${attivo ? "Programma attivo" : "Programma presente ma sospeso"}</div>` : ""}
 
         <div class="fk-mfoot">
           <span class="fk-mmsg" data-msg></span>
-          ${(cfg && attivo) ? `<button type="button" class="fk-mb" data-sospendi>Sospendi</button>` : ""}
-          ${(cfg && !attivo) ? `<button type="button" class="fk-mb" data-riattiva>Riattiva</button>` : ""}
-          <button type="button" class="fk-mb primario" data-salva>${tipo === "nessuno" ? "Elimina timer" : "Salva timer"}</button>
+          ${(cfgOn || cfgOff) ? `<button type="button" class="fk-mb" data-sospendi>${attivo ? "Sospendi" : "Riattiva"}</button>` : ""}
+          ${(cfgOn || cfgOff) ? `<button type="button" class="fk-mb" data-elimina>Elimina</button>` : ""}
+          <button type="button" class="fk-mb primario" data-salva>Salva</button>
         </div>`;
 
       body.querySelector("[data-chiudi]").addEventListener("click", () => scrim.remove());
-      body.querySelectorAll("[data-tipo]").forEach(b => b.addEventListener("click", () => {
-        const o = body.querySelector("#fkOra"); if (o) ora = o.value;
-        tipo = b.dataset.tipo;
-        if (tipo === "settimanale" && !giorni.length) giorni = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
-        disegna();
+      body.querySelectorAll("[data-modo]").forEach(b => b.addEventListener("click", () => {
+        leggiCampi(); p.modo = b.dataset.modo; disegna();
       }));
-      body.querySelectorAll("[data-g]").forEach(b => b.addEventListener("click", () => {
-        const o = body.querySelector("#fkOra"); if (o) ora = o.value;
-        const k = b.dataset.g;
-        giorni = giorni.includes(k) ? giorni.filter(x => x !== k) : giorni.concat(k);
+      const sp = body.querySelector("#pSpina");
+      if (sp) sp.addEventListener("change", () => { leggiCampi(); p.gestisciSpina = sp.checked; disegna(); });
+
+      body.querySelector("[data-copia]").addEventListener("click", () => {
+        leggiCampi();
+        GG.forEach(([k]) => {
+          if (orariOn.mon) orariOn[k] = orariOn.mon; else delete orariOn[k];
+          if (orariOff.mon) orariOff[k] = orariOff.mon; else delete orariOff[k];
+        });
         disegna();
-      }));
+      });
+      body.querySelector("[data-feriali]").addEventListener("click", () => {
+        leggiCampi();
+        ["sat", "sun"].forEach(k => { delete orariOn[k]; delete orariOff[k]; });
+        ["mon", "tue", "wed", "thu", "fri"].forEach(k => {
+          if (orariOn.mon) orariOn[k] = orariOn.mon;
+          if (orariOff.mon) orariOff[k] = orariOff.mon;
+        });
+        disegna();
+      });
+      body.querySelector("[data-svuota]").addEventListener("click", () => {
+        Object.keys(orariOn).forEach(k => delete orariOn[k]);
+        Object.keys(orariOff).forEach(k => delete orariOff[k]);
+        disegna();
+      });
 
       const msg = t => { const m = body.querySelector("[data-msg]"); if (m) m.textContent = t; };
+
       const sos = body.querySelector("[data-sospendi]");
       if (sos) sos.addEventListener("click", async () => {
-        await this._hass.callService("automation", "turn_off", { entity_id: ent });
-        msg("Sospeso."); setTimeout(() => scrim.remove(), 700);
+        const srv = attivo ? "turn_off" : "turn_on";
+        for (const e of [entOn, entOff]) if (e) await this._hass.callService("automation", srv, { entity_id: e });
+        msg(attivo ? "Sospeso." : "Riattivato."); setTimeout(() => scrim.remove(), 800);
       });
-      const ria = body.querySelector("[data-riattiva]");
-      if (ria) ria.addEventListener("click", async () => {
-        await this._hass.callService("automation", "turn_on", { entity_id: ent });
-        msg("Riattivato."); setTimeout(() => scrim.remove(), 700);
+
+      const el = body.querySelector("[data-elimina]");
+      if (el) el.addEventListener("click", async () => {
+        msg("Elimino...");
+        for (const q of ["on", "off"]) {
+          try { await this._hass.callApi("delete", "config/automation/config/" + this._timerId(q)); } catch (e) { /* non c'era */ }
+        }
+        msg("Eliminato."); setTimeout(() => scrim.remove(), 800);
       });
 
       body.querySelector("[data-salva]").addEventListener("click", async () => {
-        const o = body.querySelector("#fkOra"); if (o) ora = o.value;
+        leggiCampi();
         msg("Salvo...");
         try {
-          if (tipo === "nessuno") {
-            if (cfg) await this._hass.callApi("delete", "config/automation/config/" + this._timerId());
-            msg("Timer eliminato.");
-          } else {
-            if (tipo === "settimanale" && !giorni.length) { msg("Scegli almeno un giorno."); return; }
-            await this._hass.callApi("post", "config/automation/config/" + this._timerId(), this._corpoTimer(nome, ora, tipo, giorni));
-            msg("Salvato.");
-          }
-          setTimeout(() => scrim.remove(), 800);
+          await this._scriviProgramma("on", nome, orariOn, p);
+          await this._scriviProgramma("off", nome, orariOff, p);
+          msg("Salvato.");
+          setTimeout(() => scrim.remove(), 900);
         } catch (e) {
           msg("Non sono riuscito a salvare: " + ((e && e.message) || e));
         }
@@ -3597,35 +3709,98 @@ class FaberClima extends HTMLElement {
     disegna();
   }
 
-  _corpoTimer(nome, ora, tipo, giorni) {
-    const azioni = [{
-      action: "climate.set_hvac_mode",
-      // entity_id e non device_id: un device_id si rompe se il dispositivo
-      // viene tolto e rimesso.
-      target: { entity_id: this._cfg.climate },
-      data: { hvac_mode: "off" },
-    }];
-    if (tipo === "unatantum") {
-      // Si spegne da sola dopo aver agito. Non si usa "enabled: false" nel
-      // file: non e una chiave valida, l'automazione risulterebbe rotta.
-      // "this.entity_id" e il modo giusto per farle riferire a se stessa.
-      azioni.push({
-        action: "automation.turn_off",
-        target: { entity_id: "{{ this.entity_id }}" },
-        data: { stop_actions: false },
-      });
+  async _scriviProgramma(quale, nome, orari, p) {
+    const giorni = Object.keys(orari).filter(g => orari[g]);
+    // Niente orari per questo verso: se c'era un'automazione va tolta, non
+    // lasciata in giro a scattare per conto suo.
+    if (!giorni.length) {
+      try { await this._hass.callApi("delete", "config/automation/config/" + this._timerId(quale)); } catch (e) { /* non c'era */ }
+      return;
     }
-    const corpo = {
-      id: this._timerId(),
-      alias: "Faber Home — spegni " + nome,
-      description: "Creato da Faber Home. Spegne " + nome + " all'ora indicata. Non tocca la presa di corrente.",
-      mode: "single",
-      triggers: [{ trigger: "time", at: (ora.length === 5 ? ora + ":00" : ora) }],
-      conditions: [],
-      actions: azioni,
-    };
-    if (tipo === "settimanale") corpo.conditions = [{ condition: "time", weekday: giorni }];
-    return corpo;
+
+    const spina = p.gestisciSpina && this._cfg.presa;
+    const acceso = quale === "on";
+
+    // La presa si accende PRIMA, quindi l'automazione parte in anticipo e
+    // aspetta: cosi il climatizzatore trova gia corrente quando tocca a lui.
+    const anticipo = acceso && spina ? p.anticipo : 0;
+    const triggers = giorni.map(g => ({
+      trigger: "time",
+      at: this._sommaMinuti(orari[g], -anticipo) + ":00",
+      id: g,
+    }));
+
+    // "Quale trigger e scattato" accoppiato a "che giorno e oggi": e cosi che
+    // ogni giorno puo avere il suo orario senza ripetere le azioni sette volte.
+    const conditions = [{
+      condition: "or",
+      conditions: giorni.map(g => ({
+        condition: "and",
+        conditions: [
+          { condition: "trigger", id: g },
+          { condition: "time", weekday: [g] },
+        ],
+      })),
+    }];
+
+    const actions = [];
+    if (acceso) {
+      if (spina) {
+        actions.push({ action: "switch.turn_on", target: { entity_id: this._cfg.presa } });
+        if (anticipo > 0) actions.push({ delay: { minutes: anticipo } });
+      }
+      actions.push({
+        action: "climate.set_hvac_mode",
+        target: { entity_id: this._cfg.climate },
+        data: { hvac_mode: p.modo },
+      });
+      if (p.temp != null) actions.push({
+        action: "climate.set_temperature",
+        target: { entity_id: this._cfg.climate },
+        data: { temperature: p.temp },
+      });
+    } else {
+      actions.push({
+        action: "climate.set_hvac_mode",
+        target: { entity_id: this._cfg.climate },
+        data: { hvac_mode: "off" },
+      });
+      if (spina) {
+        if (this._cfg.power) {
+          // Si aspetta che la potenza scenda e ci RESTI: un condizionatore che
+          // si spegne fa ancora girare la ventola per un po'. Col timeout la
+          // presa si spegne comunque, invece di restare accesa per sempre.
+          actions.push({
+            wait_for_trigger: [{
+              trigger: "numeric_state",
+              entity_id: this._cfg.power,
+              below: p.soglia,
+              for: { minutes: p.minuti },
+            }],
+            timeout: { minutes: Math.max(30, p.minuti * 3) },
+            continue_on_timeout: true,
+          });
+        } else {
+          // Senza sensore di potenza non si puo sapere quando ha finito: si
+          // aspetta a tempo. E scritto anche nel pannello, per non illudere.
+          actions.push({ delay: { minutes: p.minuti } });
+        }
+        actions.push({ action: "switch.turn_off", target: { entity_id: this._cfg.presa } });
+      }
+    }
+
+    await this._hass.callApi("post", "config/automation/config/" + this._timerId(quale), {
+      id: this._timerId(quale),
+      alias: "Faber Home — " + (acceso ? "accendi " : "spegni ") + nome,
+      description: "Creato da Faber Home. Programma settimanale di " + nome + "."
+        + (spina ? " Gestisce anche la presa di corrente." : " Non tocca la presa di corrente."),
+      // restart: un nuovo comando deve avere ragione su quello in corso,
+      // altrimenti l'attesa della presa blocca tutto per mezz'ora.
+      mode: "restart",
+      triggers,
+      conditions,
+      actions,
+    });
   }
 
   // Le opzioni sono tante (il condizionatore della sala ha 13 programmi): una
@@ -3721,6 +3896,26 @@ const FK_CSS = `
   .fk-mb{padding:9px 13px;border-radius:11px;cursor:pointer;font:inherit;font-size:12.5px;font-weight:800;
     border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:inherit}
   .fk-mb.primario{border-color:rgba(167,139,250,.6);background:rgba(167,139,250,.22);color:#ddd6fe}
+  .fk-mb.piccolo{padding:6px 10px;font-size:11px}
+  .fk-tab{display:flex;flex-direction:column;gap:4px}
+  .fk-tr{display:grid;grid-template-columns:minmax(58px,1fr) 1fr 1fr;gap:6px;align-items:center}
+  .fk-th span{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;opacity:.5;text-align:center}
+  .fk-gnome{font-size:12px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .fk-tr input[type=time]{padding:7px 4px;border-radius:9px;font:inherit;font-size:13px;font-weight:700;
+    text-align:center;font-variant-numeric:tabular-nums;min-width:0;
+    border:1px solid rgba(255,255,255,.13);background:rgba(255,255,255,.06);color:inherit}
+  .fk-mrighe{display:flex;gap:6px;flex-wrap:wrap}
+  .fk-mriga{display:flex;align-items:center;gap:10px;font-size:12px;font-weight:600}
+  .fk-mriga span{flex:1;min-width:0;line-height:1.35}
+  .fk-mriga input{width:78px;flex:0 0 auto;padding:7px 8px;border-radius:9px;font:inherit;font-size:13px;
+    font-weight:700;text-align:center;font-variant-numeric:tabular-nums;
+    border:1px solid rgba(255,255,255,.13);background:rgba(255,255,255,.06);color:inherit}
+  .fk-mck{display:flex;align-items:center;gap:9px;cursor:pointer;font-size:12.5px;font-weight:700}
+  .fk-mck input{width:auto}
+  .fk-rscroll2{display:flex;gap:6px;overflow-x:auto;padding-bottom:3px;scrollbar-width:none}
+  .fk-rscroll2::-webkit-scrollbar{display:none}
+  .fk-mavviso{font-size:11px;font-weight:600;line-height:1.45;padding:8px 10px;border-radius:10px;
+    background:rgba(255,176,32,.13);border:1px solid rgba(255,176,32,.3);color:#ffd28a}
   .fk-staccato{display:flex;align-items:center;gap:8px;padding:9px 11px;border-radius:13px;
     font-size:11.5px;font-weight:700;line-height:1.4;
     background:rgba(255,92,92,.12);border:1px solid rgba(255,92,92,.32);color:#ffb0a3}
@@ -3930,7 +4125,10 @@ const FP_DEFAULTS = {
   mostra_indirizzo: true,
   mostra_batteria: true,
   forma: "cerchio",
+  grandezza: "media",
 };
+
+const FP_GRANDEZZE = { piccola: 64, media: 88, grande: 124 };
 
 const FP_TONI = {
   casa: { c: "#38e08a", t: "A casa" },
@@ -4083,7 +4281,7 @@ class FaberPersona extends HTMLElement {
     }
 
     this._body.innerHTML = `
-      <div class="fp-avatar ${c.forma === "quadrato" ? "quad" : ""}" style="--fp-c:${tono.c}">
+      <div class="fp-avatar ${c.forma === "quadrato" ? "quad" : ""}" style="--fp-c:${tono.c};--fp-d:${FP_GRANDEZZE[c.grandezza] || 88}px">
         ${gif ? `<img src="${fhEsc(gif)}" alt="">` : `<div class="fp-noimg"><ha-icon icon="mdi:account"></ha-icon></div>`}
         <span class="fp-pallino"></span>
       </div>
@@ -4096,7 +4294,9 @@ class FaberPersona extends HTMLElement {
         </div>` : ""}
         ${(c.mostra_batteria && bat != null) ? `<div class="fp-bat${bat <= 20 && !inCarica ? " bassa" : ""}">
           <span class="fp-bguscio"><span class="fp-blivello" style="width:${Math.max(0, Math.min(100, bat))}%"></span></span>
-          ${Math.round(bat)}%${inCarica ? ` <ha-icon icon="mdi:lightning-bolt"></ha-icon>` : ""}
+          ${Math.round(bat)}%
+          ${inCarica ? `<ha-icon icon="mdi:lightning-bolt"></ha-icon><small>in carica</small>`
+            : bat <= 20 ? `<small>batteria quasi finita</small>` : ""}
         </div>` : ""}
       </div>`;
   }
@@ -4111,7 +4311,7 @@ const FP_CSS = `
   .fp-body{padding:16px;display:flex;align-items:center;gap:15px;
     font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
   .fp-vuoto{padding:22px 8px;text-align:center;font-size:12.5px;font-weight:600;opacity:.6;width:100%}
-  .fp-avatar{position:relative;width:88px;height:88px;flex:0 0 auto;border-radius:50%;
+  .fp-avatar{position:relative;width:var(--fp-d,88px);height:var(--fp-d,88px);flex:0 0 auto;border-radius:50%;
     overflow:hidden;border:2.5px solid var(--fp-c,#7a8896);
     box-shadow:0 0 0 4px color-mix(in srgb,var(--fp-c) 18%,transparent),0 8px 20px rgba(0,0,0,.35)}
   .fp-avatar.quad{border-radius:20px}
@@ -4171,6 +4371,21 @@ class FaberPersonaEditor extends HTMLElement {
     const persone = Object.keys(this._hass.states).filter(e => e.startsWith("person."));
     const zone = Object.keys(this._hass.states).filter(e => e.startsWith("zone.") && e !== "zone.home");
     const nomeZona = z => (this._hass.states[z].attributes.friendly_name || z.slice(5));
+    // Le "zone" di Home Assistant sono luoghi sulla mappa (il lavoro, la
+    // scuola), non stanze della casa: per questo fra loro compare "Lavoro Eva".
+    const mappa = {};
+    (c.avatars || "").split("\n").map(r => r.trim()).filter(Boolean).forEach(riga => {
+      const k = riga.indexOf("|");
+      if (k > 0) mappa[riga.slice(0, k).trim().toLowerCase()] = riga.slice(k + 1).trim();
+    });
+    const slots = [
+      { k: "casa", t: "Quando e a casa" },
+      { k: "fuori", t: "Quando e fuori" },
+      ...zone.map(z => ({ k: nomeZona(z).toLowerCase(), t: "Quando e a " + nomeZona(z) })),
+      { k: "*", t: "Sempre (se manca il resto)" },
+    ];
+    const scriviMappa = () => Object.keys(mappa).filter(k => mappa[k])
+      .map(k => k + "|" + mappa[k]).join("\n");
 
     this.innerHTML = `<style>${FPE_CSS}</style>
       <div class="fpe">
@@ -4185,11 +4400,34 @@ class FaberPersonaEditor extends HTMLElement {
           <input class="fpe-in" id="fpN" value="${fhEsc(c.name || "")}"></div>
 
         <div class="fpe-f"><label>Avatar animati</label>
-          <span class="fpe-h">Una riga per stato, nella forma <b>stato|indirizzo della GIF</b>. Metti le GIF in <code>config/www</code> e richiamale come <code>/local/...</code>. Stati validi: <b>casa</b>, <b>fuori</b>, <b>zona</b> (una qualsiasi), il nome di una zona precisa, oppure <b>*</b> per una GIF sempre valida. Se non trova niente usa la foto del profilo.</span>
-          <textarea class="fpe-in fpe-ta" id="fpA" placeholder="casa|/local/avatar/cristian-casa.gif&#10;fuori|/local/avatar/cristian-fuori.gif">${fhEsc(c.avatars || "")}</textarea>
-          <div class="fpe-zone">Zone che hai in casa: ${zone.length ? zone.map(z => `<button type="button" class="fpe-z" data-z="${fhEsc(nomeZona(z))}">${fhEsc(nomeZona(z))}</button>`).join("") : "<i>nessuna oltre Home</i>"}</div>
+          <span class="fpe-h">Scegli una GIF per ogni situazione. Il file entra <b>dentro la card</b>: non devi copiarlo da nessuna parte, e si vede da qualunque telefono. Home Assistant non permette a una card di scrivere nella cartella <code>www</code>, quindi ho tolto il problema invece di aggirarlo. Per file grandi (oltre 600 KB) conviene comunque metterli in <code>config/www</code> e scrivere qui <code>/local/nome.gif</code>.</span>
+          <div class="fpe-slot">
+            ${slots.map(sl => {
+              const v = mappa[sl.k] || "";
+              return `<div class="fpe-s">
+                <div class="fpe-sant">${v ? `<img src="${fhEsc(v)}" alt="">` : `<span>vuoto</span>`}</div>
+                <div class="fpe-sinfo">
+                  <div class="fpe-sn">${fhEsc(sl.t)}</div>
+                  <div class="fpe-sd">${v ? (v.startsWith("data:") ? "GIF dentro la card &middot; " + Math.round(v.length / 1400) + " KB" : fhEsc(v.slice(0, 40))) : "nessuna immagine"}</div>
+                </div>
+                <button type="button" class="fpe-sb" data-scegli="${fhEsc(sl.k)}">Scegli</button>
+                ${v ? `<button type="button" class="fpe-sb via" data-togli="${fhEsc(sl.k)}">&times;</button>` : ""}
+              </div>`;
+            }).join("")}
+          </div>
+          <input type="file" accept="image/gif,image/png,image/jpeg,image/webp" id="fpFile" hidden>
+          <div class="fpe-h" id="fpMsg"></div>
+          <details class="fpe-det"><summary>Scrivere gli indirizzi a mano</summary>
+            <span class="fpe-h">Una riga per stato, <b>stato|indirizzo</b>. Stati: <b>casa</b>, <b>fuori</b>, <b>zona</b>, il nome di una zona, oppure <b>*</b> per una GIF sempre valida.</span>
+            <textarea class="fpe-in fpe-ta" id="fpA" placeholder="casa|/local/cristian-casa.gif">${fhEsc(c.avatars || "")}</textarea>
+          </details>
         </div>
 
+        <div class="fpe-f"><label>Grandezza</label>
+          <div class="fpe-scelta">
+            ${[["piccola", "Piccola"], ["media", "Media"], ["grande", "Grande"]].map(([k, t]) =>
+              `<button type="button" class="fpe-b${(c.grandezza || "media") === k ? " sel" : ""}" data-gr="${k}">${t}</button>`).join("")}
+          </div></div>
         <div class="fpe-f"><label>Forma</label>
           <div class="fpe-scelta">
             <button type="button" class="fpe-b${c.forma !== "quadrato" ? " sel" : ""}" data-forma="cerchio">Tonda</button>
@@ -4206,7 +4444,46 @@ class FaberPersonaEditor extends HTMLElement {
     const q = s => this.querySelector(s);
     q("#fpP").addEventListener("change", e => { this._set("person", e.target.value); });
     q("#fpN").addEventListener("input", e => this._set("name", e.target.value));
-    q("#fpA").addEventListener("input", e => this._set("avatars", e.target.value));
+    const ta = q("#fpA");
+    if (ta) ta.addEventListener("input", e => this._set("avatars", e.target.value));
+    this.querySelectorAll("[data-gr]").forEach(b => b.addEventListener("click", () => {
+      this._set("grandezza", b.dataset.gr); this._render();
+    }));
+    this.querySelectorAll("[data-togli]").forEach(b => b.addEventListener("click", () => {
+      delete mappa[b.dataset.togli];
+      this._set("avatars", scriviMappa()); this._render();
+    }));
+    const file = q("#fpFile");
+    this.querySelectorAll("[data-scegli]").forEach(b => b.addEventListener("click", () => {
+      this._slotAperto = b.dataset.scegli;
+      file.value = "";
+      file.click();
+    }));
+    file.addEventListener("change", () => {
+      const f = file.files && file.files[0];
+      if (!f || !this._slotAperto) return;
+      const m = q("#fpMsg");
+      // Un file troppo grande finirebbe dentro la configurazione della
+      // dashboard, che si carica a ogni apertura: meglio dirlo che rallentare
+      // tutto in silenzio.
+      if (f.size > 2 * 1024 * 1024) {
+        m.textContent = "Questa immagine pesa " + Math.round(f.size / 1024) + " KB: troppo. Mettila in config/www e scrivi l'indirizzo /local/... a mano.";
+        return;
+      }
+      m.textContent = "Leggo " + f.name + "...";
+      const fr = new FileReader();
+      fr.onload = () => {
+        mappa[this._slotAperto] = String(fr.result);
+        this._set("avatars", scriviMappa());
+        this._render();
+        const m2 = this.querySelector("#fpMsg");
+        if (m2) m2.textContent = f.size > 600 * 1024
+          ? "Aggiunta (" + Math.round(f.size / 1024) + " KB). E pesantina: se la dashboard rallenta, alleggeriscila."
+          : "Aggiunta.";
+      };
+      fr.onerror = () => { m.textContent = "Non sono riuscito a leggere il file."; };
+      fr.readAsDataURL(f);
+    });
     q("#fpD").addEventListener("change", e => this._set("mostra_distanza", e.target.checked));
     q("#fpI").addEventListener("change", e => this._set("mostra_indirizzo", e.target.checked));
     q("#fpB").addEventListener("change", e => this._set("mostra_batteria", e.target.checked));
@@ -4234,6 +4511,25 @@ const FPE_CSS = `
   .fpe-in{padding:9px 10px;border-radius:9px;font-size:14px;width:100%;box-sizing:border-box;font-family:inherit;
     border:1px solid var(--divider-color);background:var(--card-background-color);color:var(--primary-text-color)}
   .fpe-ta{min-height:86px;font-family:ui-monospace,monospace;font-size:12.5px;resize:vertical}
+  .fpe-slot{display:flex;flex-direction:column;gap:6px}
+  .fpe-s{display:flex;align-items:center;gap:9px;padding:7px 9px;border-radius:12px;
+    border:1px solid var(--divider-color);background:var(--card-background-color)}
+  .fpe-sant{width:42px;height:42px;border-radius:50%;overflow:hidden;flex:0 0 auto;
+    display:flex;align-items:center;justify-content:center;background:rgba(127,127,127,.18)}
+  .fpe-sant img{width:100%;height:100%;object-fit:cover}
+  .fpe-sant span{font-size:9px;font-weight:700;color:var(--secondary-text-color)}
+  .fpe-sinfo{flex:1;min-width:0}
+  .fpe-sn{font-size:12.5px;font-weight:700;color:var(--primary-text-color);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .fpe-sd{font-size:10.5px;color:var(--secondary-text-color);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .fpe-sb{padding:6px 11px;border-radius:9px;cursor:pointer;font:inherit;font-size:11.5px;font-weight:700;
+    flex:0 0 auto;border:1px solid var(--divider-color);background:var(--card-background-color);
+    color:var(--primary-text-color)}
+  .fpe-sb:hover{border-color:rgba(255,176,32,.6)}
+  .fpe-sb.via{padding:6px 9px;font-size:14px;line-height:1}
+  .fpe-det{border:1px solid var(--divider-color);border-radius:11px;padding:9px 11px;margin-top:2px}
+  .fpe-det summary{font-size:12.5px;font-weight:700;cursor:pointer;color:var(--primary-text-color)}
   .fpe-zone{font-size:11.5px;color:var(--secondary-text-color);display:flex;flex-wrap:wrap;gap:5px;align-items:center}
   .fpe-z{padding:4px 9px;border-radius:14px;cursor:pointer;font:inherit;font-size:11.5px;font-weight:700;
     border:1px solid var(--divider-color);background:var(--card-background-color);color:var(--primary-text-color)}
