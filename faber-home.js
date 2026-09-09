@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.53.0";
+const FH_VERSION = "0.54.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -2880,7 +2880,13 @@ const FH_CSS = `
   .fh-slot.quadra>*:not(.fh-tools):not(.fh-shield):not(.fh-ang){
     display:block;height:100%;min-height:0}
   .fh-slot.quadra ha-card{height:100%;box-sizing:border-box}
-  .fh-slot.quadra .fp-body{height:100%;box-sizing:border-box}
+  /* In una card quadrata il contenuto e piu corto del riquadro: senza questo
+     resta appeso in alto e sotto la batteria si apre mezza card vuota.
+     Centrato in verticale il vuoto si divide fra sopra e sotto e non si nota
+     piu; la foto invece cresce con la card, cosi il quadrato si riempie
+     davvero invece di ospitare un francobollo in mezzo al bianco. */
+  .fh-slot.quadra .fp-body{height:100%;box-sizing:border-box;justify-content:center}
+  .fh-slot.quadra .fp-avatar{width:min(var(--fp-d,108px) * 1.35, 58%)}
   .fh-slot>.fh-cardwrap{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
   .fh-slot>.fh-cardwrap>*{flex:1 1 auto;min-height:100%;box-sizing:border-box}
   .fh-slot.editing.fissa>.fh-cardwrap{flex:1}
