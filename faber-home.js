@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.44.2";
+const FH_VERSION = "0.45.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -49,8 +49,8 @@ const FH_DEFAULTS = {
 // giusto. Il grigio del testo è anche più scuro di prima: sopra il chiaro la
 // data spariva.
 const FH_SKY = {
-  light: { top: "#fdf6e6", mid: "#f6d999", bot: "#dd9a4e", ink: "#4a2f16", muted: "#5c4020",
-    panel: "rgba(255,251,240,.82)", stroke: "rgba(120,80,30,.14)", navInk: "#4a2f16" },
+  light: { top: "#ffffff", mid: "#fdfbf6", bot: "#faf4e6", ink: "#0f172a", muted: "#57626f",
+    panel: "rgba(255,255,255,.85)", stroke: "rgba(15,23,42,.10)", navInk: "#0f172a" },
   dark: { top: "#1b2740", mid: "#0d1420", bot: "#080c14", ink: "#eaf1f8", muted: "#93a1b0",
     panel: "rgba(30,38,48,.78)", stroke: "rgba(255,255,255,.09)", navInk: "#eaf1f8" },
 };
