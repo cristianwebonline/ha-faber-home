@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.64.0";
+const FH_VERSION = "0.64.1";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -4977,13 +4977,15 @@ class FaberClima extends HTMLElement {
   // il tema del pannello, cosi non serve inventare un'altra combinazione di
   // colori solo per un si/no.
   _confirm(testo, siFai) {
-    let ov = this.querySelector(".fk-scrim");
+    // Il proprio scrim, non un ".fk-scrim" qualunque: se e aperto il foglio
+    // dei dettagli o del timer, quello va lasciato dov'e.
+    let ov = this.querySelector(".fk-scrim.fk-conf");
     // Attaccato a "this" (fuori dalla ha-card), non a this._card: la card ha
     // overflow:hidden e backdrop-filter, che creano un containing block per
     // gli elementi position:fixed e intrappolano il foglio dentro i suoi
     // bordi invece di coprire tutto lo schermo. Verificato dal vivo: senza
     // questo il foglio esisteva nel DOM ma non si vedeva da nessuna parte.
-    if (!ov) { ov = document.createElement("div"); ov.className = "fk-scrim"; this.appendChild(ov); }
+    if (!ov) { ov = document.createElement("div"); ov.className = "fk-scrim fk-conf"; this.appendChild(ov); }
     ov.innerHTML = `<div class="fk-confirm">
       <div class="fk-confirm-txt">${fhEsc(testo)}</div>
       <div class="fk-confirm-row">
@@ -5534,10 +5536,13 @@ const FK_CSS = `
     transition:background .25s,color .25s,border-color .25s}
   .fk-timerb ha-icon{--mdc-icon-size:20px}
   .fk-timerb.on{background:rgba(167,139,250,.18);border-color:rgba(167,139,250,.5);color:#c4b5fd}
-  /* ---------------------------------------------- conferma accensione/spegnimento */
-  .fk-scrim{position:fixed;inset:0;background:rgba(4,5,8,.62);backdrop-filter:blur(6px);display:flex;
-    align-items:center;justify-content:center;padding:22px;z-index:9;opacity:0;pointer-events:none;transition:opacity .18s}
-  .fk-scrim.on{opacity:1;pointer-events:auto}
+  /* ---------------------------------------------- conferma accensione/spegnimento
+     La comparsa in dissolvenza vale SOLO per il foglio di conferma, non per
+     tutti gli .fk-scrim: scritta sulla classe base spegneva anche il foglio
+     del timer e quello dei dettagli, che si aprono senza classe "on" e
+     restavano trasparenti pur essendo li. */
+  .fk-scrim.fk-conf{opacity:0;pointer-events:none;transition:opacity .18s}
+  .fk-scrim.fk-conf.on{opacity:1;pointer-events:auto}
   .fk-confirm{width:100%;max-width:340px;background:#1a1b21;border:1px solid rgba(255,255,255,.16);
     border-radius:22px;padding:20px 18px;box-shadow:0 24px 60px rgba(0,0,0,.6);
     transform:translateY(14px) scale(.97);transition:transform .2s;color:#f4f6f8}
