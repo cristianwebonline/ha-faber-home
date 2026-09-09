@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.65.1";
+const FH_VERSION = "0.65.2";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -4982,15 +4982,12 @@ class FaberClima extends HTMLElement {
   // il tema del pannello, cosi non serve inventare un'altra combinazione di
   // colori solo per un si/no.
   _confirm(testo, siFai) {
-    // Il proprio scrim, non un ".fk-scrim" qualunque: se e aperto il foglio
-    // dei dettagli o del timer, quello va lasciato dov'e.
-    let ov = this.querySelector(".fk-scrim.fk-conf");
-    // Attaccato a "this" (fuori dalla ha-card), non a this._card: la card ha
-    // overflow:hidden e backdrop-filter, che creano un containing block per
-    // gli elementi position:fixed e intrappolano il foglio dentro i suoi
-    // bordi invece di coprire tutto lo schermo. Verificato dal vivo: senza
-    // questo il foglio esisteva nel DOM ma non si vedeva da nessuna parte.
-    if (!ov) { ov = document.createElement("div"); ov.className = "fk-scrim fk-conf"; this.appendChild(ov); }
+    // Via il vecchio, se c'e: non si riusa un foglio gia appeso (era il modo
+    // per ritrovarsi con la comparsa a meta).
+    const vecchio = this.querySelector(".fk-scrim.fk-conf");
+    if (vecchio) vecchio.remove();
+    const ov = document.createElement("div");
+    ov.className = "fk-scrim fk-conf";
     ov.innerHTML = `<div class="fk-confirm">
       <div class="fk-confirm-txt">${fhEsc(testo)}</div>
       <div class="fk-confirm-row">
@@ -4998,14 +4995,18 @@ class FaberClima extends HTMLElement {
         <button type="button" class="fk-cbtn warn" data-si>Conferma</button>
       </div>
     </div>`;
-    // La classe si mette subito, forzando il calcolo del layout invece di
-    // aspettare il prossimo fotogramma: requestAnimationFrame non scatta se la
-    // scheda non e in primo piano, e in quel caso il foglio restava li
-    // trasparente. Il reflow forzato fa partire lo stesso la dissolvenza.
-    ov.classList.remove("on");
-    void ov.offsetWidth;
-    ov.classList.add("on");
-    const chiudi = () => ov.classList.remove("on");
+    // Attaccato a "this" (fuori dalla ha-card), non a this._card: la card ha
+    // overflow:hidden e backdrop-filter, che creano un containing block per
+    // gli elementi position:fixed e intrappolano il foglio dentro i suoi
+    // bordi invece di coprire tutto lo schermo. Verificato dal vivo: senza
+    // questo il foglio esisteva nel DOM ma non si vedeva da nessuna parte.
+    this.appendChild(ov);
+    // Nessuna dissolvenza da innescare a mano: il foglio nasce visibile e
+    // l'entrata la fa un'animazione CSS, che parte da sola. Con la comparsa
+    // affidata a una transizione (e a requestAnimationFrame) bastava che la
+    // scheda non fosse in primo piano perche restasse trasparente pur essendo
+    // aperto — visto succedere dal vivo.
+    const chiudi = () => ov.remove();
     ov.querySelector("[data-no]").onclick = chiudi;
     ov.querySelector("[data-si]").onclick = () => { chiudi(); siFai(); };
     ov.onclick = e => { if (e.target === ov) chiudi(); };
@@ -5552,12 +5553,11 @@ const FK_CSS = `
      tutti gli .fk-scrim: scritta sulla classe base spegneva anche il foglio
      del timer e quello dei dettagli, che si aprono senza classe "on" e
      restavano trasparenti pur essendo li. */
-  .fk-scrim.fk-conf{opacity:0;pointer-events:none;transition:opacity .18s}
-  .fk-scrim.fk-conf.on{opacity:1;pointer-events:auto}
   .fk-confirm{width:100%;max-width:340px;background:#1a1b21;border:1px solid rgba(255,255,255,.16);
-    border-radius:22px;padding:20px 18px;box-shadow:0 24px 60px rgba(0,0,0,.6);
-    transform:translateY(14px) scale(.97);transition:transform .2s;color:#f4f6f8}
-  .fk-scrim.on .fk-confirm{transform:none}
+    border-radius:22px;padding:20px 18px;box-shadow:0 24px 60px rgba(0,0,0,.6);color:#f4f6f8;
+    animation:fk-entra .18s ease-out}
+  @keyframes fk-entra{from{opacity:0;transform:translateY(14px) scale(.97)}to{opacity:1;transform:none}}
+  @media (prefers-reduced-motion:reduce){.fk-confirm{animation:none}}
   .fk-confirm-txt{font-size:14px;font-weight:700;margin-bottom:16px;line-height:1.5}
   .fk-confirm-row{display:flex;gap:10px}
   .fk-cbtn{flex:1;padding:11px 0;border-radius:12px;border:1px solid rgba(255,255,255,.16);
