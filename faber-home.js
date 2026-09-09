@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.41.0";
+const FH_VERSION = "0.42.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -30,6 +30,10 @@ const FH_DEFAULTS = {
     // Quanto si muove il cielo: 0 = fermo, 100 = pieno. Il valore moltiplica
     // sia il numero di particelle sia quanto scintillano.
     skyIntensity: 70,
+    // "auto" segue gli orari qui sotto; "giorno" e "notte" li scavalcano.
+    // Serve per guardare il pannello com'e di notte mentre fuori e giorno —
+    // e per chi tiene un tablet in una stanza sempre buia.
+    temaFisso: "auto",
   },
   header: { clock: true, seconds: false, weather: "", temperature: "", chips: [] },
   pages: [
@@ -375,6 +379,7 @@ class FaberHome extends HTMLElement {
         pageBackground: Object.assign({}, FH_DEFAULTS.appearance.pageBackground, ap.pageBackground || {}),
         weatherAnimation: ap.weatherAnimation !== false,
         cardStyle: ap.cardStyle === "vetro" ? "vetro" : "piene",
+        temaFisso: ["giorno", "notte"].includes(ap.temaFisso) ? ap.temaFisso : "auto",
         skyIntensity: Math.max(0, Math.min(100,
           ap.skyIntensity == null ? 70 : parseInt(ap.skyIntensity, 10) || 0)),
         sidebar: ap.sidebar || "mai",
@@ -460,6 +465,11 @@ class FaberHome extends HTMLElement {
   // scuro da nightStart, con la notte che può scavalcare la mezzanotte);
   // altrimenti si segue quello di Home Assistant.
   _isDark() {
+    // La scelta fissa viene prima di tutto: degli orari e del tema di Home
+    // Assistant. E' un interruttore, non un suggerimento.
+    const fisso = (this._cfg.appearance || {}).temaFisso;
+    if (fisso === "notte") return true;
+    if (fisso === "giorno") return false;
     const at = this._cfg.appearance.autoTheme;
     if (!at || at.enabled === false) return !!(this._hass && this._hass.themes && this._hass.themes.darkMode);
     const now = new Date();
@@ -567,6 +577,9 @@ class FaberHome extends HTMLElement {
             <div class="fh-headicons">
             <button type="button" class="fh-ic" data-act="cfg" title="Impostazioni"><ha-icon icon="mdi:cog-outline"></ha-icon></button>
             <button type="button" class="fh-ic" data-act="edit" title="Modifica"><ha-icon icon="mdi:pencil"></ha-icon></button>
+            <button type="button" class="fh-ic" data-act="tema" data-tema="${fhEsc(this._cfg.appearance.temaFisso || "auto")}"
+              title="${this._isDark() ? "Ora e notte \u2014 tocca per il giorno" : "Ora e giorno \u2014 tocca per la notte"}">
+              <ha-icon icon="${this._isDark() ? "mdi:weather-night" : "mdi:white-balance-sunny"}"></ha-icon></button>
             <button type="button" class="fh-ic" data-act="reload" title="Ricarica"><ha-icon icon="mdi:refresh"></ha-icon></button>
             <button type="button" class="fh-ic" data-act="ha" title="Home Assistant"><ha-icon icon="mdi:home-assistant"></ha-icon></button>
             </div>
@@ -602,6 +615,26 @@ class FaberHome extends HTMLElement {
     this.querySelectorAll(".fh-ic").forEach(b => b.addEventListener("click", () => {
       if (b.dataset.act === "cfg") this._openSettings();
       else if (b.dataset.act === "edit") this._toggleEdit();
+      else if (b.dataset.act === "tema") {
+        // Gira fra tre: automatico -> il contrario di adesso -> l'altro ->
+        // di nuovo automatico. Cosi il primo tocco fa sempre cambiare
+        // qualcosa (se restasse su "auto" sembrerebbe rotto) e in tre tocchi
+        // si torna al punto di partenza.
+        const ap = this._cfg.appearance;
+        const ora = ap.temaFisso || "auto";
+        ap.temaFisso = ora === "auto" ? (this._isDark() ? "giorno" : "notte")
+          : ora === "notte" ? "giorno" : "auto";
+        fhVibra(8);
+        this._applyScene(true);
+        // Solo il tasto, non tutta l'intestazione: qui dentro ci sono
+        // l'orologio e i chip, che non hanno motivo di essere ricostruiti.
+        const scuro = this._isDark();
+        b.dataset.tema = ap.temaFisso;
+        b.title = scuro ? "Ora e notte — tocca per il giorno" : "Ora e giorno — tocca per la notte";
+        const ic = b.querySelector("ha-icon");
+        if (ic) ic.setAttribute("icon", scuro ? "mdi:weather-night" : "mdi:white-balance-sunny");
+        this._save(true);
+      }
       else if (b.dataset.act === "reload") location.reload();
       else if (b.dataset.act === "ha") {
         history.pushState(null, "", "/lovelace");
@@ -2456,6 +2489,13 @@ class FaberHome extends HTMLElement {
       const ap = this._cfg.appearance, at = ap.autoTheme, pb = ap.pageBackground, h = this._cfg.header;
       box.innerHTML = `
         <div class="fh-sgroup">Aspetto</div>
+        <label class="fh-slab">Giorno o notte</label>
+        <div class="fh-seg">
+          ${[["auto", "Con l'ora"], ["giorno", "Sempre giorno"], ["notte", "Sempre notte"]].map(([v, n]) =>
+            `<button type="button" class="fh-segbtn${(ap.temaFisso || "auto") === v ? " sel" : ""}" data-tema="${v}">${n}</button>`).join("")}
+        </div>
+        <div class="fh-note">Lo stesso comando sta anche in alto, accanto all'orologio: un tocco e passi da giorno a notte.</div>
+
         <label class="fh-check"><input type="checkbox" id="stAuto"${at.enabled !== false ? " checked" : ""}>
           Cambia tema da solo con l'ora</label>
         <div class="fh-srow">
@@ -2571,6 +2611,11 @@ class FaberHome extends HTMLElement {
           this._skyfx.draw(performance.now() / 1000);
         }
       });
+      box.querySelectorAll("[data-tema]").forEach(b => b.addEventListener("click", () => {
+        ap.temaFisso = b.dataset.tema;
+        draw();
+        apply();
+      }));
       box.querySelectorAll("[data-cardstyle]").forEach(b => b.addEventListener("click", () => {
         ap.cardStyle = b.dataset.cardstyle;
         draw();
