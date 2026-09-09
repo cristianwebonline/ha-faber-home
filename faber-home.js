@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.62.0";
+const FH_VERSION = "0.63.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -1450,8 +1450,17 @@ class FaberHome extends HTMLElement {
     if (prev) prev.remove();
     const scrim = document.createElement("div");
     scrim.className = "fh-scrim";
+    // Altezza bloccata a com'e adesso, non lasciata a inset:0/vh: quando poi
+    // si tocca un campo di testo dentro al foglio la tastiera cambia il
+    // viewport, e un vetro sfocato che deve rifarsi i conti ad ogni apertura
+    // e chiusura per un attimo si vede senza sfocatura, cioe il "flash" in
+    // configurazione. Fissando l'altezza una volta sola la tastiera non
+    // tocca piu questo strato.
+    const hFinestra = window.innerHeight;
+    scrim.style.height = hFinestra + "px";
     const sheet = document.createElement("div");
     sheet.className = "fh-sheet";
+    sheet.style.maxHeight = Math.round(hFinestra * 0.86) + "px";
     sheet.innerHTML = `<div class="fh-sheethead">
         <div class="fh-sheettitle">${fhEsc(title)}</div>
         <button type="button" class="fh-ic" data-close><ha-icon icon="mdi:close"></ha-icon></button>
