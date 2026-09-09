@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.59.0";
+const FH_VERSION = "0.60.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -3171,7 +3171,17 @@ const FH_CSS = `
   .fh-app.vetro .csc-card[data-status="warn"]{background-image:linear-gradient(rgba(255,176,32,.055),rgba(255,176,32,.055))!important}
   .fh-app.vetro .csc-card[data-status="safe"]{background-image:linear-gradient(rgba(56,224,138,.05),rgba(56,224,138,.05))!important}
   .fh-app.vetro .mc-card.on{background-image:linear-gradient(rgba(56,224,138,.035),rgba(56,224,138,.035))!important}
-  .fh-app.vetro .mc-card.on.lavora{background-image:linear-gradient(rgba(56,224,138,.07),rgba(56,224,138,.07))!important}
+  /* Questa riga spegneva la scala del consumo: un valore fisso, sempre lo
+     stesso, qualunque cosa scrivesse la card sulla sua variabile di
+     intensita. La card diceva "sta tirando 70W, tinta al massimo" e qui
+     arrivava sempre e solo un 7% piatto — la luce accesa a piena potenza
+     sembrava uguale a un frigo appena sopra soglia. Ora si dimezza come
+     tutte le altre qui sopra (e' la stessa regola di ".mc-card.on", che
+     dimezza da .07 a .035), ma SUL VALORE CHE LA CARD HA CALCOLATO, non su
+     uno fisso: il vetro resta delicato, la scala del consumo resta viva. */
+  .fh-app.vetro .mc-card.on.lavora{background-image:linear-gradient(
+    rgba(56,224,138,calc(var(--mc-intensita,0.5) * 0.15)),
+    rgba(56,224,138,calc(var(--mc-intensita,0.5) * 0.15)))!important}
   /* La card Meteo scrive il colore del proprio testo dentro di se, diverso
      per ogni condizione (un bruno per il sereno, un altro per la pioggia...):
      e pensato per stare sopra IL SUO sfondo colorato, non sopra il vetro
