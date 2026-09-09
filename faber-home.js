@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.58.0";
+const FH_VERSION = "0.59.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -588,7 +588,6 @@ class FaberHome extends HTMLElement {
               title="${this._isDark() ? "Ora e notte \u2014 tocca per il giorno" : "Ora e giorno \u2014 tocca per la notte"}">
               <ha-icon icon="${this._isDark() ? "mdi:weather-night" : "mdi:white-balance-sunny"}"></ha-icon></button>
             <button type="button" class="fh-ic" data-act="reload" title="Ricarica"><ha-icon icon="mdi:refresh"></ha-icon></button>
-            <button type="button" class="fh-ic" data-act="ha" title="Home Assistant"><ha-icon icon="mdi:home-assistant"></ha-icon></button>
             </div>
           </div>
           <div class="fh-chips" data-chips>${this._chipsHTML()}</div>
@@ -643,10 +642,6 @@ class FaberHome extends HTMLElement {
         this._save(true);
       }
       else if (b.dataset.act === "reload") location.reload();
-      else if (b.dataset.act === "ha") {
-        history.pushState(null, "", "/lovelace");
-        window.dispatchEvent(new CustomEvent("location-changed", { bubbles: true, composed: true }));
-      }
     }));
     this._renderNav();
     this._renderPage();
@@ -935,7 +930,16 @@ class FaberHome extends HTMLElement {
           if (piatta && quante > 1) slot.style.gridColumn = `span ${quante}`;
           const h = this._altezzaCard(cardCfg);
           if (h) { slot.style.setProperty("--fh-h", h + "px"); slot.classList.add("fissa"); }
-          if (cardCfg && cardCfg.fh_forma === "quadra") slot.classList.add("quadra");
+          if (cardCfg && cardCfg.fh_forma === "quadra") {
+            slot.classList.add("quadra");
+            // La misura del quadrato segue la taglia scelta per la card
+            // (oggi solo la persona ce l'ha): "piccola" deve dare un
+            // quadrato piccolo davvero, non un quadrato uguale a tutti con
+            // dentro una foto piu piccola.
+            const cap = FH_QUADRA_CAP[cardCfg.grandezza];
+            if (cap) slot.style.setProperty("--fh-quadra", cap + "px");
+            if (cardCfg.grandezza) slot.dataset.taglia = cardCfg.grandezza;
+          }
           if (this._edit) {
             slot.classList.add("editing");
             slot.appendChild(this._cardToolsEl(ri, ci, di));
@@ -5697,6 +5701,12 @@ const FP_DEFAULTS = {
 // foto resta la protagonista ma lascia respirare le righe sotto.
 const FP_GRANDEZZE = { piccola: 74, media: 108, grande: 150, piena: 9999 };
 
+// Quanto puo essere larga al massimo una card QUADRATA, secondo la stessa
+// taglia scelta per l'avatar. "Piccola" deve dare una card piccola davvero,
+// non un quadrato media-taglia con dentro una foto piu piccola: sono le due
+// facce della stessa scelta, non due manopole indipendenti.
+const FH_QUADRA_CAP = { piccola: 220, media: 280, grande: 340, piena: 9999 };
+
 const FP_TONI = {
   casa: { c: "#38e08a", g: "#0f7a3d", t: "A casa" },
   zona: { c: "#ffb020", g: "#9a5b00", t: "In zona" },
@@ -5983,12 +5993,27 @@ const FP_CSS = `
     background:var(--fp-c);border:2.5px solid rgba(16,18,24,.9);z-index:2}
   .fp-body.fianco .fp-avatar{max-width:40%}
   .fp-testo{flex:1;min-width:0;width:100%;display:flex;flex-direction:column;gap:2px}
-  .fp-nome{font-size:18px;font-weight:900;letter-spacing:-.2px;
+  .fp-nome{font-size:17px;font-weight:900;letter-spacing:-.2px;
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  /* In una card piccola il nome a 17px spingeva sul bordo. Qui si riduce
+     insieme al resto, invece di lasciarlo grande in un quadrato stretto. */
+  .fh-slot.quadra[data-taglia="piccola"] .fp-nome{font-size:14.5px}
+  .fh-slot.quadra[data-taglia="piccola"] .fp-stato{font-size:9.5px}
+  .fh-slot.quadra[data-taglia="piccola"] .fp-da{font-size:10px}
   .fp-stato{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;margin-top:2px}
   /* Il colore e scritto dentro l'elemento, quindi per scavalcarlo di giorno
      serve !important: e l'unico modo, non una scorciatoia. */
   .fh-app.vetro.chiaro .fp-stato{color:var(--fp-giorno)!important}
+  /* La batteria era invisibile di giorno: il contorno del guscio e il suo
+     nasino sono un bianco trasparente al 35%, pensato per staccarsi da un
+     fondo scuro — su un fondo quasi bianco e un bianco su bianco, proprio
+     come il testo di settimana scorsa. Qui diventano scuri, e il rosso
+     della batteria scarica passa da un rosa che sul chiaro sta a 2,9 di
+     contrasto a un rosso pieno che sta a 6,3. */
+  .fh-app.vetro.chiaro .fp-bguscio{border-color:rgba(15,23,42,.4)!important}
+  .fh-app.vetro.chiaro .fp-bguscio::after{background:rgba(15,23,42,.4)!important}
+  .fh-app.vetro.chiaro .fp-bat.bassa{color:#b91c1c!important}
+  .fh-app.vetro.chiaro .fp-bat.bassa .fp-blivello{background:#b91c1c!important}
   .fp-da{font-size:11.5px;font-weight:600;opacity:.55}
   .fp-righe{display:flex;flex-direction:column;gap:3px;margin-top:6px}
   .fp-righe span{display:flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;opacity:.8;
