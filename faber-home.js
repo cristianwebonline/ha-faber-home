@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.57.0";
+const FH_VERSION = "0.58.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -813,6 +813,7 @@ class FaberHome extends HTMLElement {
     app.classList.toggle("vetro", (this._cfg.appearance || {}).cardStyle === "vetro");
     app.classList.toggle("chiaro", !this._isDark());
     this._misuraNav();
+    this._misuraQuadre();
   }
 
   _fasciaOra() { return this._fascia || this._fasciaDa(this.clientWidth || window.innerWidth || 400); }
@@ -962,6 +963,27 @@ class FaberHome extends HTMLElement {
       main.appendChild(rowEl);
     });
     if (this._edit) main.appendChild(this._addRowEl());
+    this._misuraQuadre();
+  }
+
+  // Quanto e larga ogni casella quadrata, adesso: glielo si chiede dopo che
+  // la pagina e stata disposta, perche prima la larghezza non esiste ancora.
+  // Si scrive come altezza MINIMA, non fissa: e la differenza fra una card
+  // quadrata e una card tagliata.
+  // Misurare la larghezza e scrivere l'altezza non innesca nessun giro
+  // vizioso: cambiando l'altezza la larghezza non si muove.
+  _misuraQuadre() {
+    const quadre = this.querySelectorAll(".fh-slot.quadra");
+    if (!quadre.length) return;
+    const applica = () => quadre.forEach(el => {
+      const w = Math.round(el.getBoundingClientRect().width);
+      if (w > 0) el.style.setProperty("--fh-q", w + "px");
+    });
+    applica();
+    // E una seconda volta appena il browser ha finito di sistemare tutto:
+    // al primo giro le immagini non sono ancora arrivate e le larghezze
+    // possono cambiare ancora.
+    requestAnimationFrame(applica);
   }
 
 
@@ -2879,7 +2901,7 @@ const FH_CSS = `
      piu spazio la card si allunga invece di tagliarlo. Su schermo largo lo
      spazio c'e e resta quadrata; su una colonna da 165px del telefono si
      allunga quel tanto che basta a far entrare foto, nome, stato e batteria. */
-  .fh-slot.quadra{aspect-ratio:1;width:100%;height:auto;min-height:0;
+  .fh-slot.quadra{width:100%;min-height:var(--fh-q,0px);
     max-width:min(100%,var(--fh-quadra,340px));margin-inline:auto}
   .fh-slot.quadra>*:not(.fh-tools):not(.fh-shield):not(.fh-ang){
     display:block;height:auto;min-height:100%}
