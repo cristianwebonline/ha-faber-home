@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.42.0";
+const FH_VERSION = "0.43.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -2899,9 +2899,9 @@ const FH_CSS = `
      luce del sole (le nostre), e la sfocatura e proprio cio che rende il
      vetro "vetro" invece che semplice trasparenza. */
   .fh-app.vetro{
-    --ha-card-background:rgba(18,24,34,.46);
-    --card-background-color:rgba(18,24,34,.46);
-    --ha-card-border-color:rgba(255,255,255,.13);
+    --ha-card-background:rgba(255,255,255,.10);
+    --card-background-color:rgba(255,255,255,.10);
+    --ha-card-border-color:rgba(255,255,255,.16);
     --ha-card-box-shadow:0 8px 26px rgba(0,0,0,.34);
   }
   .fh-app.vetro .fh-slot ha-card,
@@ -2927,15 +2927,21 @@ const FH_CSS = `
   .fh-range{width:100%;accent-color:var(--fh-acc,#ffb020);height:26px}
   .fh-rangeval{font-size:13px;font-weight:800;font-variant-numeric:tabular-nums;
     text-align:right;padding-top:4px;color:var(--fh-ink)}
-  .fh-app.vetro .mc{--mc-panel:rgba(18,24,34,.34)!important}
-  .fh-app.vetro .eca{--eca-panel:rgba(18,24,34,.34)!important;--eca-solid:rgba(18,24,34,.86)!important}
-  .fh-app.vetro .csc{--csc-panel:rgba(18,24,34,.34)!important}
-  .fh-app.vetro .cbc{--cbc-panel:rgba(18,24,34,.34)!important}
-  .fh-app.vetro .cec{--cec-panel:rgba(18,24,34,.34)!important}
+  /* DI NOTTE il vetro deve SCHIARIRE. Prima era scuro (18,24,34) sopra un
+     cielo gia scuro: due scuri sovrapposti non si distinguono, e il risultato
+     e che il vetro sembrava non esserci affatto. Un vetro smerigliato sopra
+     il buio si vede perche e piu CHIARO di cio che copre. Bianco a bassa
+     trasparenza: le stelle passano, e il testo chiaro delle card resta
+     leggibile perche il fondo complessivo resta scuro. */
+  .fh-app.vetro .mc{--mc-panel:rgba(255,255,255,.09)!important}
+  .fh-app.vetro .eca{--eca-panel:rgba(255,255,255,.09)!important;--eca-solid:rgba(22,28,38,.92)!important}
+  .fh-app.vetro .csc{--csc-panel:rgba(255,255,255,.09)!important}
+  .fh-app.vetro .cbc{--cbc-panel:rgba(255,255,255,.09)!important}
+  .fh-app.vetro .cec{--cec-panel:rgba(255,255,255,.09)!important}
   .fh-app.vetro .fc,
   .fh-app.vetro .fk,
   .fh-app.vetro .fp,
-  .fh-app.vetro .fw{background:rgba(18,24,34,.34)!important}
+  .fh-app.vetro .fw{background:rgba(255,255,255,.09)!important}
   /* Il vetro ha senso solo se sfoca: senza, e una card sbiadita. */
   .fh-app.vetro .mc-card,
   .fh-app.vetro .eca,
@@ -2949,17 +2955,38 @@ const FH_CSS = `
     -webkit-backdrop-filter:blur(18px) saturate(1.2)!important;
   }
   /* Di giorno, chiare. */
-  .fh-app.vetro.chiaro .mc{--mc-panel:rgba(255,255,255,.50)!important}
-  .fh-app.vetro.chiaro .eca{--eca-panel:rgba(255,255,255,.50)!important}
-  .fh-app.vetro.chiaro .csc{--csc-panel:rgba(255,255,255,.50)!important}
-  .fh-app.vetro.chiaro .cbc{--cbc-panel:rgba(255,255,255,.50)!important}
-  .fh-app.vetro.chiaro .cec{--cec-panel:rgba(255,255,255,.50)!important}
+  /* DI GIORNO il vetro resta SCURO, ed e voluto. Le card di casa hanno il
+     testo chiaro scritto dentro (--csc-ink #eaf1f8 e simili), con decine di
+     colori d'accento pensati per il fondo scuro: verde chiaro, ambra, azzurro.
+     Schiarendo il vetro il testo bianco finiva su bianco — quello che si
+     vedeva stamattina. Rigirare tutti quei colori uno per uno vorrebbe dire
+     rifare sei card e dimenticarne comunque qualcuno; un vetro scuro sopra
+     un cielo chiaro invece si legge benissimo, si vede che e vetro, e non
+     rompe niente. E' la stessa scelta di un paio di occhiali da sole. */
+  .fh-app.vetro.chiaro .mc{--mc-panel:rgba(16,22,32,.58)!important}
+  .fh-app.vetro.chiaro .eca{--eca-panel:rgba(16,22,32,.58)!important}
+  .fh-app.vetro.chiaro .csc{--csc-panel:rgba(16,22,32,.58)!important}
+  .fh-app.vetro.chiaro .cbc{--cbc-panel:rgba(16,22,32,.58)!important}
+  .fh-app.vetro.chiaro .cec{--cec-panel:rgba(16,22,32,.58)!important}
   .fh-app.vetro.chiaro .fc,
   .fh-app.vetro.chiaro .fk,
   .fh-app.vetro.chiaro .fp,
-  .fh-app.vetro.chiaro .fw{background:rgba(255,255,255,.50)!important}
+  .fh-app.vetro.chiaro .fw{background:rgba(16,22,32,.58)!important}
+  /* Il testo secondario (le scritte grigie: "Chiusa", "71%", le didascalie)
+     e tarato per un pannello pieno e scuro. Su un vetro, che lascia passare
+     il cielo chiaro, quel grigio scende a un contrasto di 2,6 — si intuisce,
+     non si legge. Qui si schiarisce: resta piu spento del testo principale,
+     che e il suo mestiere, ma si legge. */
+  .fh-app.vetro .mc{--mc-muted:#c3ceda!important}
+  .fh-app.vetro .csc{--csc-muted:#c3ceda!important}
+  .fh-app.vetro .cbc{--cbc-muted:#c3ceda!important}
+  .fh-app.vetro .cec{--cec-muted:#c3ceda!important}
+  .fh-app.vetro .eca{--eca-muted:#cdc9c2!important;--eca-faint:#b3aea6!important}
   /* Di giorno il cielo e chiaro: il vetro va schiarito, senno il testo scuro
      su un vetro scuro non si legge piu. */
+  /* Le card NATIVE di Home Assistant invece hanno il testo che segue il tema
+     di HA, quindi li il vetro chiaro va bene: sono l'unico caso in cui
+     schiarire non rompe niente. */
   .fh-app.vetro.chiaro{
     --ha-card-background:rgba(255,255,255,.58);
     --card-background-color:rgba(255,255,255,.58);
