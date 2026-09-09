@@ -8,10 +8,10 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.48.0";
+const FH_VERSION = "0.49.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
-  "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
+  "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
 
 const FH_DEFAULTS = {
   type: "custom:faber-home",
@@ -2812,7 +2812,7 @@ const FH_CSS = `
     backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);transition:.2s}
   .fh-chip ha-icon{--mdc-icon-size:16px}
   .fh-chip small{opacity:.75;font-weight:600}
-  .fh-chip.on{color:#ffe9c2;border-color:rgba(255,176,32,.5);
+  .fh-chip.on{color:var(--fh-c-soft,#ffe9c2);border-color:rgba(255,176,32,.5);
     background:linear-gradient(135deg,rgba(255,176,32,.26),rgba(255,176,32,.12))}
   .fh-headicons{display:flex;gap:6px;flex:0 0 auto}
   .fh-ic{width:36px;height:36px;border-radius:50%;border:1px solid var(--fh-stroke,rgba(255,255,255,.09));
@@ -2874,7 +2874,7 @@ const FH_CSS = `
   /* trascinamento */
   .fh-grip{width:30px;height:30px;border-radius:9px;cursor:grab;touch-action:none;flex:0 0 auto;
     display:flex;align-items:center;justify-content:center;
-    border:1px solid rgba(255,176,32,.45);background:rgba(255,176,32,.14);color:#ffb020}
+    border:1px solid rgba(255,176,32,.45);background:rgba(255,176,32,.14);color:var(--fh-c-acc,#ffb020)}
   .fh-grip:active{cursor:grabbing}
   .fh-grip ha-icon{--mdc-icon-size:17px}
   .fh-menu{position:relative;flex:0 0 auto}
@@ -2954,10 +2954,15 @@ const FH_CSS = `
   .fh-app.vetro .csc{--csc-panel:rgba(255,255,255,.09)!important}
   .fh-app.vetro .cbc{--cbc-panel:rgba(255,255,255,.09)!important}
   .fh-app.vetro .cec{--cec-panel:rgba(255,255,255,.09)!important}
+  /* La card del METEO resta fuori dal vetro, ed e voluto.
+     Ha gia una veste per ogni tempo — sereno ambra, nuvoloso celeste con le
+     nuvole, pioggia blu, neve quasi bianca — ognuna col suo testo scuro
+     abbinato. Imporle il vetro voleva dire coprirla di bianco e cancellare
+     proprio quella veste: cambiava il tempo e la card restava sempre uguale.
+     Qui il vetro toglieva invece di aggiungere, quindi non si mette. */
   .fh-app.vetro .fc,
   .fh-app.vetro .fk,
-  .fh-app.vetro .fp,
-  .fh-app.vetro .fw{background:rgba(255,255,255,.09)!important}
+  .fh-app.vetro .fp{background:rgba(255,255,255,.09)!important}
   /* Il vetro ha senso solo se sfoca: senza, e una card sbiadita. */
   .fh-app.vetro .mc-card,
   .fh-app.vetro .eca,
@@ -2988,7 +2993,64 @@ const FH_CSS = `
   .fh-app.vetro.chiaro .fk,
   .fh-app.vetro.chiaro .fp{background:rgba(255,255,255,.62)!important;color:#12161c!important;
     border-color:rgba(15,23,42,.12)!important}
-  .fh-app.vetro.chiaro .fw{background:rgba(255,255,255,.62)!important}
+
+  /* I COLORI D'ACCENTO DI GIORNO — la correzione alla radice.
+     Sopra si schiariva il vetro e si girava l'inchiostro principale, ma ogni
+     card ha anche una manciata di colori "pastello" per i suoi stati: il
+     grigio dei secondari, l'ambra, il verde dell'acceso, il rosso dell'errore.
+     Erano nati per il fondo scuro, e sul vetro chiaro sparivano: misurati sul
+     pannello vero, il grigio del clima stava a 2,6 e l'ambra dei consumi a
+     1,7, quando la soglia per leggere e 4,5. Non erano decine di difetti
+     diversi: erano SEI colori usati decine di volte.
+     Adesso quei colori sono variabili (stesso valore di prima come riserva,
+     cosi le card fuori da qui non cambiano di una virgola) e qui, e solo qui,
+     il giorno ne cambia il valore. Una riga per colore invece di una per
+     scritta: chi aggiunge una scritta domani eredita la correzione senza
+     saperlo. Verificati tutti col calcolo del contrasto sopra il vetro
+     chiaro e sopra le tinte ambra e rossa: il piu basso sta a 4,8. */
+  /* Si scrive sulle TRE zone del guscio, non sul guscio intero. Il foglio
+     delle impostazioni e figlio del guscio ma ha il fondo scuro suo (usa il
+     tema vero di Home Assistant, perche dentro ci vivono gli editor di HA):
+     se la tavolozza del giorno gli arrivasse per eredita, i suoi comandi
+     diventerebbero scuri su scuro. E' lo stesso inciampo del vetro di
+     settimana scorsa, e si evita allo stesso modo: dichiarare in basso, dove
+     serve, invece che in alto dove arriva anche a chi non deve. */
+  .fh-app.vetro.chiaro .fh-main,
+  .fh-app.vetro.chiaro .fh-head,
+  .fh-app.vetro.chiaro .fh-nav{
+    --fh-c-muted:#4b5563; --fh-c-soft:#7a4a00; --fh-c-acc:#9a5b00;
+    --fh-c-warn:#8a5200;  --fh-c-bad:#b3261e;  --fh-c-ok:#0f7a3d;
+    --fh-c-ok2:#0f7a3d;
+  }
+  .fh-app.vetro.chiaro .eca{
+    --eca-c-muted:#4b5563; --eca-c-soft:#7a4a00; --eca-c-acc:#9a5b00;
+    --eca-c-warn:#8a5200;  --eca-c-bad:#b3261e;  --eca-c-ok:#0f7a3d;
+    --eca-c-soft2:#a33b1e; --eca-c-warm:#8a5200;
+    --eca-acc:#a33b1e!important; --eca-acc2:#9a5b00!important;
+  }
+  .fh-app.vetro.chiaro .csc{
+    --csc-c-muted:#4b5563; --csc-c-soft:#7a4a00; --csc-c-acc:#9a5b00;
+    --csc-c-warn:#8a5200;  --csc-c-bad:#b3261e;  --csc-c-ok:#0f7a3d;
+  }
+  .fh-app.vetro.chiaro .mc{
+    --mc-c-muted:#4b5563; --mc-c-soft:#7a4a00; --mc-c-acc:#9a5b00;
+    --mc-c-warn:#8a5200;  --mc-c-bad:#b3261e;  --mc-c-ok:#0f7a3d;
+  }
+
+  /* LE ECCEZIONI: i riquadri che restano scuri anche di giorno.
+     Il posto della telecamera spenta e il disegno della stanza sono scuri per
+     conto loro, qualunque sia l'ora. Li il pastello era ed e la scelta giusta:
+     si riprendono i valori della notte in locale, cosi il giro dei colori qui
+     sopra non li segue dove non deve. */
+  .fh-app.vetro.chiaro .csc-camoff,
+  .fh-app.vetro.chiaro .csc-cam,
+  .fh-app.vetro.chiaro .mc-card[data-icona="piena"]{
+    --csc-c-muted:#93a1b0; --csc-c-soft:#ffe9c2; --csc-c-acc:#ffb020;
+    --csc-c-warn:#ffd28a;  --csc-c-bad:#ffb0a3;  --csc-c-ok:#8ff0b4;
+    --mc-c-muted:#93a1b0;  --mc-c-soft:#ffe9c2;  --mc-c-acc:#ffb020;
+    --mc-c-warn:#ffd28a;   --mc-c-bad:#ffb0a3;   --mc-c-ok:#8ff0b4;
+    --csc-muted:#93a1b0;   --mc-muted:#93a1b0;
+  }
   /* Il testo secondario (le scritte grigie: "Chiusa", "71%", le didascalie)
      e tarato per un pannello pieno e scuro. Su un vetro, che lascia passare
      il cielo chiaro, quel grigio scende a un contrasto di 2,6 — si intuisce,
@@ -3030,14 +3092,9 @@ const FH_CSS = `
      Le pastiglie sotto (umidita, pressione...) invece hanno un fondo chiaro
      tutto loro e restano leggibili cosi come sono: si tocca solo cio che
      sta appoggiato direttamente sul vetro. */
-  .fh-app.vetro:not(.chiaro) .fw-title,
-  .fh-app.vetro:not(.chiaro) .fw-sub,
-  .fh-app.vetro:not(.chiaro) .fw-temp,
-  .fh-app.vetro:not(.chiaro) .fw-cap{color:#f3ecdf!important}
-  .fh-app.vetro.chiaro .fw-title,
-  .fh-app.vetro.chiaro .fw-sub,
-  .fh-app.vetro.chiaro .fw-temp,
-  .fh-app.vetro.chiaro .fw-cap{color:#12161c!important}
+  /* Niente forzature sui testi del meteo: il colore giusto ce l'ha gia la
+     veste del tempo (ogni tinta si porta dietro il suo inchiostro). Erano
+     queste righe a renderlo sempre uguale a se stesso. */
   .fh-app.vetro .mc-card[data-icona="piena"]{--mc-panel:transparent!important;backdrop-filter:none!important}
   .fh-slot.fh-dragging{opacity:.28}
   .fh-dragmode .fh-col{outline:1px dashed rgba(255,176,32,.22);outline-offset:4px;border-radius:14px}
@@ -3050,7 +3107,7 @@ const FH_CSS = `
     border-right:2px solid rgba(255,176,32,.85);border-bottom:2px solid rgba(255,176,32,.85)}
   .fh-misura{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:5;
     padding:5px 10px;border-radius:9px;font-size:11.5px;font-weight:800;white-space:nowrap;
-    background:rgba(10,12,16,.9);color:#ffe9c2;border:1px solid rgba(255,176,32,.5)}
+    background:rgba(10,12,16,.9);color:var(--fh-c-soft,#ffe9c2);border:1px solid rgba(255,176,32,.5)}
   .fh-slot.fh-drop-prima::before{top:-9px}
   .fh-slot.fh-drop-dopo::after{bottom:-9px}
   /* quante card per riga */
@@ -3105,8 +3162,8 @@ const FH_CSS = `
     justify-content:center;border:1px solid var(--fh-stroke,rgba(255,255,255,.12));
     background:transparent;color:var(--fh-muted,#93a1b0)}
   .fh-pv ha-icon{--mdc-icon-size:16px}
-  .fh-pv.sel{border-color:rgba(255,176,32,.6);background:rgba(255,176,32,.18);color:#ffe9c2}
-  .fh-editlabel{flex:1;min-width:120px;display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:800;color:#ffb020}
+  .fh-pv.sel{border-color:rgba(255,176,32,.6);background:rgba(255,176,32,.18);color:var(--fh-c-soft,#ffe9c2)}
+  .fh-editlabel{flex:1;min-width:120px;display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:800;color:var(--fh-c-acc,#ffb020)}
   .fh-editlabel ha-icon{--mdc-icon-size:17px}
   .fh-btn{padding:8px 14px;border-radius:999px;cursor:pointer;font:inherit;font-size:12.5px;font-weight:700;
     border:1px solid var(--fh-stroke,rgba(255,255,255,.12));background:transparent;color:var(--fh-ink,#eaf1f8)}
@@ -3130,10 +3187,10 @@ const FH_CSS = `
     display:flex;align-items:center;justify-content:center;flex:0 0 auto}
   .fh-tool ha-icon{--mdc-icon-size:16px}
   .fh-tool:hover{color:var(--fh-ink,#eaf1f8)}
-  .fh-tool.acceso{border-color:rgba(255,176,32,.5);background:rgba(255,176,32,.16);color:#ffe9c2}
+  .fh-tool.acceso{border-color:rgba(255,176,32,.5);background:rgba(255,176,32,.16);color:var(--fh-c-soft,#ffe9c2)}
   .fh-span{width:28px;height:28px;border-radius:8px;cursor:pointer;font:inherit;font-size:12px;font-weight:800;
     border:1px solid var(--fh-stroke,rgba(255,255,255,.12));background:transparent;color:var(--fh-muted,#93a1b0)}
-  .fh-span.sel{border-color:rgba(255,176,32,.6);background:rgba(255,176,32,.18);color:#ffe9c2}
+  .fh-span.sel{border-color:rgba(255,176,32,.6);background:rgba(255,176,32,.18);color:var(--fh-c-soft,#ffe9c2)}
   /* Lo scudo impedisce che, mentre sistemi il layout, un tocco accenda una
      presa o apra un popup. */
   .fh-shield{position:absolute;left:0;right:0;bottom:0;top:34px;border-radius:16px;cursor:default;
@@ -3170,7 +3227,7 @@ const FH_CSS = `
   .fh-catitem{display:flex;align-items:center;gap:8px;padding:11px;border-radius:14px;cursor:pointer;font:inherit;
     border:1px solid var(--divider-color);background:var(--card-background-color);
     color:var(--primary-text-color);font-size:12.5px;font-weight:700;text-align:left}
-  .fh-catitem ha-icon{--mdc-icon-size:20px;color:#ffb020;flex:0 0 auto}
+  .fh-catitem ha-icon{--mdc-icon-size:20px;color:var(--fh-c-acc,#ffb020);flex:0 0 auto}
   .fh-catitem:hover{border-color:rgba(255,176,32,.5)}
   .fh-json{width:100%;min-height:120px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;
     line-height:1.45;padding:10px;border-radius:12px;box-sizing:border-box;
@@ -3178,7 +3235,7 @@ const FH_CSS = `
   .fh-note{font-size:11.5px;color:var(--secondary-text-color)}
   .fh-pagerow{display:flex;align-items:center;gap:6px;padding:8px;border-radius:12px;
     border:1px solid var(--divider-color);background:var(--card-background-color)}
-  .fh-pagerow ha-icon{--mdc-icon-size:18px;color:#ffb020;flex:0 0 auto}
+  .fh-pagerow ha-icon{--mdc-icon-size:18px;color:var(--fh-c-acc,#ffb020);flex:0 0 auto}
   .fh-input{flex:1;min-width:0;padding:8px 10px;border-radius:9px;font:inherit;font-size:13px;
     border:1px solid var(--divider-color);background:var(--card-background-color);color:var(--primary-text-color)}
   .fh-input.small{flex:0 0 110px}
@@ -5192,10 +5249,10 @@ const FK_CSS = `
   .fk-modo ha-icon{--mdc-icon-size:14px}
   .fk-power{width:44px;height:44px;border-radius:14px;cursor:pointer;flex:0 0 auto;
     display:flex;align-items:center;justify-content:center;
-    border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:#93a1b0;
+    border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:var(--fh-c-muted,#93a1b0);
     transition:background .25s,color .25s,border-color .25s}
   .fk-power ha-icon{--mdc-icon-size:21px}
-  .fk-power.on{background:rgba(56,224,138,.18);border-color:rgba(56,224,138,.5);color:#38e08a}
+  .fk-power.on{background:rgba(56,224,138,.18);border-color:rgba(56,224,138,.5);color:var(--fh-c-ok2,#38e08a)}
   .fk-power[disabled]{opacity:.35;cursor:not-allowed}
   /* Uno stacco in piu fra la presa e l'accensione: sono le due che si
      confondono, e sbagliare significa togliere corrente invece di spegnere. */
@@ -5211,13 +5268,13 @@ const FK_CSS = `
   .fk-comandi{display:flex;gap:11px;flex:0 0 auto;align-items:center}
   .fk-presa{width:44px;height:44px;border-radius:14px;cursor:pointer;flex:0 0 auto;
     display:flex;align-items:center;justify-content:center;
-    border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:#93a1b0;
+    border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:var(--fh-c-muted,#93a1b0);
     transition:background .25s,color .25s,border-color .25s}
   .fk-presa ha-icon{--mdc-icon-size:20px}
-  .fk-presa.on{background:rgba(255,176,32,.16);border-color:rgba(255,176,32,.45);color:#ffb020}
+  .fk-presa.on{background:rgba(255,176,32,.16);border-color:rgba(255,176,32,.45);color:var(--fh-c-acc,#ffb020)}
   .fk-timerb{width:44px;height:44px;border-radius:14px;cursor:pointer;flex:0 0 auto;
     display:flex;align-items:center;justify-content:center;
-    border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:#93a1b0;
+    border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:var(--fh-c-muted,#93a1b0);
     transition:background .25s,color .25s,border-color .25s}
   .fk-timerb ha-icon{--mdc-icon-size:20px}
   .fk-timerb.on{background:rgba(167,139,250,.18);border-color:rgba(167,139,250,.5);color:#c4b5fd}
@@ -5253,28 +5310,28 @@ const FK_CSS = `
   .fk-mx{width:28px;height:28px;border-radius:50%;cursor:pointer;font-size:17px;line-height:1;
     border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.06);color:inherit;flex:0 0 auto}
   .fk-mnota{font-size:11.5px;line-height:1.45;opacity:.7}
-  .fk-modal .fk-tipo,.fk-modal .fk-pill,.fk-modal .fk-g{color:#93a1b0}
+  .fk-modal .fk-tipo,.fk-modal .fk-pill,.fk-modal .fk-g{color:var(--fh-c-muted,#93a1b0)}
   .fk-modal .fk-tipo.sel,.fk-modal .fk-g.sel{color:#ddd6fe}
-  .fk-modal .fk-pill.sel{color:#ffe9c2}
+  .fk-modal .fk-pill.sel{color:var(--fh-c-soft,#ffe9c2)}
   .fk-modal .fk-mb.primario{color:#ddd6fe}
-  .fk-modal .fk-mavviso{color:#ffd28a}
+  .fk-modal .fk-mavviso{color:var(--fh-c-warn,#ffd28a)}
   .fk-modal .fk-mstato.acceso{color:#c4b5fd}
-  .fk-modal .fk-mstato.spento{color:#93a1b0}
+  .fk-modal .fk-mstato.spento{color:var(--fh-c-muted,#93a1b0)}
   .fk-mgruppo{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.09em;opacity:.5;margin-top:4px}
   .fk-tipi{display:grid;grid-template-columns:1fr 1fr;gap:6px}
   .fk-tipo{padding:9px 6px;border-radius:12px;cursor:pointer;font:inherit;font-size:12px;font-weight:700;
-    border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);color:#93a1b0}
+    border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);color:var(--fh-c-muted,#93a1b0)}
   .fk-tipo.sel{border-color:rgba(167,139,250,.6);background:rgba(167,139,250,.18);color:#ddd6fe}
   .fk-mora{padding:10px;border-radius:12px;font:inherit;font-size:19px;font-weight:800;text-align:center;
     border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:inherit;
     font-variant-numeric:tabular-nums}
   .fk-gg{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
   .fk-g{padding:7px 2px;border-radius:9px;cursor:pointer;font:inherit;font-size:10.5px;font-weight:800;
-    border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);color:#93a1b0}
+    border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);color:var(--fh-c-muted,#93a1b0)}
   .fk-g.sel{border-color:rgba(167,139,250,.6);background:rgba(167,139,250,.2);color:#ddd6fe}
   .fk-mstato{font-size:11.5px;font-weight:800;padding:7px 10px;border-radius:10px;text-align:center}
   .fk-mstato.acceso{background:rgba(167,139,250,.16);color:#c4b5fd}
-  .fk-mstato.spento{background:rgba(255,255,255,.07);color:#93a1b0}
+  .fk-mstato.spento{background:rgba(255,255,255,.07);color:var(--fh-c-muted,#93a1b0)}
   .fk-mfoot{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:5px}
   .fk-mmsg{flex:1;min-width:90px;font-size:11px;font-weight:600;opacity:.7}
   .fk-mb{padding:9px 13px;border-radius:11px;cursor:pointer;font:inherit;font-size:12.5px;font-weight:800;
@@ -5312,10 +5369,10 @@ const FK_CSS = `
   .fk-rscroll2{display:flex;gap:6px;overflow-x:auto;padding-bottom:3px;scrollbar-width:none}
   .fk-rscroll2::-webkit-scrollbar{display:none}
   .fk-mavviso{font-size:11px;font-weight:600;line-height:1.45;padding:8px 10px;border-radius:10px;
-    background:rgba(255,176,32,.13);border:1px solid rgba(255,176,32,.3);color:#ffd28a}
+    background:rgba(255,176,32,.13);border:1px solid rgba(255,176,32,.3);color:var(--fh-c-warn,#ffd28a)}
   .fk-staccato{display:flex;align-items:center;gap:8px;padding:9px 11px;border-radius:13px;
     font-size:11.5px;font-weight:700;line-height:1.4;
-    background:rgba(255,92,92,.12);border:1px solid rgba(255,92,92,.32);color:#ffb0a3}
+    background:rgba(255,92,92,.12);border:1px solid rgba(255,92,92,.32);color:var(--fh-c-bad,#ffb0a3)}
   .fk-staccato ha-icon{--mdc-icon-size:17px;flex:0 0 auto}
   /* Senza corrente i comandi restano visibili ma spenti: nasconderli
      farebbe sembrare la card rotta invece che l'apparecchio staccato. */
@@ -5359,7 +5416,7 @@ const FK_CSS = `
   .fk-modi{display:grid;grid-template-columns:repeat(auto-fit,minmax(76px,1fr));gap:7px}
   .fk-mb{display:flex;flex-direction:column;align-items:center;gap:4px;padding:9px 4px;border-radius:14px;
     cursor:pointer;font:inherit;font-size:10.5px;font-weight:800;
-    border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.05);color:#93a1b0;
+    border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.05);color:var(--fh-c-muted,#93a1b0);
     transition:background .2s,color .2s,border-color .2s}
   .fk-mb ha-icon{--mdc-icon-size:19px}
   .fk-mb:hover{background:rgba(255,255,255,.1);color:#eaf1f8}
@@ -5388,10 +5445,10 @@ const FK_CSS = `
   .fk-rscroll::-webkit-scrollbar{display:none}
   .fk-pill{flex:0 0 auto;padding:7px 12px;border-radius:20px;cursor:pointer;font:inherit;
     font-size:11.5px;font-weight:700;white-space:nowrap;
-    border:1px solid rgba(255,255,255,.11);background:rgba(255,255,255,.05);color:#93a1b0;
+    border:1px solid rgba(255,255,255,.11);background:rgba(255,255,255,.05);color:var(--fh-c-muted,#93a1b0);
     transition:background .2s,color .2s,border-color .2s}
   .fk-pill:hover{background:rgba(255,255,255,.1);color:#eaf1f8}
-  .fk-pill.sel{border-color:rgba(255,176,32,.6);background:rgba(255,176,32,.18);color:#ffe9c2}
+  .fk-pill.sel{border-color:rgba(255,176,32,.6);background:rgba(255,176,32,.18);color:var(--fh-c-soft,#ffe9c2)}
 `;
 
 customElements.define("faber-clima", FaberClima);
@@ -5552,7 +5609,10 @@ const FP_DEFAULTS = {
 
 // In colonna la foto non deve piu spartirsi la larghezza col testo, quindi le
 // misure possono essere quelle vere. "Piena" la fa larga quanto la card.
-const FP_GRANDEZZE = { piccola: 90, media: 140, grande: 200, piena: 9999 };
+// Misure ridotte: in una card quadrata l'avatar da 140 si mangiava mezza
+// tessera e il nome finiva schiacciato contro il bordo. Con questi numeri la
+// foto resta la protagonista ma lascia respirare le righe sotto.
+const FP_GRANDEZZE = { piccola: 74, media: 108, grande: 150, piena: 9999 };
 
 const FP_TONI = {
   casa: { c: "#38e08a", t: "A casa" },
@@ -5752,12 +5812,40 @@ class FaberPersona extends HTMLElement {
     }
 
     this._body.className = "fp-body" + (c.disposizione === "fianco" ? " fianco" : "");
-    this._body.innerHTML = `
-      <div class="fp-avatar ${c.forma === "quadrato" ? "quad" : ""}${aCasa ? "" : " via"}" style="--fp-c:${tono.c};--fp-d:${FP_GRANDEZZE[c.grandezza] || 140}px">
-        ${gif ? `<img src="${fhEsc(gif)}" alt="">` : `<div class="fp-noimg"><ha-icon icon="mdi:account"></ha-icon></div>`}
-        <span class="fp-pallino"></span>
-      </div>
-      <div class="fp-testo">
+
+    // L'AVATAR SI COSTRUISCE UNA VOLTA SOLA, e da qui in poi si ritocca.
+    // Prima stava dentro l'innerHTML insieme a tutto il resto, e l'innerHTML
+    // si riscrive a ogni aggiornamento di Home Assistant — che in questa casa
+    // vuol dire di continuo. Ogni riscrittura buttava via l'<img> e ne creava
+    // un'altra: la GIF ripartiva da capo ogni volta, e sembrava che andasse a
+    // scatti e di corsa. Non era la GIF: era che non la si lasciava mai
+    // finire. Adesso l'immagine resta la stessa e le si cambia l'indirizzo
+    // solo quando cambia davvero, cosi l'animazione scorre alla sua velocita.
+    if (!this._avatar) {
+      this._avatar = document.createElement("div");
+      this._body.appendChild(this._avatar);
+      this._testo = document.createElement("div");
+      this._testo.className = "fp-testo";
+      this._body.appendChild(this._testo);
+    }
+    if (this._avatar.parentNode !== this._body) this._body.appendChild(this._avatar);
+    if (this._testo.parentNode !== this._body) this._body.appendChild(this._testo);
+    this._avatar.className = "fp-avatar " + (c.forma === "quadrato" ? "quad" : "") + (aCasa ? "" : " via");
+    this._avatar.style.setProperty("--fp-c", tono.c);
+    this._avatar.style.setProperty("--fp-d", (FP_GRANDEZZE[c.grandezza] || 140) + "px");
+    if (gif) {
+      let img = this._avatar.querySelector("img");
+      if (!img) {
+        this._avatar.innerHTML = `<img alt=""><span class="fp-pallino"></span>`;
+        img = this._avatar.querySelector("img");
+      }
+      // Solo se e cambiata: riassegnare lo stesso src la farebbe ripartire.
+      if (img.getAttribute("src") !== gif) img.setAttribute("src", gif);
+    } else if (!this._avatar.querySelector(".fp-noimg")) {
+      this._avatar.innerHTML = `<div class="fp-noimg"><ha-icon icon="mdi:account"></ha-icon></div><span class="fp-pallino"></span>`;
+    }
+
+    this._testo.innerHTML = `
         <div class="fp-nome">${fhEsc(nome)}</div>
         <div class="fp-stato" style="color:${tono.c}">${fhEsc(dove)}</div>
         <div class="fp-da">${fhEsc(fpDa(st.last_changed))}</div>
@@ -5769,8 +5857,7 @@ class FaberPersona extends HTMLElement {
           ${Math.round(bat)}%
           ${inCarica ? `<ha-icon icon="mdi:lightning-bolt"></ha-icon><small>in carica</small>`
             : bat <= 20 ? `<small>batteria quasi finita</small>` : ""}
-        </div>` : ""}
-      </div>`;
+        </div>` : ""}`;
   }
 }
 
@@ -5823,7 +5910,7 @@ const FP_CSS = `
   .fp-righe ha-icon{--mdc-icon-size:14px;flex:0 0 auto;opacity:.75}
   .fp-bat{display:flex;align-items:center;gap:6px;margin-top:8px;font-size:11.5px;font-weight:800;
     font-variant-numeric:tabular-nums;opacity:.85}
-  .fp-bat ha-icon{--mdc-icon-size:14px;color:#ffb020}
+  .fp-bat ha-icon{--mdc-icon-size:14px;color:var(--fh-c-acc,#ffb020)}
   .fp-bguscio{width:34px;height:11px;border-radius:3px;padding:1.5px;flex:0 0 auto;
     border:1.5px solid rgba(255,255,255,.35);position:relative}
   .fp-bguscio::after{content:"";position:absolute;right:-4px;top:3px;width:2.5px;height:4px;
