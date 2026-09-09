@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.38.0";
+const FH_VERSION = "0.39.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -209,12 +209,15 @@ class FhSky {
       // si porta dietro un alone: sono quelle che danno profondita al cielo,
       // senza di loro resta una spolverata di sale.
       for (let i = 0, n = this._count(4200); i < n; i++) {
-        const brillante = R() < .085;
+        const brillante = R() < .16;
         p.push({
           x: R() * this.w, y: R() * this.h,
-          r: brillante ? 1.5 + R() * 1.3 : .5 + R() * 1.0,
-          ph: R() * 6.28, sp: .5 + R() * 1.3,
-          a: brillante ? .7 + R() * .3 : .22 + R() * .42,
+          r: brillante ? 1.7 + R() * 1.5 : .6 + R() * 1.0,
+          ph: R() * 6.28,
+          // Velocita molto diverse fra loro: se scintillano tutte allo stesso
+          // ritmo l'occhio legge un lampeggio unico invece di un cielo.
+          sp: brillante ? .8 + R() * 1.6 : .35 + R() * 1.1,
+          a: brillante ? .85 + R() * .15 : .32 + R() * .40,
           big: brillante,
         });
       }
@@ -223,9 +226,15 @@ class FhSky {
   }
   start() {
     if (this.running) return;
+    // Se il telefono ha "riduci animazioni" acceso, il cielo resta un quadro
+    // fermo: e una scelta di chi usa il telefono e va rispettata. Ma va anche
+    // DETTA, senno sembra che il pannello sia rotto — il pannello la legge da
+    // qui e lo scrive nelle impostazioni.
     if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      this.ridotto = true;
       this.resize(); this.draw(0); return;
     }
+    this.ridotto = false;
     this.running = true;
     document.addEventListener("visibilitychange", this._onVis);
     const loop = t => {
@@ -311,17 +320,24 @@ class FhSky {
     } else {
       const c = light ? "90,120,165" : "255,255,255";
       for (const d of this.parts) {
-        const tw = .55 + .45 * Math.sin(t * d.sp + d.ph);
-        // L'alone delle brillanti si disegna prima, sotto: e quello che le fa
-        // sembrare luminose invece che solo piu grosse.
+        // Da .55-1 a .18-1: prima una stella debole passava da 0,12 a 0,22 di
+        // trasparenza, cioe un decimo di scarto su un puntino di un pixel —
+        // si muoveva per il computer, non per l'occhio. E' lo stesso errore
+        // fatto con le animazioni delle icone: un movimento c'era, ma sotto
+        // la soglia in cui qualcuno lo nota.
+        const tw = .18 + .82 * (.5 + .5 * Math.sin(t * d.sp + d.ph));
+        // L'alone si disegna prima, sotto la stella, e RESPIRA insieme a lei:
+        // e l'alone che fa "luce", il puntino da solo fa "granello".
         if (d.big) {
-          const grd = g.createRadialGradient(d.x, d.y, 0, d.x, d.y, d.r * 4.5);
-          grd.addColorStop(0, `rgba(${c},${d.a * tw * .5})`);
+          const rr = d.r * (5.5 + 2.5 * tw);
+          const grd = g.createRadialGradient(d.x, d.y, 0, d.x, d.y, rr);
+          grd.addColorStop(0, `rgba(${c},${d.a * tw * .75})`);
+          grd.addColorStop(.45, `rgba(${c},${d.a * tw * .18})`);
           grd.addColorStop(1, `rgba(${c},0)`);
           g.fillStyle = grd;
-          g.beginPath(); g.arc(d.x, d.y, d.r * 4.5, 0, 6.283); g.fill();
+          g.beginPath(); g.arc(d.x, d.y, rr, 0, 6.283); g.fill();
         }
-        g.fillStyle = `rgba(${c},${d.a * tw})`;
+        g.fillStyle = `rgba(${c},${Math.min(1, d.a * tw * 1.15)})`;
         g.beginPath(); g.arc(d.x, d.y, d.r, 0, 6.283); g.fill();
       }
     }
