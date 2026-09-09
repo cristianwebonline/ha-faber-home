@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.63.0";
+const FH_VERSION = "0.63.1";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -4891,7 +4891,12 @@ class FaberClima extends HTMLElement {
   // colori solo per un si/no.
   _confirm(testo, siFai) {
     let ov = this.querySelector(".fk-scrim");
-    if (!ov) { ov = document.createElement("div"); ov.className = "fk-scrim"; this._card.appendChild(ov); }
+    // Attaccato a "this" (fuori dalla ha-card), non a this._card: la card ha
+    // overflow:hidden e backdrop-filter, che creano un containing block per
+    // gli elementi position:fixed e intrappolano il foglio dentro i suoi
+    // bordi invece di coprire tutto lo schermo. Verificato dal vivo: senza
+    // questo il foglio esisteva nel DOM ma non si vedeva da nessuna parte.
+    if (!ov) { ov = document.createElement("div"); ov.className = "fk-scrim"; this.appendChild(ov); }
     ov.innerHTML = `<div class="fk-confirm">
       <div class="fk-confirm-txt">${fhEsc(testo)}</div>
       <div class="fk-confirm-row">
