@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.39.0";
+const FH_VERSION = "0.40.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -27,6 +27,9 @@ const FH_DEFAULTS = {
     // animato dietro (stelle, pioggia, nuvole) si vede attraverso invece di
     // restare nascosto sotto pannelli pieni.
     cardStyle: "piene",
+    // Quanto si muove il cielo: 0 = fermo, 100 = pieno. Il valore moltiplica
+    // sia il numero di particelle sia quanto scintillano.
+    skyIntensity: 70,
   },
   header: { clock: true, seconds: false, weather: "", temperature: "", chips: [] },
   pages: [
@@ -157,10 +160,12 @@ class FhSky {
     this.flash = 0;
     this._onVis = () => (document.hidden ? this.stop() : this.start());
   }
-  setScene(mode, dark) {
-    const changed = mode !== this.mode || dark !== this.dark;
+  setScene(mode, dark, forza) {
+    const f = forza == null ? this.forza : Math.max(0, Math.min(1, forza));
+    const changed = mode !== this.mode || dark !== this.dark || f !== this.forza;
     this.mode = mode || "stars";
     this.dark = !!dark;
+    this.forza = f == null ? .7 : f;
     if (changed) this.seed();
   }
   resize() {
@@ -186,7 +191,14 @@ class FhSky {
   // gira nel browser (non sul Raspberry): duecento puntini non li sente
   // nessuno, ma si vedono eccome. Il tetto serve su schermi molto grandi,
   // dove l'area cresce col quadrato e i conti scapperebbero.
-  _count(per) { return Math.max(24, Math.min(900, Math.round((this.w * this.h) / per))); }
+  // La forza (0..1) dirada o infittisce: a meta forza il cielo ha meta delle
+  // particelle, e piu sotto si scende piu il minimo scende con lui, senno a
+  // forza zero resterebbero comunque due dozzine di puntini fissi.
+  _count(per) {
+    const f = this.forza == null ? .7 : this.forza;
+    const base = Math.round((this.w * this.h) / per);
+    return Math.max(Math.round(24 * f), Math.min(900, Math.round(base * (.25 + f * 1.05))));
+  }
   seed() {
     if (!this.w) return;
     const R = Math.random;
@@ -325,7 +337,11 @@ class FhSky {
         // si muoveva per il computer, non per l'occhio. E' lo stesso errore
         // fatto con le animazioni delle icone: un movimento c'era, ma sotto
         // la soglia in cui qualcuno lo nota.
-        const tw = .18 + .82 * (.5 + .5 * Math.sin(t * d.sp + d.ph));
+        // A forza piena scintilla da .18 a 1; abbassandola il fondo si alza e
+        // l'oscillazione si stringe, fino a restare quasi ferma.
+        const f = this.forza == null ? .7 : this.forza;
+        const min = 1 - .82 * f;
+        const tw = min + (1 - min) * (.5 + .5 * Math.sin(t * d.sp + d.ph));
         // L'alone si disegna prima, sotto la stella, e RESPIRA insieme a lei:
         // e l'alone che fa "luce", il puntino da solo fa "granello".
         if (d.big) {
@@ -359,6 +375,8 @@ class FaberHome extends HTMLElement {
         pageBackground: Object.assign({}, FH_DEFAULTS.appearance.pageBackground, ap.pageBackground || {}),
         weatherAnimation: ap.weatherAnimation !== false,
         cardStyle: ap.cardStyle === "vetro" ? "vetro" : "piene",
+        skyIntensity: Math.max(0, Math.min(100,
+          ap.skyIntensity == null ? 70 : parseInt(ap.skyIntensity, 10) || 0)),
         sidebar: ap.sidebar || "mai",
         autoTheme: Object.assign({}, FH_DEFAULTS.appearance.autoTheme, ap.autoTheme || {}),
       },
@@ -452,6 +470,14 @@ class FaberHome extends HTMLElement {
   }
   _sky() { return FH_SKY[this._isDark() ? "dark" : "light"]; }
 
+  // Da 0..100 a 0..1. Il cielo lo usa per diradare le particelle e per
+  // stringere lo scintillio: un solo cursore governa tutte e due, senno si
+  // finisce con due manopole che fanno "quasi" la stessa cosa.
+  _forzaCielo() {
+    const v = (this._cfg.appearance || {}).skyIntensity;
+    return Math.max(0, Math.min(100, v == null ? 70 : v)) / 100;
+  }
+
   _weatherMode() {
     if (!this._cfg.appearance.weatherAnimation) return null;
     const w = this._cfg.header.weather;
@@ -503,7 +529,7 @@ class FaberHome extends HTMLElement {
       app.style.background = this._pageBackground();
     }
     if (this._skyfx) {
-      this._skyfx.setScene(this._weatherMode(), this._isDark());
+      this._skyfx.setScene(this._weatherMode(), this._isDark(), this._forzaCielo());
       if (rebuild) this._skyfx.draw(performance.now() / 1000);
     }
   }
@@ -554,7 +580,7 @@ class FaberHome extends HTMLElement {
     const canvas = this.querySelector(".fh-bg");
     if (canvas) {
       this._skyfx = new FhSky(canvas);
-      this._skyfx.setScene(this._weatherMode(), this._isDark());
+      this._skyfx.setScene(this._weatherMode(), this._isDark(), this._forzaCielo());
       // Il canvas parte a dimensione zero finché il pannello non è disposto:
       // si misura quando cambia davvero, non una volta sola alla creazione.
       this._ro = new ResizeObserver(() => { this._skyfx.resize(); this._skyfx.draw(0); });
@@ -2444,6 +2470,19 @@ class FaberHome extends HTMLElement {
           Sfondo animato col tempo che fa</label>
         <div class="fh-note">Stelle, pioggia, neve, nuvole: si ferma da solo quando la pagina non è in vista.</div>
 
+        <div class="fh-srow">
+          <div class="fh-sfield" style="flex:1">
+            <label class="fh-slab">Quanto si muove il cielo</label>
+            <input class="fh-range" id="stSky" type="range" min="0" max="100" step="5"
+              value="${parseInt(ap.skyIntensity == null ? 70 : ap.skyIntensity, 10)}">
+          </div>
+          <div class="fh-sfield" style="flex:0 0 62px">
+            <label class="fh-slab">&nbsp;</label>
+            <div class="fh-rangeval" id="stSkyVal">${parseInt(ap.skyIntensity == null ? 70 : ap.skyIntensity, 10)}%</div>
+          </div>
+        </div>
+        <div class="fh-note">Governa insieme quante stelle (o gocce, o fiocchi) ci sono e quanto scintillano. A zero il cielo resta un quadro fermo.</div>
+
         <label class="fh-slab">Le card</label>
         <div class="fh-seg">
           ${[["piene", "Piene"], ["vetro", "Vetro"]].map(([v, n]) =>
@@ -2515,11 +2554,23 @@ class FaberHome extends HTMLElement {
       q("#stNight").addEventListener("change", e => { ap.autoTheme.nightStart = e.target.value || "21:00"; apply(); });
       q("#stAnim").addEventListener("change", e => {
         ap.weatherAnimation = e.target.checked;
-        if (this._skyfx) this._skyfx.setScene(this._weatherMode(), this._isDark());
+        if (this._skyfx) this._skyfx.setScene(this._weatherMode(), this._isDark(), this._forzaCielo());
       });
       box.querySelectorAll("[data-bg]").forEach(b => b.addEventListener("click", () => {
         ap.pageBackground.mode = b.dataset.bg; draw(); apply();
       }));
+      const sky = q("#stSky");
+      if (sky) sky.addEventListener("input", e => {
+        const v = parseInt(e.target.value, 10);
+        ap.skyIntensity = v;
+        const et = q("#stSkyVal"); if (et) et.textContent = v + "%";
+        // Si vede mentre si trascina: ridisegnare tutto il pannello a ogni
+        // scatto del cursore sarebbe uno scatto solo alla fine.
+        if (this._skyfx) {
+          this._skyfx.setScene(this._weatherMode(), this._isDark(), v / 100);
+          this._skyfx.draw(performance.now() / 1000);
+        }
+      });
       box.querySelectorAll("[data-cardstyle]").forEach(b => b.addEventListener("click", () => {
         ap.cardStyle = b.dataset.cardstyle;
         draw();
@@ -2638,7 +2689,7 @@ class FaberHome extends HTMLElement {
   }
 
   _updateLive() {
-    if (this._skyfx) this._skyfx.setScene(this._weatherMode(), this._isDark());
+    if (this._skyfx) this._skyfx.setScene(this._weatherMode(), this._isDark(), this._forzaCielo());
     // Il vetro cambia colore col tema: scuro di notte, chiaro di giorno,
     // senno alle sette del mattino resterebbe un vetro nero su cielo azzurro.
     this._segnaFascia();
@@ -2822,30 +2873,46 @@ const FH_CSS = `
      pannelli opachi. Qui si riscrive la LORO variabile, non il loro sfondo:
      cosi tutto quello che ci e costruito sopra (velature, bordi, sfumature)
      resta coerente invece di essere schiacciato da un colore piatto. */
-  .fh-app.vetro .fh-slot .mc{--mc-panel:rgba(18,24,34,.38)}
-  .fh-app.vetro .fh-slot .eca{--eca-panel:rgba(18,24,34,.38)}
-  .fh-app.vetro .fh-slot .csc{--csc-panel:rgba(18,24,34,.38)}
-  .fh-app.vetro .fh-slot .cbc{--cbc-panel:rgba(18,24,34,.38)}
-  .fh-app.vetro .fh-slot .cec{--cec-panel:rgba(18,24,34,.38)}
-  .fh-app.vetro .fh-slot .fc,
-  .fh-app.vetro .fh-slot .fk,
-  .fh-app.vetro .fh-slot .fp{background:rgba(18,24,34,.38)}
+  /* Senza passare da .fh-slot: quel pezzo in mezzo legava la regola alla
+     forma esatta dell'impalcatura, e se la card sta annidata anche solo un
+     gradino piu in la la regola non la trova. Qui basta stare dentro il
+     pannello. L'important non e pigrizia: sto deliberatamente scavalcando lo
+     stile interno di un componente, e voglio che vinca sempre, anche se un
+     domani quella card dichiara il proprio fondo in modo piu forte. */
+  .fh-range{width:100%;accent-color:var(--fh-acc,#ffb020);height:26px}
+  .fh-rangeval{font-size:13px;font-weight:800;font-variant-numeric:tabular-nums;
+    text-align:right;padding-top:4px;color:var(--fh-ink)}
+  .fh-app.vetro .mc{--mc-panel:rgba(18,24,34,.34)!important}
+  .fh-app.vetro .eca{--eca-panel:rgba(18,24,34,.34)!important;--eca-solid:rgba(18,24,34,.86)!important}
+  .fh-app.vetro .csc{--csc-panel:rgba(18,24,34,.34)!important}
+  .fh-app.vetro .cbc{--cbc-panel:rgba(18,24,34,.34)!important}
+  .fh-app.vetro .cec{--cec-panel:rgba(18,24,34,.34)!important}
+  .fh-app.vetro .fc,
+  .fh-app.vetro .fk,
+  .fh-app.vetro .fp,
+  .fh-app.vetro .fw{background:rgba(18,24,34,.34)!important}
   /* Il vetro ha senso solo se sfoca: senza, e una card sbiadita. */
-  .fh-app.vetro .fh-slot .mc-card,
-  .fh-app.vetro .fh-slot .eca,
-  .fh-app.vetro .fh-slot .csc{
-    backdrop-filter:blur(20px) saturate(1.25);
-    -webkit-backdrop-filter:blur(20px) saturate(1.25);
+  .fh-app.vetro .mc-card,
+  .fh-app.vetro .eca,
+  .fh-app.vetro .csc,
+  .fh-app.vetro .cbc,
+  .fh-app.vetro .cec,
+  .fh-app.vetro .fc,
+  .fh-app.vetro .fk,
+  .fh-app.vetro .fp{
+    backdrop-filter:blur(18px) saturate(1.2)!important;
+    -webkit-backdrop-filter:blur(18px) saturate(1.2)!important;
   }
   /* Di giorno, chiare. */
-  .fh-app.vetro.chiaro .fh-slot .mc{--mc-panel:rgba(255,255,255,.52)}
-  .fh-app.vetro.chiaro .fh-slot .eca{--eca-panel:rgba(255,255,255,.52)}
-  .fh-app.vetro.chiaro .fh-slot .csc{--csc-panel:rgba(255,255,255,.52)}
-  .fh-app.vetro.chiaro .fh-slot .cbc{--cbc-panel:rgba(255,255,255,.52)}
-  .fh-app.vetro.chiaro .fh-slot .cec{--cec-panel:rgba(255,255,255,.52)}
-  .fh-app.vetro.chiaro .fh-slot .fc,
-  .fh-app.vetro.chiaro .fh-slot .fk,
-  .fh-app.vetro.chiaro .fh-slot .fp{background:rgba(255,255,255,.52)}
+  .fh-app.vetro.chiaro .mc{--mc-panel:rgba(255,255,255,.50)!important}
+  .fh-app.vetro.chiaro .eca{--eca-panel:rgba(255,255,255,.50)!important}
+  .fh-app.vetro.chiaro .csc{--csc-panel:rgba(255,255,255,.50)!important}
+  .fh-app.vetro.chiaro .cbc{--cbc-panel:rgba(255,255,255,.50)!important}
+  .fh-app.vetro.chiaro .cec{--cec-panel:rgba(255,255,255,.50)!important}
+  .fh-app.vetro.chiaro .fc,
+  .fh-app.vetro.chiaro .fk,
+  .fh-app.vetro.chiaro .fp,
+  .fh-app.vetro.chiaro .fw{background:rgba(255,255,255,.50)!important}
   /* Di giorno il cielo e chiaro: il vetro va schiarito, senno il testo scuro
      su un vetro scuro non si legge piu. */
   .fh-app.vetro.chiaro{
@@ -2856,7 +2923,7 @@ const FH_CSS = `
   /* Una stanza con l'icona a tutta card fa eccezione: li il disegno E' la
      card, e renderlo trasparente lo trasformerebbe in una macchia sul cielo.
      Resta pieno, ed e giusto cosi: e lui lo sfondo. */
-  .fh-app.vetro .fh-slot .mc-card[data-icona="piena"]{--mc-panel:transparent;backdrop-filter:none}
+  .fh-app.vetro .mc-card[data-icona="piena"]{--mc-panel:transparent!important;backdrop-filter:none!important}
   .fh-slot.fh-dragging{opacity:.28}
   .fh-dragmode .fh-col{outline:1px dashed rgba(255,176,32,.22);outline-offset:4px;border-radius:14px}
   .fh-col.fh-drop-in{outline:2px solid rgba(255,176,32,.75);background:rgba(255,176,32,.07)}
