@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.44.1";
+const FH_VERSION = "0.44.2";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -2898,7 +2898,15 @@ const FH_CSS = `
      backdrop-filter invece si puo mettere solo sulle card che stanno alla
      luce del sole (le nostre), e la sfocatura e proprio cio che rende il
      vetro "vetro" invece che semplice trasparenza. */
-  .fh-app.vetro{
+  /* Solo dentro .fh-main, non su tutto .fh-app: il foglio delle Impostazioni
+     e un FRATELLO di .fh-main (lo stesso codice lo appende dentro .fh-app,
+     non dentro .fh-main), ed e disegnato apposta con le vere variabili di
+     Home Assistant, non con le nostre — altrimenti i suoi controlli
+     diventerebbero illeggibili. Tingendo qui .fh-app intero, quel foglio
+     ereditava il vetro chiaro e finiva quasi bianco su quasi bianco. Fermando
+     la tinta a .fh-main, il foglio la scavalca del tutto e resta con il tema
+     vero sotto, com'era pensato fin dall'inizio. */
+  .fh-app.vetro .fh-main{
     --ha-card-background:rgba(255,255,255,.10);
     --card-background-color:rgba(255,255,255,.10);
     --ha-card-border-color:rgba(255,255,255,.16);
@@ -2987,7 +2995,7 @@ const FH_CSS = `
   /* Le card NATIVE di Home Assistant invece hanno il testo che segue il tema
      di HA, quindi li il vetro chiaro va bene: sono l'unico caso in cui
      schiarire non rompe niente. */
-  .fh-app.vetro.chiaro{
+  .fh-app.vetro.chiaro .fh-main{
     --ha-card-background:rgba(255,255,255,.58);
     --card-background-color:rgba(255,255,255,.58);
     --ha-card-border-color:rgba(15,23,42,.12);
