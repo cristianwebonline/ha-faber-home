@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.43.0";
+const FH_VERSION = "0.44.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -49,8 +49,8 @@ const FH_DEFAULTS = {
 // giusto. Il grigio del testo è anche più scuro di prima: sopra il chiaro la
 // data spariva.
 const FH_SKY = {
-  light: { top: "#7fa8d4", mid: "#9dc0e2", bot: "#bcd7ef", ink: "#0d1420", muted: "#31435c",
-    panel: "rgba(255,255,255,.80)", stroke: "rgba(15,23,42,.14)", navInk: "#0d1420" },
+  light: { top: "#fdf6e6", mid: "#f6d999", bot: "#dd9a4e", ink: "#4a2f16", muted: "#5c4020",
+    panel: "rgba(255,251,240,.82)", stroke: "rgba(120,80,30,.14)", navInk: "#4a2f16" },
   dark: { top: "#1b2740", mid: "#0d1420", bot: "#080c14", ink: "#eaf1f8", muted: "#93a1b0",
     panel: "rgba(30,38,48,.78)", stroke: "rgba(255,255,255,.09)", navInk: "#eaf1f8" },
 };
@@ -2963,15 +2963,15 @@ const FH_CSS = `
      rifare sei card e dimenticarne comunque qualcuno; un vetro scuro sopra
      un cielo chiaro invece si legge benissimo, si vede che e vetro, e non
      rompe niente. E' la stessa scelta di un paio di occhiali da sole. */
-  .fh-app.vetro.chiaro .mc{--mc-panel:rgba(16,22,32,.58)!important}
-  .fh-app.vetro.chiaro .eca{--eca-panel:rgba(16,22,32,.58)!important}
-  .fh-app.vetro.chiaro .csc{--csc-panel:rgba(16,22,32,.58)!important}
-  .fh-app.vetro.chiaro .cbc{--cbc-panel:rgba(16,22,32,.58)!important}
-  .fh-app.vetro.chiaro .cec{--cec-panel:rgba(16,22,32,.58)!important}
+  .fh-app.vetro.chiaro .mc{--mc-panel:rgba(28,20,12,.70)!important}
+  .fh-app.vetro.chiaro .eca{--eca-panel:rgba(28,20,12,.70)!important}
+  .fh-app.vetro.chiaro .csc{--csc-panel:rgba(28,20,12,.70)!important}
+  .fh-app.vetro.chiaro .cbc{--cbc-panel:rgba(28,20,12,.70)!important}
+  .fh-app.vetro.chiaro .cec{--cec-panel:rgba(28,20,12,.70)!important}
   .fh-app.vetro.chiaro .fc,
   .fh-app.vetro.chiaro .fk,
   .fh-app.vetro.chiaro .fp,
-  .fh-app.vetro.chiaro .fw{background:rgba(16,22,32,.58)!important}
+  .fh-app.vetro.chiaro .fw{background:rgba(28,20,12,.70)!important}
   /* Il testo secondario (le scritte grigie: "Chiusa", "71%", le didascalie)
      e tarato per un pannello pieno e scuro. Su un vetro, che lascia passare
      il cielo chiaro, quel grigio scende a un contrasto di 2,6 — si intuisce,
