@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.55.0";
+const FH_VERSION = "0.56.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -2878,7 +2878,7 @@ const FH_CSS = `
   .fh-slot.quadra{aspect-ratio:1;width:100%;
     max-width:min(100%,var(--fh-quadra,340px));margin-inline:auto}
   .fh-slot.quadra>*:not(.fh-tools):not(.fh-shield):not(.fh-ang){
-    display:block;height:100%;min-height:0}
+    display:block;height:auto;min-height:100%}
   .fh-slot.quadra ha-card{height:100%;box-sizing:border-box}
   /* In una card quadrata il contenuto e piu corto del riquadro: senza questo
      resta appeso in alto e sotto la batteria si apre mezza card vuota.
@@ -2946,8 +2946,7 @@ const FH_CSS = `
     --ha-card-border-color:rgba(255,255,255,.16);
     --ha-card-box-shadow:0 8px 26px rgba(0,0,0,.34);
   }
-  .fh-app.vetro .fh-slot ha-card,
-  .fh-app.vetro .fh-slot>.fh-cardwrap>*{
+  .fh-app.vetro .fh-slot ha-card{
     backdrop-filter:blur(20px) saturate(1.25);
     -webkit-backdrop-filter:blur(20px) saturate(1.25);
   }
@@ -3052,6 +3051,7 @@ const FH_CSS = `
     --eca-c-muted:#4b5563; --eca-c-soft:#7a4a00; --eca-c-acc:#9a5b00;
     --eca-c-warn:#8a5200;  --eca-c-bad:#b3261e;  --eca-c-ok:#0f7a3d;
     --eca-c-soft2:#a33b1e; --eca-c-warm:#8a5200;
+    --eca-grad-a:#7a3d00; --eca-grad-b:#b3400e;
     --eca-acc:#a33b1e!important; --eca-acc2:#9a5b00!important;
   }
   .fh-app.vetro.chiaro .csc{
@@ -3072,6 +3072,27 @@ const FH_CSS = `
   .fh-app.vetro.chiaro .fc-big,
   .fh-app.vetro.chiaro .fk-modo,
   .fh-app.vetro.chiaro .fk-cval{color:var(--fh-giorno)!important}
+
+  /* I FOGLI CHE SI APRONO, DI GIORNO.
+     Hanno il fondo scuro scritto dentro di se ma prendono il testo dal tema
+     della pagina: di giorno diventava scuro su scuro. Qui il foglio si
+     schiarisce insieme al testo, e con lui righe e bordi — su un fondo
+     chiaro un bordo bianco al 9% semplicemente non c'e. */
+  .fh-app.vetro.chiaro .mc-modal,
+  .fh-app.vetro.chiaro .csc-modal{
+    background:#fbfaf7!important;
+    border-color:rgba(15,23,42,.14)!important;
+    box-shadow:0 24px 60px rgba(15,23,42,.22)!important;
+  }
+  .fh-app.vetro.chiaro .mc-sheet-handle{background:rgba(15,23,42,.22)!important}
+  .fh-app.vetro.chiaro .csc-srow,
+  .fh-app.vetro.chiaro .mc-modal .mc-row,
+  .fh-app.vetro.chiaro .mc-x,
+  .fh-app.vetro.chiaro .csc-x{
+    background:rgba(15,23,42,.05)!important;
+    border-color:rgba(15,23,42,.14)!important;
+  }
+  .fh-app.vetro.chiaro .csc-erow{border-bottom-color:rgba(15,23,42,.12)!important}
 
   /* LE ECCEZIONI: i riquadri che restano scuri anche di giorno.
      Il posto della telecamera spenta e il disegno della stanza sono scuri per
