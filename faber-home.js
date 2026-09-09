@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.63.1";
+const FH_VERSION = "0.64.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -3125,6 +3125,9 @@ const FH_CSS = `
   .fh-app.vetro.chiaro .fk-legna{stroke:rgba(15,23,42,.26)!important}
   .fh-app.vetro.chiaro .fk-griglia2{stroke:rgba(15,23,42,.28)!important}
   .fh-app.vetro.chiaro .fk-fiamma{fill:rgba(15,23,42,.18)!important}
+  /* Il tasto "Ventola, alette e consumi" e disegnato col bianco trasparente:
+     di giorno sul vetro chiaro sparirebbe come tutto il resto. */
+  .fh-app.vetro.chiaro .fk-piu{background:rgba(15,23,42,.05)!important;border-color:rgba(15,23,42,.16)!important}
 
   /* I FOGLI CHE SI APRONO, DI GIORNO.
      Hanno il fondo scuro scritto dentro di se ma prendono il testo dal tema
@@ -4510,6 +4513,14 @@ function fkNome(mappa, k) {
   return mappa[k] || k.replace(/_/g, " ");
 }
 
+// "Ventola, alette e consumi": l'ultima si unisce con la "e", come si scrive
+// parlando. Il tasto dice cosa c'e dentro invece di un generico "altro".
+function fkElenco(voci) {
+  const v = voci.slice();
+  const testo = v.length > 1 ? v.slice(0, -1).join(", ") + " e " + v[v.length - 1] : v[0] || "";
+  return testo.charAt(0).toUpperCase() + testo.slice(1);
+}
+
 // Il disegno cambia col tipo di apparecchio: uno split appeso al muro non e
 // una stufa a pellet, e una fiammella al posto delle onde d'aria si capisce
 // al volo. Si indovina dal nome, ma resta modificabile a mano.
@@ -4779,6 +4790,16 @@ class FaberClima extends HTMLElement {
 
     this._card.classList.toggle("staccato", senzaCorrente);
 
+    // Ventola, alette, programma e il grafico dei consumi non stanno piu nella
+    // card: allungavano una tessera che deve restare bassa e leggibile a
+    // colpo d'occhio. Vanno nel foglio che si apre da qui, e il tasto dice
+    // cosa ci trovi dentro invece di un generico "altro".
+    const vociDett = [];
+    if (vent.length) vociDett.push("ventola");
+    if (alette.length) vociDett.push("alette");
+    if (prog.length) vociDett.push("programma");
+    if (this._consumiHTML(m.c, m.c)) vociDett.push("consumi");
+
     // Anche quando il ridisegno serve davvero, le file tornano dov'erano.
     const scorri = {};
     this._body.querySelectorAll(".fk-rscroll").forEach(r => { scorri[r.dataset.riga] = r.scrollLeft; });
@@ -4840,11 +4861,11 @@ class FaberClima extends HTMLElement {
         ${watt != null ? `<span><ha-icon icon="mdi:lightning-bolt"></ha-icon>${Math.round(watt)} W</span>` : ""}
       </div>` : ""}
 
-      ${this._consumiHTML(m.c, m.g || m.c)}
-
-      ${vent.length ? this._riga("Ventola", "fan", vent, a.fan_mode, FK_VENTOLA) : ""}
-      ${alette.length ? this._riga("Alette", "swing", alette, a.swing_mode, FK_ALETTE) : ""}
-      ${prog.length ? this._riga("Programma", "preset", prog, a.preset_mode, FK_PROGRAMMI) : ""}
+      ${vociDett.length ? `<button type="button" class="fk-piu" data-piu>
+        <ha-icon icon="mdi:tune-variant"></ha-icon>
+        <span>${fhEsc(fkElenco(vociDett))}</span>
+        <ha-icon class="fk-piuch" icon="mdi:chevron-right"></ha-icon>
+      </button>` : ""}
     `;
 
     this._body.querySelectorAll(".fk-rscroll").forEach(r => {
@@ -4880,6 +4901,72 @@ class FaberClima extends HTMLElement {
       this._srv("set_temperature", { temperature: Math.round(v * 10) / 10 });
     }));
     q("[data-modo]").forEach(b => b.addEventListener("click", () => this._srv("set_hvac_mode", { hvac_mode: b.dataset.modo })));
+    const bpiu = this._body.querySelector("[data-piu]");
+    if (bpiu) bpiu.addEventListener("click", () => this._openDettagli());
+
+    // Il foglio dei dettagli, se e aperto, mostra gli stessi valori: quando la
+    // card si ridisegna si ridisegna anche lui, altrimenti resta indietro e la
+    // velocita selezionata la vedresti solo richiudendo e riaprendo.
+    if (this._dett) this._dettagliDisegna();
+  }
+
+  // -------------------------------------------------- ventola, alette, consumi
+  _openDettagli() {
+    this._chiudiDettagli();
+    const st = this._st();
+    const nome = this._cfg.name || (st && st.attributes.friendly_name) || "Clima";
+    const scrim = document.createElement("div");
+    scrim.className = "fk-scrim";
+    scrim.innerHTML = `<div class="fk-modal"><div class="fk-mbody">
+      <div class="fk-mh">
+        <div class="fk-mt">${fhEsc(nome)}</div>
+        <button type="button" class="fk-mx" data-chiudi>&#10005;</button>
+      </div>
+      <div class="fk-dett"></div>
+    </div></div>`;
+    scrim.addEventListener("click", e => { if (e.target === scrim) this._chiudiDettagli(); });
+    scrim.querySelector("[data-chiudi]").addEventListener("click", () => this._chiudiDettagli());
+    // Fuori dalla ha-card: dentro, il bordo sfocato la trasformerebbe nel
+    // riferimento del position:fixed e il foglio resterebbe schiacciato nei
+    // suoi bordi invece di coprire lo schermo.
+    this.appendChild(scrim);
+    this._dett = scrim;
+    this._dettagliDisegna();
+  }
+
+  _chiudiDettagli() {
+    if (this._dett) { this._dett.remove(); this._dett = null; }
+  }
+
+  _dettagliDisegna() {
+    if (!this._dett) return;
+    const st = this._st();
+    if (!st) { this._chiudiDettagli(); return; }
+    const a = st.attributes;
+    const c = this._cfg;
+    const f = a.supported_features || 0;
+    const m = FK_MODI[st.state] || { c: "#93a1b0", g: "#4b5563" };
+    const vent = c.mostra_ventola && (f & 8) ? (a.fan_modes || []) : [];
+    const alette = c.mostra_alette && (f & 32) ? (a.swing_modes || []) : [];
+    const prog = c.mostra_programmi && (f & 16) ? (a.preset_modes || []) : [];
+    const box = this._dett.querySelector(".fk-dett");
+
+    const scorri = {};
+    box.querySelectorAll(".fk-rscroll").forEach(r => { scorri[r.dataset.riga] = r.scrollLeft; });
+
+    // Il foglio e scuro anche di giorno: al colore "da giorno" si passa lo
+    // stesso colore vivo della notte, altrimenti la cifra dei consumi
+    // diventerebbe scura su fondo scuro.
+    box.innerHTML = `
+      ${vent.length ? this._riga("Ventola", "fan", vent, a.fan_mode, FK_VENTOLA) : ""}
+      ${alette.length ? this._riga("Alette", "swing", alette, a.swing_mode, FK_ALETTE) : ""}
+      ${prog.length ? this._riga("Programma", "preset", prog, a.preset_mode, FK_PROGRAMMI) : ""}
+      ${this._consumiHTML(m.c, m.c)}`;
+
+    box.querySelectorAll(".fk-rscroll").forEach(r => {
+      if (scorri[r.dataset.riga] != null) r.scrollLeft = scorri[r.dataset.riga];
+    });
+    const q = sel => box.querySelectorAll(sel);
     q("[data-fan]").forEach(b => b.addEventListener("click", () => this._srv("set_fan_mode", { fan_mode: b.dataset.fan })));
     q("[data-swing]").forEach(b => b.addEventListener("click", () => this._srv("set_swing_mode", { swing_mode: b.dataset.swing })));
     q("[data-preset]").forEach(b => b.addEventListener("click", () => this._srv("set_preset_mode", { preset_mode: b.dataset.preset })));
@@ -5493,6 +5580,18 @@ const FK_CSS = `
   .fk-mx{width:28px;height:28px;border-radius:50%;cursor:pointer;font-size:17px;line-height:1;
     border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.06);color:inherit;flex:0 0 auto}
   .fk-mnota{font-size:11.5px;line-height:1.45;opacity:.7}
+  /* Il tasto che apre ventola/alette/programma e il grafico dei consumi:
+     una riga sola in fondo alla card, al posto di quattro blocchi che la
+     facevano crescere fino a doppia altezza. */
+  .fk-piu{display:flex;align-items:center;gap:9px;width:100%;padding:11px 13px;border-radius:14px;
+    cursor:pointer;font:inherit;font-size:12.5px;font-weight:700;text-align:left;
+    border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);color:inherit;opacity:.82;
+    transition:background .2s,border-color .2s,opacity .2s}
+  .fk-piu:hover{opacity:1;border-color:rgba(255,255,255,.24);background:rgba(255,255,255,.09)}
+  .fk-piu span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .fk-piu ha-icon{--mdc-icon-size:18px;flex:0 0 auto}
+  .fk-piu .fk-piuch{--mdc-icon-size:20px;opacity:.6}
+  .fk-dett{display:flex;flex-direction:column;gap:9px}
   .fk-modal .fk-tipo,.fk-modal .fk-pill,.fk-modal .fk-g{color:var(--fh-c-muted,#93a1b0)}
   .fk-modal .fk-tipo.sel,.fk-modal .fk-g.sel{color:#ddd6fe}
   .fk-modal .fk-pill.sel{color:var(--fh-c-soft,#ffe9c2)}
