@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.65.2";
+const FH_VERSION = "0.66.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -2943,13 +2943,21 @@ const FH_CSS = `
   .fh-grip:active{cursor:grabbing}
   .fh-grip ha-icon{--mdc-icon-size:17px}
   .fh-menu{position:relative;flex:0 0 auto}
-  .fh-menupop{position:absolute;right:0;top:34px;z-index:20;min-width:186px;padding:5px;
-    border-radius:14px;border:1px solid var(--fh-stroke,rgba(255,255,255,.14));
-    background:var(--ha-card-background,var(--card-background-color,#1a1d24));
-    box-shadow:0 14px 36px rgba(0,0,0,.5)}
+  /* Fondo scritto qui e non preso dal tema: con il vetro attivo
+     --ha-card-background e semitrasparente, e il menu si leggeva sopra la
+     card che stava coprendo — le voci si mescolavano al contenuto sotto. */
+  .fh-menupop{position:absolute;right:0;top:34px;z-index:30;min-width:196px;padding:6px;
+    border-radius:16px;border:1px solid rgba(255,255,255,.16);
+    background:#171b22;color:#eaf1f8;
+    box-shadow:0 18px 44px rgba(0,0,0,.6)}
+  .fh-app.vetro.chiaro .fh-menupop{background:#fbfaf7;color:#12161c;
+    border-color:rgba(15,23,42,.14);box-shadow:0 18px 44px rgba(15,23,42,.22)}
+  .fh-app.vetro.chiaro .fh-mi{color:#12161c}
+  .fh-app.vetro.chiaro .fh-milab{color:#4b5563}
+  .fh-app.vetro.chiaro .fh-misep{background:rgba(15,23,42,.12)}
   .fh-mi{display:flex;align-items:center;gap:9px;width:100%;padding:8px 10px;border-radius:9px;
     border:none;background:none;cursor:pointer;font:inherit;font-size:12.5px;font-weight:700;
-    text-align:left;color:var(--fh-ink,#eaf1f8)}
+    text-align:left;color:inherit}
   .fh-mi ha-icon{--mdc-icon-size:16px;flex:0 0 auto;opacity:.75}
   .fh-mi:hover{background:rgba(255,176,32,.14)}
   .fh-mi.rosso{color:#ff8f8f}
