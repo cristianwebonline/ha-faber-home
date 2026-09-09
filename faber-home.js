@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.54.0";
+const FH_VERSION = "0.55.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -2887,6 +2887,13 @@ const FH_CSS = `
      davvero invece di ospitare un francobollo in mezzo al bianco. */
   .fh-slot.quadra .fp-body{height:100%;box-sizing:border-box;justify-content:center}
   .fh-slot.quadra .fp-avatar{width:min(var(--fp-d,108px) * 1.35, 58%)}
+  /* Il blocco del testo nasce con flex:1, cioe "prenditi tutto lo spazio che
+     avanza": in una card alta quanto serve va benissimo, ma in una quadrata
+     si allungava lui e lo spazio libero finiva DENTRO di lui, sotto la
+     batteria. Cosi il centraggio qui sopra non aveva niente da centrare.
+     Nel quadrato il testo torna alto quanto il suo contenuto, e il vuoto
+     torna al corpo della card che lo divide fra sopra e sotto. */
+  .fh-slot.quadra .fp-testo{flex:0 0 auto}
   .fh-slot>.fh-cardwrap{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
   .fh-slot>.fh-cardwrap>*{flex:1 1 auto;min-height:100%;box-sizing:border-box}
   .fh-slot.editing.fissa>.fh-cardwrap{flex:1}
