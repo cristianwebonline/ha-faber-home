@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.40.0";
+const FH_VERSION = "0.41.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -2923,6 +2923,17 @@ const FH_CSS = `
   /* Una stanza con l'icona a tutta card fa eccezione: li il disegno E' la
      card, e renderlo trasparente lo trasformerebbe in una macchia sul cielo.
      Resta pieno, ed e giusto cosi: e lui lo sfondo. */
+  /* LE VELATURE DI STATO sono tarate su un fondo pieno: appoggiate sul
+     vetro diventano una tinta che invade tutta la card — la porta blindata
+     "sbloccata" diventava un rettangolo ocra grande mezzo schermo. Qui si
+     dimezzano: lo stato resta leggibile dal bordo colorato e dalla scritta,
+     che sono i due posti dove lo si legge davvero, e il cielo torna a
+     vedersi attraverso. */
+  .fh-app.vetro .csc-card[data-status="danger"]{background-image:linear-gradient(rgba(255,84,66,.07),rgba(255,84,66,.07))!important}
+  .fh-app.vetro .csc-card[data-status="warn"]{background-image:linear-gradient(rgba(255,176,32,.055),rgba(255,176,32,.055))!important}
+  .fh-app.vetro .csc-card[data-status="safe"]{background-image:linear-gradient(rgba(56,224,138,.05),rgba(56,224,138,.05))!important}
+  .fh-app.vetro .mc-card.on{background-image:linear-gradient(rgba(56,224,138,.035),rgba(56,224,138,.035))!important}
+  .fh-app.vetro .mc-card.on.lavora{background-image:linear-gradient(rgba(56,224,138,.07),rgba(56,224,138,.07))!important}
   .fh-app.vetro .mc-card[data-icona="piena"]{--mc-panel:transparent!important;backdrop-filter:none!important}
   .fh-slot.fh-dragging{opacity:.28}
   .fh-dragmode .fh-col{outline:1px dashed rgba(255,176,32,.22);outline-offset:4px;border-radius:14px}
