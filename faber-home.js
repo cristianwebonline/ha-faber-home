@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.36.0";
+const FH_VERSION = "0.37.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -2768,6 +2768,39 @@ const FH_CSS = `
     backdrop-filter:blur(20px) saturate(1.25);
     -webkit-backdrop-filter:blur(20px) saturate(1.25);
   }
+  /* LE CARD DI CASA NOSTRA hanno il colore di fondo scritto dentro di se
+     (--mc-panel, --eca-panel, --csc-panel...), quindi la variabile di Home
+     Assistant qui sopra non le tocca nemmeno: restavano piene mentre le
+     altre diventavano di vetro. E siccome sono proprio quelle che riempiono
+     la pagina, il cielo non si vedeva da nessuna parte — ecco perche le
+     stelle "mancavano" anche dopo averle infittite: c'erano, ma sotto a dei
+     pannelli opachi. Qui si riscrive la LORO variabile, non il loro sfondo:
+     cosi tutto quello che ci e costruito sopra (velature, bordi, sfumature)
+     resta coerente invece di essere schiacciato da un colore piatto. */
+  .fh-app.vetro .fh-slot .mc{--mc-panel:rgba(18,24,34,.38)}
+  .fh-app.vetro .fh-slot .eca{--eca-panel:rgba(18,24,34,.38)}
+  .fh-app.vetro .fh-slot .csc{--csc-panel:rgba(18,24,34,.38)}
+  .fh-app.vetro .fh-slot .cbc{--cbc-panel:rgba(18,24,34,.38)}
+  .fh-app.vetro .fh-slot .cec{--cec-panel:rgba(18,24,34,.38)}
+  .fh-app.vetro .fh-slot .fc,
+  .fh-app.vetro .fh-slot .fk,
+  .fh-app.vetro .fh-slot .fp{background:rgba(18,24,34,.38)}
+  /* Il vetro ha senso solo se sfoca: senza, e una card sbiadita. */
+  .fh-app.vetro .fh-slot .mc-card,
+  .fh-app.vetro .fh-slot .eca,
+  .fh-app.vetro .fh-slot .csc{
+    backdrop-filter:blur(20px) saturate(1.25);
+    -webkit-backdrop-filter:blur(20px) saturate(1.25);
+  }
+  /* Di giorno, chiare. */
+  .fh-app.vetro.chiaro .fh-slot .mc{--mc-panel:rgba(255,255,255,.52)}
+  .fh-app.vetro.chiaro .fh-slot .eca{--eca-panel:rgba(255,255,255,.52)}
+  .fh-app.vetro.chiaro .fh-slot .csc{--csc-panel:rgba(255,255,255,.52)}
+  .fh-app.vetro.chiaro .fh-slot .cbc{--cbc-panel:rgba(255,255,255,.52)}
+  .fh-app.vetro.chiaro .fh-slot .cec{--cec-panel:rgba(255,255,255,.52)}
+  .fh-app.vetro.chiaro .fh-slot .fc,
+  .fh-app.vetro.chiaro .fh-slot .fk,
+  .fh-app.vetro.chiaro .fh-slot .fp{background:rgba(255,255,255,.52)}
   /* Di giorno il cielo e chiaro: il vetro va schiarito, senno il testo scuro
      su un vetro scuro non si legge piu. */
   .fh-app.vetro.chiaro{
@@ -2775,6 +2808,10 @@ const FH_CSS = `
     --card-background-color:rgba(255,255,255,.58);
     --ha-card-border-color:rgba(15,23,42,.12);
   }
+  /* Una stanza con l'icona a tutta card fa eccezione: li il disegno E' la
+     card, e renderlo trasparente lo trasformerebbe in una macchia sul cielo.
+     Resta pieno, ed e giusto cosi: e lui lo sfondo. */
+  .fh-app.vetro .fh-slot .mc-card[data-icona="piena"]{--mc-panel:transparent;backdrop-filter:none}
   .fh-slot.fh-dragging{opacity:.28}
   .fh-dragmode .fh-col{outline:1px dashed rgba(255,176,32,.22);outline-offset:4px;border-radius:14px}
   .fh-col.fh-drop-in{outline:2px solid rgba(255,176,32,.75);background:rgba(255,176,32,.07)}
