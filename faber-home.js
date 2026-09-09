@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.45.0";
+const FH_VERSION = "0.46.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -2971,15 +2971,16 @@ const FH_CSS = `
      rifare sei card e dimenticarne comunque qualcuno; un vetro scuro sopra
      un cielo chiaro invece si legge benissimo, si vede che e vetro, e non
      rompe niente. E' la stessa scelta di un paio di occhiali da sole. */
-  .fh-app.vetro.chiaro .mc{--mc-panel:rgba(28,20,12,.70)!important}
-  .fh-app.vetro.chiaro .eca{--eca-panel:rgba(28,20,12,.70)!important}
-  .fh-app.vetro.chiaro .csc{--csc-panel:rgba(28,20,12,.70)!important}
-  .fh-app.vetro.chiaro .cbc{--cbc-panel:rgba(28,20,12,.70)!important}
-  .fh-app.vetro.chiaro .cec{--cec-panel:rgba(28,20,12,.70)!important}
+  .fh-app.vetro.chiaro .mc{--mc-panel:rgba(255,255,255,.62)!important;--mc-ink:#12161c!important;--mc-muted:#4b5563!important}
+  .fh-app.vetro.chiaro .eca{--eca-panel:rgba(255,255,255,.62)!important;--eca-ink:#12161c!important;--eca-muted:#4b5563!important;--eca-faint:#64748b!important}
+  .fh-app.vetro.chiaro .csc{--csc-panel:rgba(255,255,255,.62)!important;--csc-ink:#12161c!important;--csc-muted:#4b5563!important}
+  .fh-app.vetro.chiaro .cbc{--cbc-panel:rgba(255,255,255,.62)!important;--cbc-ink:#12161c!important;--cbc-muted:#4b5563!important}
+  .fh-app.vetro.chiaro .cec{--cec-panel:rgba(255,255,255,.62)!important;--cec-ink:#12161c!important;--cec-muted:#4b5563!important}
   .fh-app.vetro.chiaro .fc,
   .fh-app.vetro.chiaro .fk,
-  .fh-app.vetro.chiaro .fp,
-  .fh-app.vetro.chiaro .fw{background:rgba(28,20,12,.70)!important}
+  .fh-app.vetro.chiaro .fp{background:rgba(255,255,255,.62)!important;color:#12161c!important;
+    border-color:rgba(15,23,42,.12)!important}
+  .fh-app.vetro.chiaro .fw{background:rgba(255,255,255,.62)!important}
   /* Il testo secondario (le scritte grigie: "Chiusa", "71%", le didascalie)
      e tarato per un pannello pieno e scuro. Su un vetro, che lascia passare
      il cielo chiaro, quel grigio scende a un contrasto di 2,6 — si intuisce,
@@ -3021,10 +3022,14 @@ const FH_CSS = `
      Le pastiglie sotto (umidita, pressione...) invece hanno un fondo chiaro
      tutto loro e restano leggibili cosi come sono: si tocca solo cio che
      sta appoggiato direttamente sul vetro. */
-  .fh-app.vetro .fw-title,
-  .fh-app.vetro .fw-sub,
-  .fh-app.vetro .fw-temp,
-  .fh-app.vetro .fw-cap{color:#f3ecdf!important}
+  .fh-app.vetro:not(.chiaro) .fw-title,
+  .fh-app.vetro:not(.chiaro) .fw-sub,
+  .fh-app.vetro:not(.chiaro) .fw-temp,
+  .fh-app.vetro:not(.chiaro) .fw-cap{color:#f3ecdf!important}
+  .fh-app.vetro.chiaro .fw-title,
+  .fh-app.vetro.chiaro .fw-sub,
+  .fh-app.vetro.chiaro .fw-temp,
+  .fh-app.vetro.chiaro .fw-cap{color:#12161c!important}
   .fh-app.vetro .mc-card[data-icona="piena"]{--mc-panel:transparent!important;backdrop-filter:none!important}
   .fh-slot.fh-dragging{opacity:.28}
   .fh-dragmode .fh-col{outline:1px dashed rgba(255,176,32,.22);outline-offset:4px;border-radius:14px}
