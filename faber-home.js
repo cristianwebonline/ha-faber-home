@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.47.0";
+const FH_VERSION = "0.48.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -542,6 +542,13 @@ class FaberHome extends HTMLElement {
       this._skyfx.setScene(this._weatherMode(), this._isDark(), this._forzaCielo());
       if (rebuild) this._skyfx.draw(performance.now() / 1000);
     }
+    // La classe "chiaro" decide i colori di TUTTE le card (vetro, inchiostro,
+    // titoli del meteo...): la mette _segnaFascia(), non questo metodo. Senza
+    // questa chiamata, il cielo cambiava tema (bottone giorno/notte, cambio
+    // automatico alle 07/21) ma le card restavano vestite col tema vecchio:
+    // testo chiaro pensato per il vetro scuro sopra un vetro ormai chiaro,
+    // illeggibile. I due dovevano cambiare insieme, non con due percorsi.
+    this._segnaFascia();
   }
 
   _startClock() {
