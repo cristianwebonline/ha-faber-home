@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.65.0";
+const FH_VERSION = "0.65.1";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -4998,7 +4998,13 @@ class FaberClima extends HTMLElement {
         <button type="button" class="fk-cbtn warn" data-si>Conferma</button>
       </div>
     </div>`;
-    requestAnimationFrame(() => ov.classList.add("on"));
+    // La classe si mette subito, forzando il calcolo del layout invece di
+    // aspettare il prossimo fotogramma: requestAnimationFrame non scatta se la
+    // scheda non e in primo piano, e in quel caso il foglio restava li
+    // trasparente. Il reflow forzato fa partire lo stesso la dissolvenza.
+    ov.classList.remove("on");
+    void ov.offsetWidth;
+    ov.classList.add("on");
     const chiudi = () => ov.classList.remove("on");
     ov.querySelector("[data-no]").onclick = chiudi;
     ov.querySelector("[data-si]").onclick = () => { chiudi(); siFai(); };
