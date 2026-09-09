@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.46.0";
+const FH_VERSION = "0.47.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -711,7 +711,7 @@ class FaberHome extends HTMLElement {
       this._dockSidebar("always_hidden");
       this._sidebarNascosta = true;
     } else {
-      this._dockSidebar(this._sidebarPrima || "auto");
+      this._dockSidebar(this._sidebarPrima === "always_hidden" ? "auto" : (this._sidebarPrima || "auto"));
       this._sidebarNascosta = false;
     }
   }
@@ -728,7 +728,7 @@ class FaberHome extends HTMLElement {
     }
     // Uscendo dal pannello la barra torna come l'utente l'aveva.
     if (this._sidebarNascosta) {
-      this._dockSidebar(this._sidebarPrima || "auto");
+      this._dockSidebar(this._sidebarPrima === "always_hidden" ? "auto" : (this._sidebarPrima || "auto"));
       this._sidebarNascosta = false;
     }
     if (this._ro) { this._ro.disconnect(); this._ro = null; this._roTarget = null; }
@@ -2877,10 +2877,11 @@ const FH_CSS = `
     box-shadow:0 14px 36px rgba(0,0,0,.5)}
   .fh-mi{display:flex;align-items:center;gap:9px;width:100%;padding:8px 10px;border-radius:9px;
     border:none;background:none;cursor:pointer;font:inherit;font-size:12.5px;font-weight:700;
-    text-align:left;color:var(--primary-text-color)}
+    text-align:left;color:var(--fh-ink,#eaf1f8)}
   .fh-mi ha-icon{--mdc-icon-size:16px;flex:0 0 auto;opacity:.75}
   .fh-mi:hover{background:rgba(255,176,32,.14)}
   .fh-mi.rosso{color:#ff8f8f}
+  .fh-app.vetro.chiaro .fh-mi.rosso{color:#b91c1c!important}
   .fh-mi.rosso:hover{background:rgba(255,92,92,.14)}
   .fh-misep{height:1px;margin:4px 6px;background:var(--divider-color,rgba(255,255,255,.1))}
   .fh-milab{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;
