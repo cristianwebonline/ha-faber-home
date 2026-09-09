@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.37.0";
+const FH_VERSION = "0.38.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -165,12 +165,19 @@ class FhSky {
   }
   resize() {
     const r = this.c.getBoundingClientRect();
-    if (!r.width || !r.height) return;
+    // Se il riquadro misura zero (capita se il canvas viene misurato prima
+    // che la pagina sia disposta), senza questa rete this.w restava vuoto
+    // PER SEMPRE — e draw() esce subito quando this.w e vuoto, quindi non si
+    // sarebbe mai disegnata una sola stella, in silenzio.
+    const w = r.width || window.innerWidth || 0;
+    const h = r.height || window.innerHeight || 0;
+    if (!w || !h) return;
+    r.width = w; r.height = h;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    this.c.width = Math.floor(r.width * dpr);
-    this.c.height = Math.floor(r.height * dpr);
+    this.c.width = Math.floor(w * dpr);
+    this.c.height = Math.floor(h * dpr);
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    this.w = r.width; this.h = r.height;
+    this.w = w; this.h = h;
     this.seed();
   }
   // Quante particelle: una ogni "per" pixel quadrati. I numeri di prima
@@ -404,6 +411,11 @@ class FaberHome extends HTMLElement {
     }
   }
   _fermaTutto() {
+    if (this._onResizeFinestra) {
+      window.removeEventListener("resize", this._onResizeFinestra);
+      window.removeEventListener("orientationchange", this._onResizeFinestra);
+      this._onResizeFinestra = null;
+    }
     if (this._skyfx) this._skyfx.stop();
     if (this._themeTimer) { clearInterval(this._themeTimer); this._themeTimer = null; }
     if (this._timer) { clearInterval(this._timer); this._timer = null; }
@@ -532,6 +544,16 @@ class FaberHome extends HTMLElement {
       this._ro = new ResizeObserver(() => { this._skyfx.resize(); this._skyfx.draw(0); });
       this._ro.observe(canvas);
       this._skyfx.start();
+      // Il canvas e fisso allo schermo: quando la finestra cambia (rotazione
+      // del telefono, tastiera che si apre) va rimisurato, perche il
+      // ResizeObserver su un elemento fisso puo non accorgersene.
+      this._onResizeFinestra = () => { this._skyfx.resize(); this._skyfx.draw(0); };
+      window.addEventListener("resize", this._onResizeFinestra);
+      window.addEventListener("orientationchange", this._onResizeFinestra);
+      // Una misura subito e una appena la pagina si e sistemata: senza, il
+      // primo giro puo cadere su un riquadro ancora a zero.
+      this._skyfx.resize();
+      requestAnimationFrame(() => { this._skyfx.resize(); this._skyfx.draw(0); });
     }
     this._applyScene(false);
     this._watchTheme();
@@ -2644,7 +2666,14 @@ const FH_CSS = `
     position:relative;min-height:100vh;display:flex;flex-direction:column;
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
     color:var(--fh-ink,#eaf1f8);transition:background .6s ease,color .6s ease}
-  .fh-bg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0}
+  /* FISSO ALLO SCHERMO, non steso su tutta la pagina. Con "absolute" il
+     canvas prendeva l'altezza dell'INTERO contenuto: su una pagina lunga
+     diventava alto migliaia di pixel, le stelle finivano sparse per tutta la
+     lunghezza e nella schermata che stai guardando non ne capitava quasi
+     nessuna. Fisso invece copre esattamente lo schermo: le stelle restano
+     dove sono mentre scorri, come un cielo vero dietro una finestra, e il
+     canvas resta piccolo (meno lavoro per il telefono). */
+  .fh-bg{position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:0}
   .fh-head{position:relative;z-index:1;display:flex;flex-direction:column;gap:10px;padding:18px 20px 8px}
   .fh-headtop{display:flex;align-items:flex-start;gap:14px}
   .fh-clockbox{flex:1;min-width:0}
