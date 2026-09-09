@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.51.0";
+const FH_VERSION = "0.52.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -4620,7 +4620,7 @@ class FaberClima extends HTMLElement {
 
     const a = st.attributes;
     const modo = st.state;
-    const m = FK_MODI[modo] || { t: modo, i: "mdi:help-circle-outline", c: "#93a1b0" };
+    const m = FK_MODI[modo] || { t: modo, i: "mdi:help-circle-outline", c: "#93a1b0", g: "#4b5563" };
     const acceso = modo !== "off" && modo !== "unavailable";
     const f = a.supported_features || 0;
 
@@ -4710,7 +4710,7 @@ class FaberClima extends HTMLElement {
 
       <div class="fk-modi">
         ${modi.map(k => {
-          const mm = FK_MODI[k] || { t: k, i: "mdi:circle-outline", c: "#93a1b0" };
+          const mm = FK_MODI[k] || { t: k, i: "mdi:circle-outline", c: "#93a1b0", g: "#4b5563" };
           const sel = modo === k;
           return `<button type="button" class="fk-mb${sel ? " sel" : ""}" data-modo="${fhEsc(k)}"
             style="${sel ? `--fk-c:${mm.c}` : ""}"><ha-icon icon="${mm.i}"></ha-icon>${fhEsc(mm.t)}</button>`;
