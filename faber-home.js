@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.52.0";
+const FH_VERSION = "0.53.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -2841,6 +2841,9 @@ const FH_CSS = `
      aggiusta da solo invece di scoprire di nuovo lo stesso difetto. */
   .fh-main{position:relative;flex:1;max-width:100%;display:flex;flex-direction:column;gap:14px;
     padding:8px 16px calc(var(--fh-navh,110px) + 18px)}
+  /* Su schermo grande il contenuto si ferma e si centra. */
+  .fh-app.desk .fh-main,
+  .fh-app.desk .fh-head{width:100%;max-width:var(--fh-largh,1240px);margin-inline:auto}
   .fh-cardwrap{min-width:0;max-width:100%}
   .fh-rowwrap{min-width:0;max-width:100%}
   /* La riga e una griglia con un numero di tracce deciso dalla fascia di
@@ -2872,9 +2875,12 @@ const FH_CSS = `
      o si adatta, o la card cresce. */
   .fh-slot.fissa{min-height:var(--fh-h,auto)}
   /* Quadrata davvero: alta quanto e larga, su qualunque schermo. */
-  .fh-slot.quadra{aspect-ratio:1}
-  .fh-slot.quadra>ha-card,.fh-slot.quadra>.fh-cardwrap,
-  .fh-slot.quadra>.fh-cardwrap>*{height:100%}
+  .fh-slot.quadra{aspect-ratio:1;width:100%;
+    max-width:min(100%,var(--fh-quadra,340px));margin-inline:auto}
+  .fh-slot.quadra>*:not(.fh-tools):not(.fh-shield):not(.fh-ang){
+    display:block;height:100%;min-height:0}
+  .fh-slot.quadra ha-card{height:100%;box-sizing:border-box}
+  .fh-slot.quadra .fp-body{height:100%;box-sizing:border-box}
   .fh-slot>.fh-cardwrap{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
   .fh-slot>.fh-cardwrap>*{flex:1 1 auto;min-height:100%;box-sizing:border-box}
   .fh-slot.editing.fissa>.fh-cardwrap{flex:1}
