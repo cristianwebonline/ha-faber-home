@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.61.0";
+const FH_VERSION = "0.62.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -3103,16 +3103,41 @@ const FH_CSS = `
   .fh-app.vetro.chiaro .fk-modo,
   .fh-app.vetro.chiaro .fk-cval{color:var(--fh-giorno)!important}
 
+  /* Il disegnino del condizionatore/stufa e fatto di bianco trasparente:
+     spento, di notte si vede appena sul vetro scuro; di giorno sul vetro
+     chiaro sparisce del tutto. Qui prende un contorno scuro invece che
+     bianco, cosi resta visibile anche fermo. Da "viva" (acceso) non cambia:
+     li il colore lo da gia var(--fk-c), sempre leggibile. */
+  .fh-app.vetro.chiaro .fk-corpo{fill:rgba(15,23,42,.08)!important;stroke:rgba(15,23,42,.28)!important}
+  .fh-app.vetro.chiaro .fk-griglia{fill:rgba(15,23,42,.28)!important}
+  .fh-app.vetro.chiaro .fk-spia{fill:rgba(15,23,42,.3)!important}
+  .fh-app.vetro.chiaro .fk-onda{stroke:rgba(15,23,42,.22)!important}
+  .fh-app.vetro.chiaro .fk-vetro{fill:rgba(15,23,42,.12)!important;stroke:rgba(15,23,42,.28)!important}
+  .fh-app.vetro.chiaro .fk-legna{stroke:rgba(15,23,42,.26)!important}
+  .fh-app.vetro.chiaro .fk-griglia2{stroke:rgba(15,23,42,.28)!important}
+  .fh-app.vetro.chiaro .fk-fiamma{fill:rgba(15,23,42,.18)!important}
+
   /* I FOGLI CHE SI APRONO, DI GIORNO.
      Hanno il fondo scuro scritto dentro di se ma prendono il testo dal tema
      della pagina: di giorno diventava scuro su scuro. Qui il foglio si
      schiarisce insieme al testo, e con lui righe e bordi — su un fondo
      chiaro un bordo bianco al 9% semplicemente non c'e. */
   .fh-app.vetro.chiaro .mc-modal,
-  .fh-app.vetro.chiaro .csc-modal{
+  .fh-app.vetro.chiaro .csc-modal,
+  .fh-app.vetro.chiaro .fk-confirm{
     background:#fbfaf7!important;
     border-color:rgba(15,23,42,.14)!important;
     box-shadow:0 24px 60px rgba(15,23,42,.22)!important;
+    color:#12161c!important;
+  }
+  .fh-app.vetro.chiaro .fk-cbtn{
+    background:rgba(15,23,42,.05)!important;
+    border-color:rgba(15,23,42,.14)!important;
+    color:#12161c!important;
+  }
+  .fh-app.vetro.chiaro .fk-cbtn.warn{
+    background:rgba(255,176,32,.18)!important;
+    border-color:rgba(255,176,32,.5)!important;
   }
   .fh-app.vetro.chiaro .mc-sheet-handle{background:rgba(15,23,42,.22)!important}
   .fh-app.vetro.chiaro .csc-srow,
@@ -4436,6 +4461,7 @@ const FK_DEFAULTS = {
   mostra_ventola: true,
   mostra_alette: true,
   mostra_programmi: true,
+  conferma_accensione: false,
 };
 
 const FK_MODI = {
@@ -4827,8 +4853,17 @@ class FaberClima extends HTMLElement {
     });
     this._body.querySelector("[data-power]").addEventListener("click", () => {
       if (senzaCorrente) return;
-      if (acceso) this._srv("set_hvac_mode", { hvac_mode: "off" });
-      else this._srv("set_hvac_mode", { hvac_mode: modi.includes("cool") ? "cool" : modi[0] });
+      const fai = () => {
+        if (acceso) this._srv("set_hvac_mode", { hvac_mode: "off" });
+        else this._srv("set_hvac_mode", { hvac_mode: modi.includes("cool") ? "cool" : modi[0] });
+      };
+      // Il tasto sta proprio dove si tocca la card per aprirla: da spenta,
+      // un dito un po' impreciso lo preme per sbaglio invece di aprire il
+      // popup. Chi lo vuole puo far chiedere conferma; di serie resta
+      // immediato, come e sempre stato.
+      if (this._cfg.conferma_accensione) {
+        this._confirm(acceso ? "Spegnere il climatizzatore?" : "Accendere il climatizzatore?", fai);
+      } else fai();
     });
     q("[data-t]").forEach(b => b.addEventListener("click", () => {
       const d = b.dataset.t === "+" ? passo : -passo;
@@ -4841,7 +4876,26 @@ class FaberClima extends HTMLElement {
     q("[data-preset]").forEach(b => b.addEventListener("click", () => this._srv("set_preset_mode", { preset_mode: b.dataset.preset })));
   }
 
-
+  // Stessa forma del foglio di conferma delle altre card di famiglia (la
+  // sicurezza, il frigo...): un riquadro scuro sempre uguale, qualunque sia
+  // il tema del pannello, cosi non serve inventare un'altra combinazione di
+  // colori solo per un si/no.
+  _confirm(testo, siFai) {
+    let ov = this.querySelector(".fk-scrim");
+    if (!ov) { ov = document.createElement("div"); ov.className = "fk-scrim"; this._card.appendChild(ov); }
+    ov.innerHTML = `<div class="fk-confirm">
+      <div class="fk-confirm-txt">${fhEsc(testo)}</div>
+      <div class="fk-confirm-row">
+        <button type="button" class="fk-cbtn" data-no>Annulla</button>
+        <button type="button" class="fk-cbtn warn" data-si>Conferma</button>
+      </div>
+    </div>`;
+    requestAnimationFrame(() => ov.classList.add("on"));
+    const chiudi = () => ov.classList.remove("on");
+    ov.querySelector("[data-no]").onclick = chiudi;
+    ov.querySelector("[data-si]").onclick = () => { chiudi(); siFai(); };
+    ov.onclick = e => { if (e.target === ov) chiudi(); };
+  }
 
   // =================================================================== timer
   // Non un conto alla rovescia del browser (morirebbe chiudendo la pagina):
@@ -5347,11 +5401,11 @@ const FK_CSS = `
   .fk-modo{display:flex;align-items:center;gap:5px;font-size:11px;font-weight:800;
     text-transform:uppercase;letter-spacing:.09em;margin-top:3px}
   .fk-modo ha-icon{--mdc-icon-size:14px}
-  .fk-power{width:44px;height:44px;border-radius:14px;cursor:pointer;flex:0 0 auto;
+  .fk-power{width:52px;height:52px;border-radius:16px;cursor:pointer;flex:0 0 auto;
     display:flex;align-items:center;justify-content:center;
     border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:var(--fh-c-muted,#93a1b0);
     transition:background .25s,color .25s,border-color .25s}
-  .fk-power ha-icon{--mdc-icon-size:21px}
+  .fk-power ha-icon{--mdc-icon-size:25px}
   .fk-power.on{background:rgba(56,224,138,.18);border-color:rgba(56,224,138,.5);color:var(--fh-c-ok2,#38e08a)}
   .fk-power[disabled]{opacity:.35;cursor:not-allowed}
   /* Uno stacco in piu fra la presa e l'accensione: sono le due che si
@@ -5360,7 +5414,8 @@ const FK_CSS = `
   @media (max-width:560px){
     .fk-comandi{gap:13px}
     .fk-comandi .fk-power{margin-left:7px}
-    .fk-power,.fk-presa,.fk-timerb{width:46px;height:46px}
+    .fk-presa,.fk-timerb{width:46px;height:46px}
+    .fk-power{width:54px;height:54px}
   }
   /* Tre tastini in fila su un telefono si sbagliano: e il tasto di mezzo
      stacca la CORRENTE. Piu grandi (44px, la misura minima per un dito) e piu
@@ -5378,6 +5433,20 @@ const FK_CSS = `
     transition:background .25s,color .25s,border-color .25s}
   .fk-timerb ha-icon{--mdc-icon-size:20px}
   .fk-timerb.on{background:rgba(167,139,250,.18);border-color:rgba(167,139,250,.5);color:#c4b5fd}
+  /* ---------------------------------------------- conferma accensione/spegnimento */
+  .fk-scrim{position:fixed;inset:0;background:rgba(4,5,8,.62);backdrop-filter:blur(6px);display:flex;
+    align-items:center;justify-content:center;padding:22px;z-index:9;opacity:0;pointer-events:none;transition:opacity .18s}
+  .fk-scrim.on{opacity:1;pointer-events:auto}
+  .fk-confirm{width:100%;max-width:340px;background:#1a1b21;border:1px solid rgba(255,255,255,.16);
+    border-radius:22px;padding:20px 18px;box-shadow:0 24px 60px rgba(0,0,0,.6);
+    transform:translateY(14px) scale(.97);transition:transform .2s;color:#f4f6f8}
+  .fk-scrim.on .fk-confirm{transform:none}
+  .fk-confirm-txt{font-size:14px;font-weight:700;margin-bottom:16px;line-height:1.5}
+  .fk-confirm-row{display:flex;gap:10px}
+  .fk-cbtn{flex:1;padding:11px 0;border-radius:12px;border:1px solid rgba(255,255,255,.16);
+    background:rgba(255,255,255,.06);color:#f4f6f8;font-size:13.5px;font-weight:800;cursor:pointer}
+  .fk-cbtn:hover{filter:brightness(1.25)}
+  .fk-cbtn.warn{background:rgba(255,176,32,.16);border-color:rgba(255,176,32,.45)}
   /* --------------------------------------------------------- stufa a pellet */
   .fk-vetro{fill:rgba(0,0,0,.45);stroke:rgba(255,255,255,.18);stroke-width:1}
   .fk-legna{stroke:rgba(255,255,255,.2);stroke-width:2.4;stroke-linecap:round;fill:none}
@@ -5533,9 +5602,9 @@ const FK_CSS = `
   .fk-cb{flex:1;min-width:0;height:100%;display:flex;align-items:flex-end}
   .fk-cb span{display:block;width:100%;border-radius:2px 2px 0 0;min-height:2px}
   .fk-cb.oggi span{outline:1px solid rgba(255,255,255,.35);outline-offset:1px}
-  .fk-info{display:flex;gap:14px;font-size:11.5px;font-weight:700;opacity:.75}
+  .fk-info{display:flex;gap:14px;font-size:13.5px;font-weight:800;opacity:.8}
   .fk-info span{display:inline-flex;align-items:center;gap:4px}
-  .fk-info ha-icon{--mdc-icon-size:15px}
+  .fk-info ha-icon{--mdc-icon-size:17px}
   .fk-riga{display:flex;flex-direction:column;gap:5px}
   .fk-rlab{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.09em;opacity:.5}
   /* Scorre di lato: il condizionatore della sala ha tredici programmi, in
@@ -5616,6 +5685,10 @@ class FaberClimaEditor extends HTMLElement {
           <label class="fke-ck"><input type="checkbox" id="fkA"${c.mostra_alette !== false ? " checked" : ""}> Alette</label>
           <label class="fke-ck"><input type="checkbox" id="fkP"${c.mostra_programmi !== false ? " checked" : ""}> Programmi (eco, notte, turbo...)</label>
           <span class="fke-h">Una riga compare solo se l'apparecchio la sostiene, anche con la spunta messa.</span></div>
+
+        <div class="fke-f"><label>Prima di accendere o spegnere</label>
+          <label class="fke-ck"><input type="checkbox" id="fkConf"${c.conferma_accensione ? " checked" : ""}> Chiedi conferma</label>
+          <span class="fke-h">Il tasto sta proprio dove si tocca la card: spenta, capita di premerlo per sbaglio. Con la spunta, prima chiede.</span></div>
       </div>`;
     const q = s => this.querySelector(s);
     q("#fkNome").addEventListener("input", e => this._set("name", e.target.value));
@@ -5625,6 +5698,7 @@ class FaberClimaEditor extends HTMLElement {
     q("#fkV").addEventListener("change", e => this._set("mostra_ventola", e.target.checked));
     q("#fkA").addEventListener("change", e => this._set("mostra_alette", e.target.checked));
     q("#fkP").addEventListener("change", e => this._set("mostra_programmi", e.target.checked));
+    q("#fkConf").addEventListener("change", e => this._set("conferma_accensione", e.target.checked));
     this.querySelectorAll("[data-pick]").forEach(b => this._wire(b));
   }
 
