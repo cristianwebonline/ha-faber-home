@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.50.0";
+const FH_VERSION = "0.51.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -3044,6 +3044,16 @@ const FH_CSS = `
     --mc-c-warn:#8a5200;  --mc-c-bad:#b3261e;  --mc-c-ok:#0f7a3d;
   }
 
+  /* Dove il colore e scritto dentro l'elemento (lo stato delle persone, il
+     modo del clima, il riquadro dei carichi) il foglio di stile da solo non
+     basta: l'elemento vince sempre. Percio ognuno di quelli si porta dietro
+     anche la propria versione da giorno, e qui si sceglie quella. E' l'unico
+     punto dove serve !important, e serve davvero. */
+  .fh-app.vetro.chiaro .fc-t2,
+  .fh-app.vetro.chiaro .fc-big,
+  .fh-app.vetro.chiaro .fk-modo,
+  .fh-app.vetro.chiaro .fk-cval{color:var(--fh-giorno)!important}
+
   /* LE ECCEZIONI: i riquadri che restano scuri anche di giorno.
      Il posto della telecamera spenta e il disegno della stanza sono scuri per
      conto loro, qualunque sia l'ora. Li il pastello era ed e la scelta giusta:
@@ -3815,9 +3825,9 @@ const FC_DEFAULTS = {
 // una velatura trasparente messa "al posto" dello sfondo funziona solo
 // finche il fondo sotto e quello che immaginavi.
 const FC_TONI = {
-  calmo: { tinta: "rgba(56,224,138,.10)", bordo: "rgba(56,224,138,.30)", forte: "#38e08a", eti: "tutto tranquillo" },
-  medio: { tinta: "rgba(255,176,32,.12)", bordo: "rgba(255,176,32,.38)", forte: "#ffb020", eti: "consumo alto" },
-  alto: { tinta: "rgba(255,92,92,.14)", bordo: "rgba(255,92,92,.42)", forte: "#ff6b6b", eti: "attenzione" },
+  calmo: { tinta: "rgba(56,224,138,.10)", bordo: "rgba(56,224,138,.30)", forte: "#38e08a", giorno: "#0f7a3d", eti: "tutto tranquillo" },
+  medio: { tinta: "rgba(255,176,32,.12)", bordo: "rgba(255,176,32,.38)", forte: "#ffb020", giorno: "#9a5b00", eti: "consumo alto" },
+  alto: { tinta: "rgba(255,92,92,.14)", bordo: "rgba(255,92,92,.42)", forte: "#ff6b6b", giorno: "#b3261e", eti: "attenzione" },
 };
 
 // Il nome buono di un sensore di potenza non e il suo friendly_name
@@ -4018,10 +4028,10 @@ class FaberCarichi extends HTMLElement {
       <div class="fc-top">
         <div class="fc-tit">
           <div class="fc-t1">${fhEsc(c.title)}</div>
-          <div class="fc-t2" style="color:${t.forte}">${t.eti}</div>
+          <div class="fc-t2" style="color:${t.forte};--fh-giorno:${t.giorno || t.forte}">${t.eti}</div>
         </div>
         <div class="fc-tot">
-          <div class="fc-big" style="color:${t.forte}">${fcW(d.totale)}<span>W</span></div>
+          <div class="fc-big" style="color:${t.forte};--fh-giorno:${t.giorno || t.forte}">${fcW(d.totale)}<span>W</span></div>
           <div class="fc-sub">${d.senzaTotale ? "somma dei monitorati" : "contatore di casa"}</div>
         </div>
       </div>
@@ -4346,13 +4356,13 @@ const FK_DEFAULTS = {
 };
 
 const FK_MODI = {
-  off: { t: "Spento", i: "mdi:power", c: "#93a1b0" },
-  cool: { t: "Fresco", i: "mdi:snowflake", c: "#4fc3f7" },
-  heat: { t: "Caldo", i: "mdi:fire", c: "#ff8a4c" },
-  heat_cool: { t: "Automatico", i: "mdi:autorenew", c: "#a78bfa" },
-  auto: { t: "Automatico", i: "mdi:autorenew", c: "#a78bfa" },
-  dry: { t: "Deumidifica", i: "mdi:water-percent", c: "#ffb020" },
-  fan_only: { t: "Ventola", i: "mdi:fan", c: "#38e08a" },
+  off: { t: "Spento", i: "mdi:power", c: "#93a1b0", g: "#4b5563" },
+  cool: { t: "Fresco", i: "mdi:snowflake", c: "#4fc3f7", g: "#0369a1" },
+  heat: { t: "Caldo", i: "mdi:fire", c: "#ff8a4c", g: "#b3400e" },
+  heat_cool: { t: "Automatico", i: "mdi:autorenew", c: "#a78bfa", g: "#5b3bb8" },
+  auto: { t: "Automatico", i: "mdi:autorenew", c: "#a78bfa", g: "#5b3bb8" },
+  dry: { t: "Deumidifica", i: "mdi:water-percent", c: "#ffb020", g: "#9a5b00" },
+  fan_only: { t: "Ventola", i: "mdi:fan", c: "#38e08a", g: "#0f7a3d" },
 };
 
 const FK_VENTOLA = {
@@ -4518,7 +4528,7 @@ class FaberClima extends HTMLElement {
     this._render();
   }
 
-  _consumiHTML(colore) {
+  _consumiHTML(colore, coloreGiorno) {
     const g = this._consumi;
     if (!g) return "";
     const c = this._cfg;
@@ -4540,7 +4550,7 @@ class FaberClima extends HTMLElement {
     return `<div class="fk-cons">
       <div class="fk-crighe">
         <div><div class="fk-clab">Oggi</div>
-          <div class="fk-cval" style="color:${colore}">${kwh(g[oggi] || 0)}<small>kWh</small></div>
+          <div class="fk-cval" style="color:${colore};--fh-giorno:${coloreGiorno}">${kwh(g[oggi] || 0)}<small>kWh</small></div>
           <div class="fk-ceur">${eur(g[oggi] || 0)}</div></div>
         <div><div class="fk-clab">Media al giorno</div>
           <div class="fk-cval">${kwh(media)}<small>kWh</small></div>
@@ -4659,7 +4669,7 @@ class FaberClima extends HTMLElement {
       <div class="fk-top">
         <div class="fk-titolo">
           <div class="fk-nome">${fhEsc(nome)}</div>
-          <div class="fk-modo" style="color:${m.c}"><ha-icon icon="${m.i}"></ha-icon>${fhEsc(m.t)}</div>
+          <div class="fk-modo" style="color:${m.c};--fh-giorno:${m.g || m.c}"><ha-icon icon="${m.i}"></ha-icon>${fhEsc(m.t)}</div>
         </div>
         <div class="fk-comandi">
           <button type="button" class="fk-timerb${timerAcceso ? " on" : ""}" data-timer
@@ -4712,7 +4722,7 @@ class FaberClima extends HTMLElement {
         ${watt != null ? `<span><ha-icon icon="mdi:lightning-bolt"></ha-icon>${Math.round(watt)} W</span>` : ""}
       </div>` : ""}
 
-      ${this._consumiHTML(m.c)}
+      ${this._consumiHTML(m.c, m.g || m.c)}
 
       ${vent.length ? this._riga("Ventola", "fan", vent, a.fan_mode, FK_VENTOLA) : ""}
       ${alette.length ? this._riga("Alette", "swing", alette, a.swing_mode, FK_ALETTE) : ""}
