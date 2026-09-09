@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.49.0";
+const FH_VERSION = "0.50.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -934,6 +934,7 @@ class FaberHome extends HTMLElement {
           if (piatta && quante > 1) slot.style.gridColumn = `span ${quante}`;
           const h = this._altezzaCard(cardCfg);
           if (h) { slot.style.setProperty("--fh-h", h + "px"); slot.classList.add("fissa"); }
+          if (cardCfg && cardCfg.fh_forma === "quadra") slot.classList.add("quadra");
           if (this._edit) {
             slot.classList.add("editing");
             slot.appendChild(this._cardToolsEl(ri, ci, di));
@@ -1093,7 +1094,9 @@ class FaberHome extends HTMLElement {
     // piu affidabili del trascinamento, che sul telefono litiga con lo
     // scorrimento della pagina (lezione della Smart Card).
     const haPop = !!(this._cfg.pages[this._page].rows[ri].cols[ci].cards[di].fh_popup || {}).cards;
-    const hAtt = this._altezzaCard(this._cfg.pages[this._page].rows[ri].cols[ci].cards[di]);
+    const cfgAtt = this._cfg.pages[this._page].rows[ri].cols[ci].cards[di];
+    const quadraAtt = cfgAtt.fh_forma === "quadra";
+    const hAtt = this._altezzaCard(cfgAtt) || quadraAtt;
     // Otto comandi in fila stavano bene su una card larga, ma su una card
     // quadrata da 190px andavano a capo su tre righe e la barra diventava piu
     // alta della card. Qui restano i tre che si usano davvero — sposta,
@@ -1110,7 +1113,7 @@ class FaberHome extends HTMLElement {
           <div class="fh-misep"></div>
           <div class="fh-milab">Forma</div>
           <button type="button" class="fh-mi" data-forma="auto"><ha-icon icon="mdi:arrow-expand-vertical"></ha-icon>Auto${!hAtt ? " \u2713" : ""}</button>
-          <button type="button" class="fh-mi" data-forma="quadrata"><ha-icon icon="mdi:square-outline"></ha-icon>Quadrata</button>
+          <button type="button" class="fh-mi" data-forma="quadrata"><ha-icon icon="mdi:square-outline"></ha-icon>Quadrata${quadraAtt ? " ✓" : ""}</button>
           <button type="button" class="fh-mi" data-forma="larga"><ha-icon icon="mdi:rectangle-outline"></ha-icon>Rettangolare</button>
           <button type="button" class="fh-mi" data-forma="alta"><ha-icon icon="mdi:rectangle-outline"></ha-icon>Alta</button>
           <div class="fh-misep"></div>
@@ -1305,10 +1308,10 @@ class FaberHome extends HTMLElement {
     const slot = this.querySelector(`[data-slot="${ri}.${ci}.${di}"]`);
     const w = slot ? slot.getBoundingClientRect().width : 300;
     const cfg = this._cfg.pages[this._page].rows[ri].cols[ci].cards[di];
-    if (forma === "auto") delete cfg.fh_h;
-    else if (forma === "quadrata") cfg.fh_h = Math.round(w);
-    else if (forma === "larga") cfg.fh_h = Math.round(w * 0.58);
-    else if (forma === "alta") cfg.fh_h = Math.round(w * 1.5);
+    if (forma === "auto") { delete cfg.fh_h; delete cfg.fh_forma; }
+    else if (forma === "quadrata") { cfg.fh_forma = "quadra"; delete cfg.fh_h; }
+    else if (forma === "larga") { cfg.fh_h = Math.round(w * 0.58); delete cfg.fh_forma; }
+    else if (forma === "alta") { cfg.fh_h = Math.round(w * 1.5); delete cfg.fh_forma; }
     this._renderPage();
   }
 
@@ -2868,6 +2871,10 @@ const FH_CSS = `
      e ai lati, e non c'era modo di recuperarlo. Un contenuto non si taglia:
      o si adatta, o la card cresce. */
   .fh-slot.fissa{min-height:var(--fh-h,auto)}
+  /* Quadrata davvero: alta quanto e larga, su qualunque schermo. */
+  .fh-slot.quadra{aspect-ratio:1}
+  .fh-slot.quadra>ha-card,.fh-slot.quadra>.fh-cardwrap,
+  .fh-slot.quadra>.fh-cardwrap>*{height:100%}
   .fh-slot>.fh-cardwrap{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
   .fh-slot>.fh-cardwrap>*{flex:1 1 auto;min-height:100%;box-sizing:border-box}
   .fh-slot.editing.fissa>.fh-cardwrap{flex:1}
@@ -5615,10 +5622,10 @@ const FP_DEFAULTS = {
 const FP_GRANDEZZE = { piccola: 74, media: 108, grande: 150, piena: 9999 };
 
 const FP_TONI = {
-  casa: { c: "#38e08a", t: "A casa" },
-  zona: { c: "#ffb020", t: "In zona" },
-  fuori: { c: "#7a8896", t: "Fuori casa" },
-  ignoto: { c: "#7a8896", t: "Non so dov'e" },
+  casa: { c: "#38e08a", g: "#0f7a3d", t: "A casa" },
+  zona: { c: "#ffb020", g: "#9a5b00", t: "In zona" },
+  fuori: { c: "#7a8896", g: "#475569", t: "Fuori casa" },
+  ignoto: { c: "#7a8896", g: "#475569", t: "Non so dov'e" },
 };
 
 // Distanza in linea d'aria fra due punti (formula dell'emisenoverso).
@@ -5847,7 +5854,7 @@ class FaberPersona extends HTMLElement {
 
     this._testo.innerHTML = `
         <div class="fp-nome">${fhEsc(nome)}</div>
-        <div class="fp-stato" style="color:${tono.c}">${fhEsc(dove)}</div>
+        <div class="fp-stato" style="color:${tono.c};--fp-giorno:${tono.g || tono.c}">${fhEsc(dove)}</div>
         <div class="fp-da">${fhEsc(fpDa(st.last_changed))}</div>
         ${righe.length ? `<div class="fp-righe">
           ${righe.map(r => `<span><ha-icon icon="${r.i}"></ha-icon>${fhEsc(r.t)}</span>`).join("")}
@@ -5903,6 +5910,9 @@ const FP_CSS = `
   .fp-nome{font-size:18px;font-weight:900;letter-spacing:-.2px;
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .fp-stato{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;margin-top:2px}
+  /* Il colore e scritto dentro l'elemento, quindi per scavalcarlo di giorno
+     serve !important: e l'unico modo, non una scorciatoia. */
+  .fh-app.vetro.chiaro .fp-stato{color:var(--fp-giorno)!important}
   .fp-da{font-size:11.5px;font-weight:600;opacity:.55}
   .fp-righe{display:flex;flex-direction:column;gap:3px;margin-top:6px}
   .fp-righe span{display:flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;opacity:.8;
