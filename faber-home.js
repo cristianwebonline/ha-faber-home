@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.44.0";
+const FH_VERSION = "0.44.1";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:#ffe9c2;background:#1a1b21;border-radius:0 4px 4px 0");
@@ -3006,6 +3006,17 @@ const FH_CSS = `
   .fh-app.vetro .csc-card[data-status="safe"]{background-image:linear-gradient(rgba(56,224,138,.05),rgba(56,224,138,.05))!important}
   .fh-app.vetro .mc-card.on{background-image:linear-gradient(rgba(56,224,138,.035),rgba(56,224,138,.035))!important}
   .fh-app.vetro .mc-card.on.lavora{background-image:linear-gradient(rgba(56,224,138,.07),rgba(56,224,138,.07))!important}
+  /* La card Meteo scrive il colore del proprio testo dentro di se, diverso
+     per ogni condizione (un bruno per il sereno, un altro per la pioggia...):
+     e pensato per stare sopra IL SUO sfondo colorato, non sopra il vetro
+     scuro. Il titolo e il sottotitolo finivano bruno-su-bruno, illeggibili.
+     Le pastiglie sotto (umidita, pressione...) invece hanno un fondo chiaro
+     tutto loro e restano leggibili cosi come sono: si tocca solo cio che
+     sta appoggiato direttamente sul vetro. */
+  .fh-app.vetro .fw-title,
+  .fh-app.vetro .fw-sub,
+  .fh-app.vetro .fw-temp,
+  .fh-app.vetro .fw-cap{color:#f3ecdf!important}
   .fh-app.vetro .mc-card[data-icona="piena"]{--mc-panel:transparent!important;backdrop-filter:none!important}
   .fh-slot.fh-dragging{opacity:.28}
   .fh-dragmode .fh-col{outline:1px dashed rgba(255,176,32,.22);outline-offset:4px;border-radius:14px}
