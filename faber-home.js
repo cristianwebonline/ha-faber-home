@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.72.0";
+const FH_VERSION = "0.73.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -3237,6 +3237,8 @@ const FH_CSS = `
      chiaro un bordo bianco al 9% semplicemente non c'e. */
   .fh-app.vetro.chiaro .mc-modal,
   .fh-app.vetro.chiaro .csc-modal,
+  .fh-app.vetro.chiaro .cbc-modal,
+  .fh-app.vetro.chiaro .cec-modal,
   .fh-app.vetro.chiaro .fk-confirm{
     background:#fbfaf7!important;
     border-color:rgba(15,23,42,.14)!important;
@@ -3261,6 +3263,19 @@ const FH_CSS = `
     border-color:rgba(15,23,42,.14)!important;
   }
   .fh-app.vetro.chiaro .csc-erow{border-bottom-color:rgba(15,23,42,.12)!important}
+  /* Dentro quei fogli le righe e le linguette sono bianco trasparente, e su
+     un foglio schiarito sparivano insieme al testo che ci sta sopra. */
+  .fh-app.vetro.chiaro .cbc-avgrow,
+  .fh-app.vetro.chiaro .cec-avgrow,
+  .fh-app.vetro.chiaro .cbc-tab,
+  .fh-app.vetro.chiaro .cec-tab{
+    background:rgba(15,23,42,.05)!important;
+    border-color:rgba(15,23,42,.14)!important;
+  }
+  .fh-app.vetro.chiaro .cbc-mhl,
+  .fh-app.vetro.chiaro .cec-mhl,
+  .fh-app.vetro.chiaro .cbc-empty,
+  .fh-app.vetro.chiaro .cec-empty{color:#4b5563!important}
 
   /* LE ECCEZIONI: i riquadri che restano scuri anche di giorno.
      Il posto della telecamera spenta e il disegno della stanza sono scuri per
