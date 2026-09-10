@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.69.0";
+const FH_VERSION = "0.69.1";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -3171,6 +3171,10 @@ const FH_CSS = `
   .fh-app.vetro.chiaro .cbc-plugbadge[data-plug="off"],
   .fh-app.vetro.chiaro .cec-plugbadge[data-plug="off"]{color:#b3261e!important;
     background:rgba(179,38,30,.10)!important;border-color:rgba(179,38,30,.32)!important}
+  /* La pillola della durata nell'elenco delle accensioni: azzurro chiaro su
+     azzurro, nata per il vetro scuro. Di giorno va girata scura. */
+  .fh-app.vetro.chiaro .mc-accdur{background:rgba(11,92,153,.12)!important;
+    border-color:rgba(11,92,153,.35)!important;color:#0b5c99!important}
   .fh-app.vetro.chiaro .cbc-lastcycle .eur,
   .fh-app.vetro.chiaro .cec-lastcycle .eur,
   .fh-app.vetro.chiaro .cbc-crow .cv small,
