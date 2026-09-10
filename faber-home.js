@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.69.1";
+const FH_VERSION = "0.70.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -3755,14 +3755,17 @@ const FW_ANIM_CSS = `
   .fw-anim .fw-halo{transform-origin:50px 50px;animation:fwBreath 6s ease-in-out infinite}
   .fw-anim .fw-drift{animation:fwDrift 7s ease-in-out infinite}
   .fw-anim .fw-drift2{animation:fwDrift2 9s ease-in-out infinite}
-  .fw-anim .fw-drop{animation:fwFall 1.4s linear infinite}
-  .fw-anim .fw-flake{animation:fwSway 3.2s linear infinite}
+  /* La pioggia scendeva in 1,4 secondi: da guardare era un tamburello, e su
+     una card che sta li tutto il giorno stanca. Rallentata a 2,6 e resa piu
+     discreta, con le tre gocce piu distanziate fra loro. */
+  .fw-anim .fw-drop{animation:fwFall 2.6s linear infinite;opacity:.8}
+  .fw-anim .fw-flake{animation:fwSway 5s linear infinite}
   .fw-anim .fw-fog{animation:fwSlide 6s ease-in-out infinite}
-  .fw-anim .fw-bolt{animation:fwFlash 3.6s ease-in-out infinite}
+  .fw-anim .fw-bolt{animation:fwFlash 6s ease-in-out infinite}
   .fw-anim .fw-star{animation:fwTwinkle 3s ease-in-out infinite}
   .fw-anim .fw-d1{animation-delay:0s}
-  .fw-anim .fw-d2{animation-delay:.45s}
-  .fw-anim .fw-d3{animation-delay:.9s}
+  .fw-anim .fw-d2{animation-delay:.85s}
+  .fw-anim .fw-d3{animation-delay:1.7s}
   .fw-anim .fw-s2{animation-delay:1s}
   .fw-anim .fw-s3{animation-delay:2s}
   @media (prefers-reduced-motion: reduce){ .fw-anim *{animation:none !important} }
@@ -3941,7 +3944,7 @@ class FaberWeather extends HTMLElement {
       .fw-mart .fw-rays{animation-duration:120s}
       .fw-mart .fw-halo{animation-duration:9s}
       .fw-mart .fw-drift,.fw-mart .fw-drift2{animation-duration:14s}
-      .fw-mart .fw-drop{animation-duration:2.2s}
+      .fw-mart .fw-drop{animation-duration:3.4s}
       .fw-mart .fw-flake{animation-duration:5s}
       .fw-mart .fw-bolt{animation-duration:5.4s}
       .fw-mday{flex:1;min-width:0}
