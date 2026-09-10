@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.71.0";
+const FH_VERSION = "0.71.1";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -2862,6 +2862,11 @@ const FH_CSS = `
      coprire lo schermo. Misurato: velo 1270x551 dentro una finestra 1280x551.
      La larghezza la misuriamo gia in JavaScript, quindi la fascia diventa una
      classe su questo elemento e le regole guardano quella. */
+  /* hidden e solo un display:none del browser: una regola di classe con un
+     display: proprio lo batte, e il riquadro che il codice crede nascosto
+     resta visibile (successo con il riquadro della porta dentro le card
+     dell'allarme e delle telecamere). Qui glielo restituiamo. */
+  .fh-app [hidden]{display:none!important}
   .fh-app{
     position:relative;min-height:100vh;display:flex;flex-direction:column;
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
