@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.71.1";
+const FH_VERSION = "0.72.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -3092,11 +3092,18 @@ const FH_CSS = `
   .fh-app.vetro .fk,
   .fh-app.vetro .fp{background:rgba(255,255,255,.09)!important}
   /* Il vetro ha senso solo se sfoca: senza, e una card sbiadita. */
+  /* IL VETRO VA SUL RIQUADRO, NON SUL CONTENITORE.
+     Sicurezza, Bucato ed Elettrodomestici hanno gia il loro backdrop-filter
+     sul riquadro interno: quello che aggiungevamo qui sul contenitore esterno
+     era ridondante, e faceva un danno. Un elemento con backdrop-filter diventa
+     il riferimento dei position:fixed che contiene, e i fogli a schermo intero
+     di quelle card (le ultime attivita, il dettaglio dell ora) restavano
+     prigionieri dentro i confini della card, sotto la barra in basso, invece
+     di coprire lo schermo. Mini Card lo faceva gia bene: il vetro su .mc-card
+     e i fogli agganciati a .mc. Energia resta qui perche il vetro ce l ha solo
+     da noi; i suoi fogli infatti si agganciano al documento. */
   .fh-app.vetro .mc-card,
   .fh-app.vetro .eca,
-  .fh-app.vetro .csc,
-  .fh-app.vetro .cbc,
-  .fh-app.vetro .cec,
   .fh-app.vetro .fc,
   .fh-app.vetro .fk,
   .fh-app.vetro .fp{
