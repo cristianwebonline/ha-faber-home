@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.66.0";
+const FH_VERSION = "0.67.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -3110,6 +3110,32 @@ const FH_CSS = `
     --mc-c-warn:#8a5200;  --mc-c-bad:#b3261e;  --mc-c-ok:#0f7a3d;
   }
 
+  /* Bucato ed elettrodomestici non passano da variabili: i colori delle fasi
+     (lavaggio azzurro, centrifuga viola, riscaldamento arancio) sono scritti
+     dentro le regole, scelti per il vetro scuro. Di giorno restavano pastelli
+     su fondo chiaro — leggibili quanto un evidenziatore giallo su carta
+     bianca. Qui la stessa fase prende la sua tinta scura. */
+  .fh-app.vetro.chiaro .cbc-machine[data-phase="wash"] .cbc-state,
+  .fh-app.vetro.chiaro .cec-machine[data-phase="wash"] .cec-state,
+  .fh-app.vetro.chiaro .cec-machine[data-phase="cool"] .cec-state{color:#0b5c99!important}
+  .fh-app.vetro.chiaro .cbc-machine[data-phase="spin"] .cbc-state{color:#5b2fb3!important}
+  .fh-app.vetro.chiaro .cbc-machine[data-phase="heat"] .cbc-state{color:#b3261e!important}
+  .fh-app.vetro.chiaro .cbc-machine[data-phase="cool"] .cbc-state{color:#0f7a3d!important}
+  .fh-app.vetro.chiaro .cec-machine[data-phase="heat"] .cec-state,
+  .fh-app.vetro.chiaro .cec-machine[data-phase="preheat"] .cec-state,
+  .fh-app.vetro.chiaro .cec-machine[data-phase="cook"] .cec-state{color:#a34a08!important}
+  .fh-app.vetro.chiaro .cec-machine[data-phase="on"] .cec-state{color:#0f7a3d!important}
+  .fh-app.vetro.chiaro .cbc-plugbadge[data-plug="on"],
+  .fh-app.vetro.chiaro .cec-plugbadge[data-plug="on"]{color:#0f7a3d!important;
+    background:rgba(15,122,61,.12)!important;border-color:rgba(15,122,61,.4)!important}
+  .fh-app.vetro.chiaro .cbc-plugbadge[data-plug="off"],
+  .fh-app.vetro.chiaro .cec-plugbadge[data-plug="off"]{color:#b3261e!important;
+    background:rgba(179,38,30,.10)!important;border-color:rgba(179,38,30,.32)!important}
+  .fh-app.vetro.chiaro .cbc-lastcycle .eur,
+  .fh-app.vetro.chiaro .cec-lastcycle .eur,
+  .fh-app.vetro.chiaro .cbc-crow .cv small,
+  .fh-app.vetro.chiaro .cec-crow .cv small{color:#9a5b00!important}
+
   /* Dove il colore e scritto dentro l'elemento (lo stato delle persone, il
      modo del clima, il riquadro dei carichi) il foglio di stile da solo non
      basta: l'elemento vince sempre. Percio ognuno di quelli si porta dietro
@@ -3455,22 +3481,44 @@ function fwDir(deg) {
 // col sole e ambra calda, di notte indaco, con la pioggia azzurro piombo.
 // E il testo e una tinta scura dello stesso colore, non bianco su grigio —
 // e questo, piu delle icone, a togliere l'aria da cruscotto.
+// Due vesti per ogni condizione: quella di giorno e quella di notte.
+// Il tempo che fa decide il CARATTERE (pioggia bluastra, nebbia terrosa,
+// temporale violaceo); l'ora decide se quel carattere e chiaro o scuro.
+// Prima esisteva solo la versione diurna: a mezzanotte, con "nuvoloso", la
+// card restava un rettangolo grigio chiaro con la scritta scura in mezzo a un
+// pannello tutto notturno. Le voci "n*" sono la stessa tinta portata a notte,
+// non un grigio qualunque: la neve resta fredda, la nebbia resta terrosa.
 const FW_SKIN = {
-  sunny:            { a: "#ffe6ad", b: "#ffc768", ink: "#6b4310", soft: "rgba(255,255,255,.55)", cap: "#8a5c1c", art: "sun" },
-  "clear-night":    { a: "#39406f", b: "#232a52", ink: "#f0eeff", soft: "rgba(255,255,255,.12)", cap: "#bdb8e6", art: "moon" },
-  partlycloudy:     { a: "#dfe9f5", b: "#bcd0e6", ink: "#2b3a4d", soft: "rgba(255,255,255,.6)",  cap: "#4d6076", art: "partly" },
-  cloudy:           { a: "#e2e7ee", b: "#c3ccd8", ink: "#2f3946", soft: "rgba(255,255,255,.6)",  cap: "#525f6e", art: "cloud" },
-  rainy:            { a: "#cbdded", b: "#9fbdd6", ink: "#1e3245", soft: "rgba(255,255,255,.5)",  art: "rain", cap: "#3c5b75" },
-  pouring:          { a: "#b9d0e4", b: "#87a9c7", ink: "#16283a", soft: "rgba(255,255,255,.45)", art: "rain", cap: "#33506b" },
-  snowy:            { a: "#eef5fb", b: "#d3e6f3", ink: "#23374b", soft: "rgba(255,255,255,.65)", cap: "#456079", art: "snow" },
-  "snowy-rainy":    { a: "#e4eef7", b: "#c6dcec", ink: "#22364a", soft: "rgba(255,255,255,.6)",  cap: "#44607a", art: "snow" },
-  fog:              { a: "#e9e7e1", b: "#cfccc4", ink: "#3a3830", soft: "rgba(255,255,255,.6)",  cap: "#5d5a50", art: "fog" },
-  hail:             { a: "#dce8f2", b: "#b6cddf", ink: "#1f3345", soft: "rgba(255,255,255,.5)",  cap: "#3e5a72", art: "snow" },
-  windy:            { a: "#e3ece9", b: "#c2d5cf", ink: "#263b36", soft: "rgba(255,255,255,.6)",  cap: "#476059", art: "cloud" },
-  "windy-variant":  { a: "#e3ece9", b: "#c2d5cf", ink: "#263b36", soft: "rgba(255,255,255,.6)",  cap: "#476059", art: "cloud" },
-  lightning:        { a: "#ded4f2", b: "#b9a6e0", ink: "#2f2153", soft: "rgba(255,255,255,.5)",  cap: "#513c7d", art: "storm" },
-  "lightning-rainy":{ a: "#d6cbee", b: "#ad98da", ink: "#2a1d4d", soft: "rgba(255,255,255,.45)", cap: "#4a3572", art: "storm" },
-  exceptional:      { a: "#ffdcd2", b: "#f6b09b", ink: "#5c2415", soft: "rgba(255,255,255,.5)",  cap: "#8a4230", art: "sun" },
+  sunny:            { a: "#ffe6ad", b: "#ffc768", ink: "#6b4310", soft: "rgba(255,255,255,.55)", cap: "#8a5c1c", art: "sun",
+                      na: "#4b3d63", nb: "#2b2440", nink: "#ffe7bd", nsoft: "rgba(255,255,255,.12)", ncap: "#d9c39a" },
+  "clear-night":    { a: "#39406f", b: "#232a52", ink: "#f0eeff", soft: "rgba(255,255,255,.12)", cap: "#bdb8e6", art: "moon",
+                      na: "#39406f", nb: "#232a52", nink: "#f0eeff", nsoft: "rgba(255,255,255,.12)", ncap: "#bdb8e6" },
+  partlycloudy:     { a: "#dfe9f5", b: "#bcd0e6", ink: "#2b3a4d", soft: "rgba(255,255,255,.6)",  cap: "#4d6076", art: "partly",
+                      na: "#33405c", nb: "#1f2740", nink: "#e6eefb", nsoft: "rgba(255,255,255,.11)", ncap: "#adbfd6" },
+  cloudy:           { a: "#e2e7ee", b: "#c3ccd8", ink: "#2f3946", soft: "rgba(255,255,255,.6)",  cap: "#525f6e", art: "cloud",
+                      na: "#333a45", nb: "#20252e", nink: "#e4e9f0", nsoft: "rgba(255,255,255,.11)", ncap: "#a9b3c0" },
+  rainy:            { a: "#cbdded", b: "#9fbdd6", ink: "#1e3245", soft: "rgba(255,255,255,.5)",  art: "rain", cap: "#3c5b75",
+                      na: "#25384c", nb: "#152230", nink: "#dbe9f6", nsoft: "rgba(255,255,255,.10)", ncap: "#9dbcd4" },
+  pouring:          { a: "#b9d0e4", b: "#87a9c7", ink: "#16283a", soft: "rgba(255,255,255,.45)", art: "rain", cap: "#33506b",
+                      na: "#1e3145", nb: "#101c28", nink: "#d3e6f5", nsoft: "rgba(255,255,255,.10)", ncap: "#8fb2cd" },
+  snowy:            { a: "#eef5fb", b: "#d3e6f3", ink: "#23374b", soft: "rgba(255,255,255,.65)", cap: "#456079", art: "snow",
+                      na: "#2e3d4d", nb: "#1b2530", nink: "#e9f3fb", nsoft: "rgba(255,255,255,.12)", ncap: "#b3c7d8" },
+  "snowy-rainy":    { a: "#e4eef7", b: "#c6dcec", ink: "#22364a", soft: "rgba(255,255,255,.6)",  cap: "#44607a", art: "snow",
+                      na: "#2b3a4a", nb: "#19232e", nink: "#e5eff8", nsoft: "rgba(255,255,255,.11)", ncap: "#aec2d3" },
+  fog:              { a: "#e9e7e1", b: "#cfccc4", ink: "#3a3830", soft: "rgba(255,255,255,.6)",  cap: "#5d5a50", art: "fog",
+                      na: "#3a3833", nb: "#232220", nink: "#ece9e2", nsoft: "rgba(255,255,255,.11)", ncap: "#b5b0a5" },
+  hail:             { a: "#dce8f2", b: "#b6cddf", ink: "#1f3345", soft: "rgba(255,255,255,.5)",  cap: "#3e5a72", art: "snow",
+                      na: "#27384a", nb: "#16222e", nink: "#dceaf6", nsoft: "rgba(255,255,255,.11)", ncap: "#9bb8cf" },
+  windy:            { a: "#e3ece9", b: "#c2d5cf", ink: "#263b36", soft: "rgba(255,255,255,.6)",  cap: "#476059", art: "cloud",
+                      na: "#2b3a36", nb: "#192421", nink: "#e2ede9", nsoft: "rgba(255,255,255,.11)", ncap: "#a7bdb6" },
+  "windy-variant":  { a: "#e3ece9", b: "#c2d5cf", ink: "#263b36", soft: "rgba(255,255,255,.6)",  cap: "#476059", art: "cloud",
+                      na: "#2b3a36", nb: "#192421", nink: "#e2ede9", nsoft: "rgba(255,255,255,.11)", ncap: "#a7bdb6" },
+  lightning:        { a: "#ded4f2", b: "#b9a6e0", ink: "#2f2153", soft: "rgba(255,255,255,.5)",  cap: "#513c7d", art: "storm",
+                      na: "#372a5c", nb: "#20183a", nink: "#e9deff", nsoft: "rgba(255,255,255,.11)", ncap: "#b7a4e0" },
+  "lightning-rainy":{ a: "#d6cbee", b: "#ad98da", ink: "#2a1d4d", soft: "rgba(255,255,255,.45)", art: "storm", cap: "#4a3572",
+                      na: "#31255a", nb: "#1b1436", nink: "#e5d9ff", nsoft: "rgba(255,255,255,.11)", ncap: "#ae9bdc" },
+  exceptional:      { a: "#ffdcd2", b: "#f6b09b", ink: "#5c2415", soft: "rgba(255,255,255,.5)",  cap: "#8a4230", art: "sun",
+                      na: "#4d2a20", nb: "#2b1712", nink: "#ffdccf", nsoft: "rgba(255,255,255,.11)", ncap: "#d9a08c" },
 };
 function fwSkin(state) {
   const sk = FW_SKIN[state] || FW_SKIN.partlycloudy;
@@ -3726,10 +3774,19 @@ class FaberWeather extends HTMLElement {
     const oggi = new Date().toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" });
     this.innerHTML = `
       <style>
-        .fw{container-type:inline-size;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
-          position:relative;overflow:hidden;padding:22px 24px 18px;color:${sk.ink};border-radius:26px;
-          background:linear-gradient(150deg,${sk.a},${sk.b});
-          box-shadow:0 14px 34px rgba(20,26,40,.16)}
+        /* I colori passano dalle variabili, non scritti dentro le regole: cosi
+           la notte li riscrive tutti in un colpo solo, senza ridisegnare la
+           card. La riga ".fh-app:not(.chiaro)" e il pannello in modalita
+           notte; fuori dal pannello la card resta come prima. */
+        .fw{--fw-a:${sk.a};--fw-b:${sk.b};--fw-ink:${sk.ink};--fw-soft:${sk.soft};--fw-cap:${sk.cap};
+          container-type:inline-size;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+          position:relative;overflow:hidden;padding:22px 24px 18px;color:var(--fw-ink);border-radius:26px;
+          background:linear-gradient(150deg,var(--fw-a),var(--fw-b));
+          box-shadow:0 14px 34px rgba(20,26,40,.16);
+          transition:background .6s ease,color .6s ease}
+        .fh-app:not(.chiaro) .fw{--fw-a:${sk.na};--fw-b:${sk.nb};--fw-ink:${sk.nink};
+          --fw-soft:${sk.nsoft};--fw-cap:${sk.ncap};
+          box-shadow:0 14px 34px rgba(0,0,0,.34)}
         .fw-title{font-size:clamp(20px,6.5cqw,26px);font-weight:800;letter-spacing:-.02em;line-height:1.1}
         .fw-sub{margin-top:3px;font-size:12.5px;font-weight:600;opacity:.72;text-transform:capitalize}
         .fw-mid{display:flex;align-items:center;gap:6px;margin-top:6px}
@@ -3741,13 +3798,13 @@ class FaberWeather extends HTMLElement {
         .fw-cap{margin-top:2px;font-size:11px;font-weight:600;opacity:.66}
         .fw-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:18px}
         .fw-stat{display:flex;flex-direction:column;align-items:center;gap:3px;padding:11px 4px;border-radius:16px;
-          background:${sk.soft}}
+          background:var(--fw-soft)}
         .fw-stat ha-icon{--mdc-icon-size:18px;opacity:.75}
         .fw-statval{font-size:13.5px;font-weight:800;font-variant-numeric:tabular-nums}
         .fw-statlab{font-size:8.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;opacity:.6}
         .fw-next{display:flex;align-items:center;justify-content:space-between;width:100%;margin-top:12px;
           padding:12px 16px;border:none;border-radius:16px;cursor:pointer;font:inherit;color:inherit;
-          background:${sk.soft};font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase}
+          background:var(--fw-soft);font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase}
         .fw-next ha-icon{--mdc-icon-size:20px;opacity:.7}
         .fw-next:hover{filter:brightness(1.06)}
         @container (max-width: 340px){ .fw-stats{grid-template-columns:repeat(2,1fr)} }
@@ -3820,16 +3877,20 @@ class FaberWeather extends HTMLElement {
       .fw-scrim{position:fixed;inset:0;z-index:30;background:rgba(6,9,14,.6);backdrop-filter:blur(6px);
         display:flex;align-items:flex-end;justify-content:center;
         font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}
-      .fw-modal{width:100%;max-width:560px;max-height:82vh;display:flex;flex-direction:column;color:${sk.ink};
-        background:linear-gradient(160deg,${sk.a},${sk.b});border-radius:26px 26px 0 0;
+      /* Stessa doppia veste della card: il foglio delle previsioni non puo
+         restare chiaro mentre il pannello dietro e notturno. */
+      .fw-scrim{--fw-a:${sk.a};--fw-b:${sk.b};--fw-ink:${sk.ink};--fw-soft:${sk.soft}}
+      .fh-app:not(.chiaro) .fw-scrim{--fw-a:${sk.na};--fw-b:${sk.nb};--fw-ink:${sk.nink};--fw-soft:${sk.nsoft}}
+      .fw-modal{width:100%;max-width:560px;max-height:82vh;display:flex;flex-direction:column;color:var(--fw-ink);
+        background:linear-gradient(160deg,var(--fw-a),var(--fw-b));border-radius:26px 26px 0 0;
         box-shadow:0 -18px 50px rgba(0,0,0,.5);animation:fwUp .22s ease-out}
       @keyframes fwUp{from{transform:translateY(18px);opacity:.6}to{transform:translateY(0);opacity:1}}
       .fw-mhead{display:flex;align-items:center;gap:10px;padding:18px 20px 6px}
       .fw-mtitle{flex:1;font-size:18px;font-weight:800;letter-spacing:-.01em}
       .fw-mclose{width:34px;height:34px;border-radius:50%;border:none;cursor:pointer;color:inherit;
-        background:${sk.soft};display:flex;align-items:center;justify-content:center}
+        background:var(--fw-soft);display:flex;align-items:center;justify-content:center}
       .fw-mlist{overflow-y:auto;padding:6px 16px 22px;display:flex;flex-direction:column;gap:8px}
-      .fw-mrow{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:18px;background:${sk.soft}}
+      .fw-mrow{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:18px;background:var(--fw-soft)}
       /* Anche i giorni futuri si muovono, ma piu piano: otto disegni vivi
          alla stessa velocita di quello grande diventano un luna park. */
       .fw-mart{flex:0 0 auto}
