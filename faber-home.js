@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.70.0";
+const FH_VERSION = "0.71.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -211,6 +211,15 @@ class FhSky {
   // La forza (0..1) dirada o infittisce: a meta forza il cielo ha meta delle
   // particelle, e piu sotto si scende piu il minimo scende con lui, senno a
   // forza zero resterebbero comunque due dozzine di puntini fissi.
+  // Quanto corrono le particelle. Il cursore va da 0 a 1 e qui diventa un
+  // fattore da 0,45 a 1,25: al minimo il cielo si muove appena, al massimo
+  // scende deciso. Prima il cursore toccava solo il NUMERO delle particelle,
+  // e chi lo abbassava vedeva meno gocce correre alla stessa velocita.
+  _andatura() {
+    const f = this.forza == null ? .7 : this.forza;
+    return .45 + f * .8;
+  }
+
   _count(per) {
     const f = this.forza == null ? .7 : this.forza;
     const base = Math.round((this.w * this.h) / per);
@@ -222,10 +231,10 @@ class FhSky {
     const p = [];
     if (this.mode === "rain" || this.mode === "storm") {
       for (let i = 0, n = this._count(3600); i < n; i++)
-        p.push({ x: R() * this.w, y: R() * this.h, len: 8 + R() * 14, vy: 5 + R() * 5, a: .18 + R() * .3 });
+        p.push({ x: R() * this.w, y: R() * this.h, len: 7 + R() * 11, vy: 2 + R() * 2.4, a: .16 + R() * .26 });
     } else if (this.mode === "snow") {
       for (let i = 0, n = this._count(5200); i < n; i++)
-        p.push({ x: R() * this.w, y: R() * this.h, r: 1 + R() * 2.2, vy: .35 + R() * .5, ph: R() * 6.28, amp: 6 + R() * 14, a: .35 + R() * .45 });
+        p.push({ x: R() * this.w, y: R() * this.h, r: 1 + R() * 2.2, vy: .22 + R() * .34, ph: R() * 6.28, amp: 6 + R() * 14, a: .32 + R() * .42 });
     } else if (this.mode === "clouds" || this.mode === "fog") {
       for (let i = 0, n = this._count(38000); i < n; i++)
         p.push({ x: R() * this.w, y: R() * this.h * .8, r: 60 + R() * 130, vx: (.06 + R() * .12) * (this.mode === "fog" ? .4 : 1), a: .05 + R() * .07 });
@@ -282,19 +291,20 @@ class FhSky {
   step(t) {
     if (!this.w) return;
     const m = this.mode;
+    const an = this._andatura();
     for (const d of this.parts) {
       if (m === "rain" || m === "storm") {
-        d.y += d.vy; d.x += d.vy * .28;
+        d.y += d.vy * an; d.x += d.vy * an * .28;
         if (d.y > this.h) { d.y = -d.len; d.x = Math.random() * this.w; }
         if (d.x > this.w) d.x -= this.w;
       } else if (m === "snow") {
-        d.y += d.vy; d.ph += .012;
+        d.y += d.vy * an; d.ph += .012 * an;
         if (d.y > this.h) { d.y = -4; d.x = Math.random() * this.w; }
       } else if (m === "clouds" || m === "fog") {
         d.x += d.vx;
         if (d.x - d.r > this.w) d.x = -d.r;
       } else if (m === "motes") {
-        d.y += d.vy; d.x += d.vx;
+        d.y += d.vy * an; d.x += d.vx * an;
         if (d.y < -4) { d.y = this.h + 4; d.x = Math.random() * this.w; }
         if (d.x < 0) d.x += this.w; else if (d.x > this.w) d.x -= this.w;
       }
@@ -2586,6 +2596,7 @@ class FaberHome extends HTMLElement {
         <label class="fh-check"><input type="checkbox" id="stAnim"${ap.weatherAnimation !== false ? " checked" : ""}>
           Sfondo animato col tempo che fa</label>
         <div class="fh-note">Stelle, pioggia, neve, nuvole: si ferma da solo quando la pagina non è in vista.</div>
+        <div class="fh-note">Il cursore qui sotto governa sia quante sono sia quanto corrono: al minimo il cielo si muove appena, al massimo scende deciso.</div>
 
         <div class="fh-srow">
           <div class="fh-sfield" style="flex:1">
