@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.68.0";
+const FH_VERSION = "0.69.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -102,6 +102,19 @@ function fhVibra(ms) {
       navigator.vibrate(ms || 12);
     }
   } catch (e) { /* niente */ }
+}
+
+// Il tasto giorno/notte non e un interruttore a due posizioni: e un giro a
+// tre — automatico, fisso giorno, fisso notte. Se resta su un fisso il
+// pannello smette di seguire l'orologio, ed e giusto che il tasto lo dica:
+// altrimenti a mezzanotte si vede una casa in pieno giorno e si da la colpa
+// alle card.
+function fhTitoloTema(fisso, scuro) {
+  const f = fisso || "auto";
+  if (f === "auto") return (scuro ? "Ora e notte" : "Ora e giorno")
+    + " \u2014 segue l'orologio. Tocca per bloccarlo";
+  return "Tema bloccato su " + (f === "notte" ? "notte" : "giorno")
+    + ": non cambia piu con l'ora. Tocca ancora per tornare automatico";
 }
 
 function fhEsc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
@@ -585,7 +598,7 @@ class FaberHome extends HTMLElement {
             <button type="button" class="fh-ic" data-act="cfg" title="Impostazioni"><ha-icon icon="mdi:cog-outline"></ha-icon></button>
             <button type="button" class="fh-ic" data-act="edit" title="Modifica"><ha-icon icon="mdi:pencil"></ha-icon></button>
             <button type="button" class="fh-ic" data-act="tema" data-tema="${fhEsc(this._cfg.appearance.temaFisso || "auto")}"
-              title="${this._isDark() ? "Ora e notte \u2014 tocca per il giorno" : "Ora e giorno \u2014 tocca per la notte"}">
+              title="${fhTitoloTema(this._cfg.appearance.temaFisso, this._isDark())}">
               <ha-icon icon="${this._isDark() ? "mdi:weather-night" : "mdi:white-balance-sunny"}"></ha-icon></button>
             <button type="button" class="fh-ic" data-act="reload" title="Ricarica"><ha-icon icon="mdi:refresh"></ha-icon></button>
             </div>
@@ -636,7 +649,7 @@ class FaberHome extends HTMLElement {
         // l'orologio e i chip, che non hanno motivo di essere ricostruiti.
         const scuro = this._isDark();
         b.dataset.tema = ap.temaFisso;
-        b.title = scuro ? "Ora e notte — tocca per il giorno" : "Ora e giorno — tocca per la notte";
+        b.title = fhTitoloTema(ap.temaFisso, scuro);
         const ic = b.querySelector("ha-icon");
         if (ic) ic.setAttribute("icon", scuro ? "mdi:weather-night" : "mdi:white-balance-sunny");
         this._save(true);
@@ -2872,6 +2885,14 @@ const FH_CSS = `
   .fh-chip.on{color:var(--fh-c-soft,#ffe9c2);border-color:rgba(255,176,32,.5);
     background:linear-gradient(135deg,rgba(255,176,32,.26),rgba(255,176,32,.12))}
   .fh-headicons{display:flex;gap:6px;flex:0 0 auto}
+  /* Il puntino ambra sul tasto del tema: c'e solo quando il tema e bloccato
+     su giorno o su notte. Senza, il pannello che non si scurisce la sera
+     sembrava un difetto, e invece era una scelta rimasta li da un tocco. */
+  .fh-ic[data-tema]{position:relative}
+  .fh-ic[data-tema="giorno"]::after,
+  .fh-ic[data-tema="notte"]::after{content:"";position:absolute;top:1px;right:1px;
+    width:8px;height:8px;border-radius:50%;background:var(--fh-c-acc,#ffb020);
+    box-shadow:0 0 0 2px var(--fh-panel,rgba(20,26,40,.9))}
   .fh-ic{width:36px;height:36px;border-radius:50%;border:1px solid var(--fh-stroke,rgba(255,255,255,.09));
     background:var(--fh-panel,rgba(255,255,255,.05));color:var(--fh-muted,#93a1b0);cursor:pointer;display:flex;align-items:center;justify-content:center}
   .fh-ic ha-icon{--mdc-icon-size:19px}
