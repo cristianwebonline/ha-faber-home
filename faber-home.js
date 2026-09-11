@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.73.0";
+const FH_VERSION = "0.74.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -1521,6 +1521,9 @@ class FaberHome extends HTMLElement {
         mostra_ventola: true, mostra_alette: true, mostra_programmi: true } },
       { g: "Faber", n: "Carichi reali", i: "mdi:gauge", c: { type: "custom:faber-carichi", title: "Carichi reali",
         totale: "", gruppo: "", prezzo_kwh: 0.30, soglia_media: 1500, soglia_alta: 2500, top: 5, soglia_acceso: 5, naviga: "" } },
+      { g: "Faber", n: "Adesso in casa", i: "mdi:flash-outline", c: { type: "custom:faber-carichi",
+        title: "Adesso in casa", compatta: true, totale: "", gruppo: "", prezzo_kwh: 0.30,
+        soglia_media: 1500, soglia_alta: 2500, top: 3, soglia_acceso: 5, naviga: "" } },
       { g: "Faber", n: "Consumi - tutto", i: "mdi:lightning-bolt", c: { title: "Consumi di casa",
         type: "custom:energia-consumi-card", days_back: 8, open_on: "today", prezzo_kwh: 0.30,
         soglia_media: 33, soglia_alta: 66, lampeggio_record: true } },
@@ -4083,6 +4086,11 @@ customElements.define("faber-weather-editor", FaberWeatherEditor);
 
 const FC_DEFAULTS = {
   title: "Carichi reali",
+  // La versione da home: una striscia bassa invece del pannello intero.
+  // Sulla pagina Consumi serve tutto — curva, legenda, non tracciato. Sulla
+  // home no: li serve sapere in un colpo d'occhio quanto sta tirando casa e
+  // chi sono i tre che tirano di piu. Il resto e a un tocco di distanza.
+  compatta: false,
   totale: "",
   gruppo: "",
   sensori: [],
@@ -4298,6 +4306,30 @@ class FaberCarichi extends HTMLElement {
     const lista = d.accesi.slice(0, c.top || 5);
     const nomi = fcNomiUnivoci(this._hass, d.voci.map(v => v.id), c.nomi);
 
+    this._card.classList.toggle("mini", !!c.compatta);
+    if (c.compatta) {
+      const primi = d.accesi.slice(0, Math.min(c.top || 3, 4));
+      this._body.innerHTML = `
+        <div class="fc-mtop">
+          <div class="fc-mtit">${fhEsc(c.title)}</div>
+          <div class="fc-mbig" style="color:${t.forte};--fh-giorno:${t.giorno || t.forte}">${fcW(d.totale)}<span>W</span></div>
+        </div>
+        <div class="fc-barra"><div class="fc-fill" style="width:${perc}%;background:${t.forte};box-shadow:0 0 10px ${t.forte}66"></div></div>
+        ${primi.length ? `<div class="fc-chips">
+          ${primi.map(v => `<button type="button" class="fc-chip" data-riga="${fhEsc(v.id)}">
+            <span class="fc-cn">${fhEsc(nomi[v.id])}</span><b style="color:${t.forte};--fh-giorno:${t.giorno || t.forte}">${fcW(v.w)} W</b>
+          </button>`).join("")}
+          ${d.accesi.length > primi.length ? `<span class="fc-cpiu">+${d.accesi.length - primi.length}</span>` : ""}
+        </div>` : `<div class="fc-vuoto">Adesso non c'e niente di acceso.</div>`}`;
+      this._body.querySelectorAll("[data-riga]").forEach(b => b.addEventListener("click", e => {
+        e.stopPropagation();
+        this.dispatchEvent(new CustomEvent("hass-more-info", {
+          detail: { entityId: b.dataset.riga }, bubbles: true, composed: true,
+        }));
+      }));
+      return;
+    }
+
     this._body.innerHTML = `
       <div class="fc-top">
         <div class="fc-tit">
@@ -4356,6 +4388,24 @@ const FC_CSS = `
   .fc-t1{font-size:15px;font-weight:800;letter-spacing:.2px}
   .fc-t2{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:1.2px;margin-top:3px}
   .fc-tot{text-align:right;flex:0 0 auto}
+  /* --- versione compatta, quella della home --- */
+  .fc.mini{padding:10px 12px}
+  .fc.mini .fc-body{display:flex;flex-direction:column;gap:7px}
+  .fc-mtop{display:flex;align-items:baseline;justify-content:space-between;gap:10px}
+  .fc-mtit{font-size:11px;font-weight:900;letter-spacing:.10em;text-transform:uppercase;opacity:.62}
+  .fc-mbig{font-size:26px;font-weight:900;line-height:1;letter-spacing:-.02em}
+  .fc-mbig span{font-size:12px;font-weight:800;margin-left:2px;opacity:.7}
+  .fc-chips{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+  .fc-chip{display:inline-flex;align-items:center;gap:6px;border:0;cursor:pointer;
+    padding:5px 9px;border-radius:999px;font:inherit;
+    background:rgba(255,255,255,.06);color:inherit}
+  .fh-app.chiaro .fc-chip{background:rgba(15,23,42,.06)}
+  .fc-chip:hover{background:rgba(255,255,255,.11)}
+  .fh-app.chiaro .fc-chip:hover{background:rgba(15,23,42,.11)}
+  .fc-cn{font-size:11.5px;font-weight:700;opacity:.85;max-width:120px;overflow:hidden;
+    text-overflow:ellipsis;white-space:nowrap}
+  .fc-chip b{font-size:11.5px;font-weight:900}
+  .fc-cpiu{font-size:11px;font-weight:800;opacity:.5;padding:0 2px}
   .fc-big{font-size:34px;font-weight:900;line-height:1;font-variant-numeric:tabular-nums}
   .fc-big span{font-size:15px;font-weight:800;opacity:.75;margin-left:3px}
   .fc-sub{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.6px;opacity:.6;margin-top:4px}
@@ -4493,6 +4543,13 @@ class FaberCarichiEditor extends HTMLElement {
           </div>
         </div>
 
+        <div class="fce-f">
+          <label class="fh-check" style="display:flex;align-items:center;gap:8px;cursor:pointer">
+            <input type="checkbox" id="fceMini"${c.compatta ? " checked" : ""}> Versione compatta
+          </label>
+          <span class="fce-h">Una striscia bassa: totale e i primi carichi, senza curva ne legenda. Per la home.</span>
+        </div>
+
         <div class="fce-riga2">
           <div class="fce-f">
             <label>Soglia "acceso" (W)</label>
@@ -4527,6 +4584,7 @@ class FaberCarichiEditor extends HTMLElement {
     q("#fceTop").addEventListener("change", e => this._set("top", parseInt(e.target.value)));
     q("#fceAcc").addEventListener("change", e => this._set("soglia_acceso", parseFloat(e.target.value) || 0));
     q("#fceNav").addEventListener("input", e => this._set("naviga", e.target.value));
+    q("#fceMini").addEventListener("change", e => this._set("compatta", e.target.checked));
 
     this.querySelectorAll(".fce-nome").forEach(inp => inp.addEventListener("input", e => {
       const nomi = Object.assign({}, this._cfg.nomi || {});
