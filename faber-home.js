@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.75.0";
+const FH_VERSION = "0.76.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -4211,6 +4211,7 @@ class FaberCarichi extends HTMLElement {
     this._hass = h;
     this._render();
     if (primo) this._caricaCurva();
+    this._caricaConfronto();   // si protegge da sola: una volta ogni dieci minuti
   }
 
   getCardSize() { return 5; }
@@ -4227,6 +4228,57 @@ class FaberCarichi extends HTMLElement {
   // L'andamento delle ultime ore. Una fila di barre e una fotografia: dice
   // quanto stai tirando adesso ma non se stai salendo o scendendo. La curva
   // e la cosa che si guarda per prima.
+  // Quanto abbiamo consumato oggi, contro ieri ALLA STESSA ORA. Il paragone
+  // con l'intera giornata di ieri non direbbe niente: alle otto di mattina
+  // saresti sempre "-80%". Si confrontano due fette uguali.
+  // Medie orarie, non letture grezze: sono 48 righe invece di migliaia.
+  async _caricaConfronto() {
+    const id = this._cfg.totale;
+    if (!id || !this._hass) return;
+    if (this._confrontoPer === id && Date.now() - (this._confrontoTs || 0) < 600000) return;
+    this._confrontoPer = id;
+    this._confrontoTs = Date.now();
+    try {
+      const ora = new Date();
+      const mezzanotte = new Date(ora.getFullYear(), ora.getMonth(), ora.getDate()).getTime();
+      const inizioIeri = new Date(ora.getFullYear(), ora.getMonth(), ora.getDate() - 1);
+      const st = await this._hass.callWS({
+        type: "recorder/statistics_during_period",
+        start_time: inizioIeri.toISOString(), end_time: ora.toISOString(),
+        statistic_ids: [id], period: "hour", types: ["mean"],
+      });
+      const righe = (st && st[id]) || [];
+      const oraAdesso = ora.getHours();
+      let oggi = 0, ieri = 0;
+      for (const r of righe) {
+        const w = parseFloat(r.mean);
+        if (!isFinite(w)) continue;
+        const d = new Date(r.start);
+        const kwh = Math.max(0, w) / 1000;
+        if (d.getTime() >= mezzanotte) oggi += kwh;
+        else if (d.getHours() <= oraAdesso) ieri += kwh;
+      }
+      // Sotto i 50 Wh il paragone e rumore: meglio non dire niente.
+      this._confronto = ieri > 0.05
+        ? { oggi, ieri, perc: Math.round(((oggi - ieri) / ieri) * 100) }
+        : null;
+    } catch (e) {
+      this._confronto = null;
+    }
+    this._imp = null;
+    this._render();
+  }
+
+  // La frase pronta, o vuoto se non c'e niente di sensato da dire.
+  _confrontoHTML() {
+    const k = this._confronto;
+    if (!k) return "";
+    const p = k.perc;
+    if (Math.abs(p) < 3) return `<div class="fc-ieri pari">come ieri a quest'ora</div>`;
+    const giu = p < 0;
+    return `<div class="fc-ieri ${giu ? "giu" : "su"}">${giu ? "&darr;" : "&uarr;"} ${Math.abs(p)}% di ieri</div>`;
+  }
+
   async _caricaCurva() {
     const id = this._cfg.totale;
     if (!id || !this._hass) return;
@@ -4334,7 +4386,10 @@ class FaberCarichi extends HTMLElement {
       this._body.innerHTML = `
         <div class="fc-mtop">
           <div class="fc-mtit">${fhEsc(c.title)}</div>
-          <div class="fc-mbig" style="color:${t.forte};--fh-giorno:${t.giorno || t.forte}">${fcW(d.totale)}<span>W</span></div>
+          <div class="fc-mnum">
+            <div class="fc-mbig" style="color:${t.forte};--fh-giorno:${t.giorno || t.forte}">${fcW(d.totale)}<span>W</span></div>
+            ${this._confrontoHTML()}
+          </div>
         </div>
         <div class="fc-barra"><div class="fc-fill" style="width:${perc}%;background:${t.forte};box-shadow:0 0 10px ${t.forte}66"></div></div>
         ${primi.length ? `<div class="fc-chips">
@@ -4361,6 +4416,7 @@ class FaberCarichi extends HTMLElement {
         <div class="fc-tot">
           <div class="fc-big" style="color:${t.forte};--fh-giorno:${t.giorno || t.forte}">${fcW(d.totale)}<span>W</span></div>
           <div class="fc-sub">${d.senzaTotale ? "somma dei monitorati" : "contatore di casa"}</div>
+          ${this._confrontoHTML()}
         </div>
       </div>
 
@@ -4414,6 +4470,13 @@ const FC_CSS = `
   .fc.mini{padding:10px 12px}
   .fc.mini .fc-body{display:flex;flex-direction:column;gap:7px}
   .fc-mtop{display:flex;align-items:baseline;justify-content:space-between;gap:10px}
+  .fc-mnum{text-align:right;flex:0 0 auto}
+  .fc-ieri{font-size:10.5px;font-weight:800;letter-spacing:.01em;margin-top:2px;white-space:nowrap}
+  .fc-ieri.giu{color:#39d98a}
+  .fc-ieri.su{color:#ffb020}
+  .fc-ieri.pari{opacity:.55}
+  .fh-app.chiaro .fc-ieri.giu{color:#128a52}
+  .fh-app.chiaro .fc-ieri.su{color:#a35b00}
   .fc-mtit{font-size:11px;font-weight:900;letter-spacing:.10em;text-transform:uppercase;opacity:.62}
   .fc-mbig{font-size:26px;font-weight:900;line-height:1;letter-spacing:-.02em}
   .fc-mbig span{font-size:12px;font-weight:800;margin-left:2px;opacity:.7}
