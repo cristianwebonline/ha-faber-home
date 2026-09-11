@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.76.0";
+const FH_VERSION = "0.76.1";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -4248,15 +4248,20 @@ class FaberCarichi extends HTMLElement {
         statistic_ids: [id], period: "hour", types: ["mean"],
       });
       const righe = (st && st[id]) || [];
-      const oraAdesso = ora.getHours();
+      // L'ora IN CORSO si esclude da tutti e due i lati. La media dell'ora
+      // corrente copre solo i minuti passati, ma moltiplicandola per un'ora
+      // intera la conteremmo piena: oggi risulterebbe gonfiato rispetto a
+      // ieri, che quell'ora l'aveva completa. Si confrontano solo ore chiuse.
+      const limite = ora.getHours();
       let oggi = 0, ieri = 0;
       for (const r of righe) {
         const w = parseFloat(r.mean);
         if (!isFinite(w)) continue;
         const d = new Date(r.start);
+        if (d.getHours() >= limite) continue;
         const kwh = Math.max(0, w) / 1000;
         if (d.getTime() >= mezzanotte) oggi += kwh;
-        else if (d.getHours() <= oraAdesso) ieri += kwh;
+        else ieri += kwh;
       }
       // Sotto i 50 Wh il paragone e rumore: meglio non dire niente.
       this._confronto = ieri > 0.05
