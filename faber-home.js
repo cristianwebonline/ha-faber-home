@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.74.0";
+const FH_VERSION = "0.75.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -1339,11 +1339,26 @@ class FaberHome extends HTMLElement {
         window.removeEventListener("pointermove", onMove, true);
         window.removeEventListener("pointerup", onUp, true);
         window.removeEventListener("pointercancel", onUp, true);
+        if (this.__mollaTocchi) { this.__mollaTocchi(); this.__mollaTocchi = null; }
         etichetta.remove();
         cfg.fh_h = Math.round(hNuova);
         colonna.span = spanNuovo;
         this._renderPage();
       };
+      // Col dito il browser manda DUE famiglie di eventi: pointer* e touch*.
+      // Qui sopra fermiamo i pointer, ma chi fa scorrere le viste (la
+      // navigazione a scorrimento di Home Assistant) ascolta i touch: vedeva
+      // il trascinamento orizzontale come una sfogliata e cambiava schermata
+      // mentre stavi ridimensionando. Finche si trascina, i touch li
+      // ingoiamo noi in fase di cattura, cioe prima che arrivino a chiunque.
+      const ingoia = e => { e.stopPropagation(); if (e.cancelable) e.preventDefault(); };
+      window.addEventListener("touchstart", ingoia, { capture: true, passive: false });
+      window.addEventListener("touchmove", ingoia, { capture: true, passive: false });
+      this.__mollaTocchi = () => {
+        window.removeEventListener("touchstart", ingoia, true);
+        window.removeEventListener("touchmove", ingoia, true);
+      };
+
       mostra();
       window.addEventListener("pointermove", onMove, true);
       window.addEventListener("pointerup", onUp, true);
@@ -3361,6 +3376,13 @@ const FH_CSS = `
     touch-action:none;border-radius:0 0 14px 0;
     background:linear-gradient(135deg,transparent 46%,rgba(255,176,32,.85) 46%);
     border-right:2px solid rgba(255,176,32,.85);border-bottom:2px solid rgba(255,176,32,.85)}
+  /* Col dito 22px non si prendono: si manca l'angolo, il tocco finisce sulla
+     card e il trascinamento diventa una sfogliata. Su schermo tattile
+     l'area sensibile cresce, il disegno resta uguale. */
+  @media (pointer:coarse){
+    .fh-ang{width:38px;height:38px;right:-6px;bottom:-6px;
+      background:linear-gradient(135deg,transparent 62%,rgba(255,176,32,.85) 62%)}
+  }
   .fh-misura{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:5;
     padding:5px 10px;border-radius:9px;font-size:11.5px;font-weight:800;white-space:nowrap;
     background:rgba(10,12,16,.9);color:var(--fh-c-soft,#ffe9c2);border:1px solid rgba(255,176,32,.5)}
