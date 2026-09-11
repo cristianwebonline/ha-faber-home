@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.77.0";
+const FH_VERSION = "0.77.1";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -4892,7 +4892,7 @@ class FaberPC extends HTMLElement {
     const perc = imm ? Math.min(100, ((tot || 0) / imm) * 100) : 0;
 
     const impronta = [l.map(x => x.pos + x.id + Math.round(x.w || 0) + x.sospesa).join(","),
-      tot, imm, rit, attivo, this._occupato, this._apri, this._filtro].join("|");
+      tot, imm, rit, attivo, this._occupato, this._apri, this._filtro, this._modifica].join("|");
     if (impronta === this._segno) return;
     this._segno = impronta;
 
@@ -4913,8 +4913,8 @@ class FaberPC extends HTMLElement {
       <div class="pc-barra"><div class="pc-fill ${tono}" style="width:${perc}%"></div>
         <div class="pc-tacca" style="left:${imm ? (rit / imm) * 100 : 0}%"></div></div>
       <div class="pc-leg">
-        <span>contratto <b data-edit="rit">${pcW(rit)} W</b> per ${this._num("input_number.tempo_stop_ritardato") || "—"} min</span>
-        <span>picco <b data-edit="imm">${pcW(imm)} W</b> per ${this._num("input_number.tempo_stop_immediato") || "—"} s</span>
+        <span>contratto ${this._sogliaHTML("rit", rit)} per ${this._num("input_number.tempo_stop_ritardato") || "—"} min</span>
+        <span>picco ${this._sogliaHTML("imm", imm)} per ${this._num("input_number.tempo_stop_immediato") || "—"} s</span>
       </div>
 
       ${sospesi.length ? `<div class="pc-sosp">
@@ -4954,21 +4954,45 @@ class FaberPC extends HTMLElement {
       { entity_id: "input_boolean.attiva_power_control" });
     const add = q('[data-act="aggiungi"]');
     if (add) add.onclick = () => { this._apri = true; this._segno = null; this._render(); };
-    this._body.querySelectorAll("[data-edit]").forEach(b => b.onclick = () => this._modificaSoglia(b.dataset.edit));
+    this._body.querySelectorAll("[data-edit]").forEach(b => b.onclick = () => {
+      this._modifica = b.dataset.edit; this._segno = null; this._render();
+      const c = this._body.querySelector("[data-sin]"); if (c) { c.focus(); c.select(); }
+    });
+    this._body.querySelectorAll("[data-ok]").forEach(b => b.onclick = () => this._salvaSoglia(b.dataset.ok));
+    this._body.querySelectorAll("[data-no]").forEach(b => b.onclick = () => {
+      this._modifica = null; this._segno = null; this._render();
+    });
+    const sin = this._body.querySelector("[data-sin]");
+    if (sin) sin.onkeydown = e => {
+      if (e.key === "Enter") this._salvaSoglia(sin.dataset.sin);
+      if (e.key === "Escape") { this._modifica = null; this._segno = null; this._render(); }
+    };
     this._wirePicker();
   }
 
-  // Le soglie si cambiano al tocco, senza andare a cercare gli helper.
-  async _modificaSoglia(quale) {
-    const id = quale === "imm" ? "input_number.potenza_massima_immediato" : "input_number.potenza_massima_ritardato";
-    const ora = this._num(id);
-    const v = window.prompt(quale === "imm"
-      ? "Potenza di picco: oltre questa stacca subito (W)"
-      : "Potenza di contratto: oltre questa stacca dopo l'attesa lunga (W)", String(ora));
-    if (v === null) return;
-    const n = parseInt(String(v).replace(/[^0-9]/g, ""), 10);
-    if (!isFinite(n) || n <= 0) return;
-    await this._hass.callService("input_number", "set_value", { entity_id: id, value: n });
+  // Le soglie si cambiano al tocco, dentro la card. NIENTE window.prompt: nella
+  // WebView dell'app Companion quella finestrella non compare proprio, e il
+  // tasto sembra rotto. Gia successo altrove, non si ripete.
+  _sogliaHTML(quale, valore) {
+    if (this._modifica !== quale) {
+      return `<b data-edit="${quale}">${pcW(valore)} W</b>`;
+    }
+    return `<span class="pc-edit">
+      <input type="number" inputmode="numeric" class="pc-sin" data-sin="${quale}" value="${Math.round(valore || 0)}" min="100" step="50">
+      <button type="button" data-ok="${quale}" title="Conferma">&#10003;</button>
+      <button type="button" data-no="1" title="Annulla">&times;</button>
+    </span>`;
+  }
+
+  async _salvaSoglia(quale) {
+    const campo = this._body.querySelector(`[data-sin="${quale}"]`);
+    if (!campo) return;
+    const n = parseInt(String(campo.value).replace(/[^0-9]/g, ""), 10);
+    this._modifica = null;
+    if (isFinite(n) && n > 0) {
+      const id = quale === "imm" ? "input_number.potenza_massima_immediato" : "input_number.potenza_massima_ritardato";
+      await this._hass.callService("input_number", "set_value", { entity_id: id, value: n });
+    }
     this._segno = null; this._render();
   }
 
@@ -5050,6 +5074,12 @@ const PC_CSS = `
   .fh-app.chiaro .pc-tacca{background:rgba(15,23,42,.45)}
   .pc-leg{display:flex;justify-content:space-between;gap:10px;font-size:10.5px;font-weight:700;opacity:.75;flex-wrap:wrap}
   .pc-leg b{cursor:pointer;border-bottom:1px dashed currentColor;font-weight:900}
+  .pc-edit{display:inline-flex;align-items:center;gap:4px;vertical-align:middle}
+  .pc-sin{width:76px;padding:3px 6px;border-radius:7px;font:inherit;font-size:11.5px;font-weight:900;
+    border:1px solid rgba(255,176,32,.6);background:rgba(255,255,255,.08);color:inherit}
+  .fh-app.chiaro .pc-sin{background:#fff;color:#12161c}
+  .pc-edit button{width:24px;height:24px;border:0;border-radius:7px;cursor:pointer;font:inherit;
+    font-size:12px;font-weight:900;background:rgba(255,176,32,.25);color:inherit}
   .pc-sosp{padding:9px 11px;border-radius:12px;background:rgba(255,84,66,.12);
     border:1px solid rgba(255,84,66,.3);font-size:11.5px;display:flex;flex-direction:column;gap:3px}
   .pc-sosp b{font-size:12px}
