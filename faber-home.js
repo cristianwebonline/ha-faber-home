@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.84.1";
+const FH_VERSION = "0.85.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -764,9 +764,26 @@ class FaberHome extends HTMLElement {
   // dalle card che ci portano, e in modifica si vedono comunque (senno non si
   // potrebbero piu sistemare).
   _pagineVisibili() {
-    return this._cfg.pages
-      .map((pg, i) => ({ pg, i }))
-      .filter(x => this._edit || !x.pg.nascosta);
+    const tutte = this._cfg.pages.map((pg, i) => ({ pg, i }));
+    if (this._edit) return tutte;
+    // LA BARRA SEGUE LA STANZA.
+    // Dentro una stanza la barra generale non serve a niente: quello che vuoi
+    // li sono le cose di QUELLA stanza. Una pagina nascosta puo quindi
+    // dichiarare `barra: ["id", "id"]` e la barra diventa: Casa, la stanza in
+    // cui sei, e le sue pagine. Senza `barra` si comporta come prima.
+    const ora = tutte[this._page];
+    if (ora && ora.pg.nascosta && Array.isArray(ora.pg.barra) && ora.pg.barra.length) {
+      const voci = [];
+      const casa = tutte.find(x => !x.pg.nascosta);
+      if (casa) voci.push(casa);
+      voci.push(ora);
+      ora.pg.barra.forEach(id => {
+        const v = tutte.find(x => x.pg.id === id);
+        if (v && !voci.includes(v)) voci.push(v);
+      });
+      return voci;
+    }
+    return tutte.filter(x => !x.pg.nascosta);
   }
 
   _renderNav() {
