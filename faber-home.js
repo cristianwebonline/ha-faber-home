@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.92.0";
+const FH_VERSION = "0.92.1";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -2910,6 +2910,8 @@ class FaberHome extends HTMLElement {
       else salvaSeServe();
       draw();
     });
+    box.querySelectorAll(".fh-frecce button").forEach(b =>
+      b.addEventListener("click", e => e.stopPropagation()));
     box.querySelectorAll("[data-scena]").forEach(b => b.addEventListener("click", () => {
       const pg = this._cfg.pages[+b.dataset.scena];
       const ora = fhTipoStanza(pg);
@@ -2947,7 +2949,7 @@ class FaberHome extends HTMLElement {
       }
       draw();
     });
-    if (!ord) {
+    if (!ord && !mod) {
       box.querySelectorAll("[data-vai]").forEach(b => b.addEventListener("click", () => {
         const i = parseInt(b.dataset.vai, 10);
         const scrim = this.querySelector(".fh-scrim");
