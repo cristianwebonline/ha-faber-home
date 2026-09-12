@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.84.0";
+const FH_VERSION = "0.84.1";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -7638,6 +7638,10 @@ class FaberMedia extends HTMLElement {
           container-type:inline-size;
           font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
           color:var(--fm-ink);border-radius:26px;padding:20px 18px 22px;
+          /* Un telecomando largo un metro non e un telecomando. Oltre una certa
+             larghezza la card smette di allargarsi e si mette in mezzo: sul
+             telefono riempie, sul tablet resta a misura di pollice. */
+          max-width:520px;margin-inline:auto;
           background:var(--fm-glass);box-shadow:0 14px 34px rgba(20,26,40,.14);
           transition:background .6s ease,color .6s ease}
         .fh-app:not(.chiaro) .fm{--fm-ink:#eaf1f8;--fm-fade:rgba(234,241,248,.6);
