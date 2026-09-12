@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.93.1";
+const FH_VERSION = "0.94.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -2843,7 +2843,7 @@ class FaberHome extends HTMLElement {
       if (tr) tr.addEventListener("click", () => {
         const s = this.querySelector(".fh-scrim"); if (s) s.remove();
         this._modificaStanze = true;
-        this._apriStanze();
+        this._apriStanze(true);
       });
       box.querySelectorAll("[data-scena]").forEach(b => b.addEventListener("click", () => {
         pg.arte = b.dataset.scena;
@@ -2890,7 +2890,7 @@ class FaberHome extends HTMLElement {
       this._modificaStanze = true;
       const s = this.querySelector(".fh-scrim"); if (s) s.remove();
       this._renderNav();
-      this._apriStanze();
+      this._apriStanze(true);
     }));
     box.querySelector("[data-crea]").addEventListener("click", () => {
       this._chiediNome("", nome => {
@@ -2919,7 +2919,7 @@ class FaberHome extends HTMLElement {
       const v = inp.value.trim();
       chiudi();
       poi(v);
-      this._apriStanze();
+      this._apriStanze(true);
     });
     setTimeout(() => inp.focus(), 60);
     return scrim;
@@ -2928,10 +2928,13 @@ class FaberHome extends HTMLElement {
   // L'elenco delle stanze, con dentro quello che gia sai di ognuna: la
   // temperatura se c'e un termometro, quanto tira se c'e un sensore. Toccare
   // una stanza ci porta dentro.
-  _apriStanze() {
+  _apriStanze(mantieni) {
     fhVibra(8);
     const box = document.createElement("div");
-    this._ordinaStanze = false;
+    // Chi riapre l'elenco dalla barra vuole l'elenco, non l'officina: le
+    // modalita si spengono. Le riaperture nostre (torno dalla scelta del
+    // disegno, ho appena dato un nome) passano `mantieni` e restano dov'erano.
+    if (!mantieni) { this._ordinaStanze = false; this._modificaStanze = false; }
     const draw = () => {
     const stanze = this._cfg.pages.map((p, i) => ({ p, i })).filter(x => x.p.stanza);
     const ord = this._ordinaStanze, mod = this._modificaStanze;
@@ -2972,8 +2975,8 @@ class FaberHome extends HTMLElement {
       ${mod ? `<button type="button" class="fh-stanza aggiungi" data-nuova>
         <ha-icon icon="mdi:plus"></ha-icon><span class="fh-stanzanome">Nuova stanza</span></button>` : ""}
       </div>
-      ${ord ? `<div class="fh-note">Le frecce spostano la stanza nell'elenco. Premi <b>Fatto</b> per salvare: se chiudi prima, l'ordine torna com'era.</div>` : ""}
-      ${mod ? `<div class="fh-note">La tavolozza cambia il disegno, la matita il nome, la <b>&times;</b> toglie la stanza dall'elenco (la pagina resta, non si cancella niente). Premi <b>Fatto</b> per salvare.</div>` : ""}`;
+      ${ord ? `<div class="fh-note">Le frecce spostano la stanza nell'elenco. Si salva premendo <b>Fatto</b> o chiudendo il foglio.</div>` : ""}
+      ${mod ? `<div class="fh-note">La tavolozza cambia il disegno, la matita il nome, la <b>&times;</b> toglie la stanza dall'elenco (la pagina resta, non si cancella niente). Si salva premendo <b>Fatto</b> o chiudendo il foglio.</div>` : ""}`;
 
     const salvaSeServe = () => {
       if (this._stanzeMosse) { this._stanzeMosse = false; this._save(true); }
@@ -3042,7 +3045,16 @@ class FaberHome extends HTMLElement {
     box.querySelectorAll("[data-giu]").forEach(b => b.addEventListener("click", () => sposta(+b.dataset.giu, 1)));
     };
     draw();
-    this._sheet("Stanze", box, false);
+    const scrim = this._sheet("Stanze", box, false);
+    // La X e il tocco fuori chiudono: se qualcosa era stato cambiato si salva
+    // lo stesso. Meglio salvare che far rifare il lavoro.
+    const chiusura = new MutationObserver(() => {
+      if (!scrim.isConnected) {
+        chiusura.disconnect();
+        if (this._stanzeMosse) { this._stanzeMosse = false; this._save(true); }
+      }
+    });
+    chiusura.observe(this.querySelector(".fh-app"), { childList: true });
   }
 
   // Quali pagine aggiungere alla barra quando si e dentro QUESTA pagina.
