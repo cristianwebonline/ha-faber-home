@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.96.1";
+const FH_VERSION = "0.97.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -1073,39 +1073,56 @@ class FaberHome extends HTMLElement {
     // sbiadite come quando compaiono per sbaglio nella barra generale.
     const pgOra = this._cfg.pages[this._page];
     const modoStanza = !this._edit && pgOra && pgOra.nascosta;
-    // Il cerchio ambra rialzato NON è una voce fissa: marca la pagina attiva,
-    // e si sposta quando cambi pagina.
-    nav.innerHTML = `<div class="fh-navbar">${voci.map(({ pg: p, i }) => i === this._page
-      ? `<button type="button" class="fh-navitem active" data-page="${i}">
-           <span class="fh-navcircle"><ha-icon icon="${fhEsc(p.icon || "mdi:circle")}"></ha-icon></span>
-           <span class="fh-navlabel">${fhEsc(p.title || "")}</span>
-         </button>`
-      : `<button type="button" class="fh-navitem${p.nascosta && !modoStanza ? " nascosta" : ""}" data-page="${i}">
+    const stanze = this._cfg.pages.filter(p => p.stanza);
+    const conStanze = stanze.length > 0 && !this._edit;
+    // L'IMPRONTA DELLA BARRA.
+    // Finche le voci sono le stesse la barra NON si ricostruisce: si sposta
+    // solo il cerchio. E l'unico modo perche lo spostamento si veda — un
+    // elemento appena creato non ha da dove partire, e il cerchio saltava.
+    const firma = voci.map(({ pg: p }) =>
+      [p.id, p.title || "", p.icon || "", p.nascosta ? 1 : 0].join("~")).join("|") +
+      "||" + (conStanze ? "S" : "-") + (modoStanza ? "m" : "-") + (this._edit ? "e" : "-");
+
+    if (this._navFirma !== firma || !nav.querySelector(".fh-navbar")) {
+      // Il cerchio ambra sta FUORI dalla barra che scorre: quando le voci sono
+      // tante la barra diventa un contenitore a scorrimento, e un contenitore
+      // a scorrimento taglia tutto quello che sporge — cerchio compreso.
+      nav.innerHTML = `<div class="fh-navwrap">
+        <span class="fh-blob" data-blob><ha-icon data-blobicon></ha-icon></span>
+        <div class="fh-navbar">${voci.map(({ pg: p, i }) =>
+        `<button type="button" class="fh-navitem${p.nascosta && !modoStanza ? " nascosta" : ""}" data-page="${i}">
            <ha-icon icon="${fhEsc(p.icon || "mdi:circle-outline")}"></ha-icon>
            <span class="fh-navlabel">${fhEsc(p.title || "")}</span>
-         </button>`).join("")}</div>`;
-    // IL TASTO STANZE.
-    // Con una pagina per stanza la barra non le puo contenere tutte, e la Casa
-    // riempita di tessere diventa un muro. Cosi le stanze stanno dietro un
-    // tasto solo: si tocca, si sceglie, si e dentro.
-    const stanze = this._cfg.pages.filter(p => p.stanza);
-    if (stanze.length && !this._edit) {
-      const barra = nav.querySelector(".fh-navbar");
-      const b = document.createElement("button");
-      b.type = "button";
-      b.className = "fh-navitem";
-      b.innerHTML = `<ha-icon icon="mdi:floor-plan"></ha-icon><span class="fh-navlabel">Stanze</span>`;
-      b.addEventListener("click", () => this._apriStanze());
-      barra.appendChild(b);
+         </button>`).join("")}</div>
+      </div>`;
+      // IL TASTO STANZE.
+      // Con una pagina per stanza la barra non le puo contenere tutte, e la
+      // Casa riempita di tessere diventa un muro. Cosi le stanze stanno dietro
+      // un tasto solo: si tocca, si sceglie, si e dentro.
+      const barra0 = nav.querySelector(".fh-navbar");
+      if (conStanze) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "fh-navitem";
+        b.innerHTML = `<ha-icon icon="mdi:floor-plan"></ha-icon><span class="fh-navlabel">Stanze</span>`;
+        b.addEventListener("click", () => this._apriStanze());
+        barra0.appendChild(b);
+      }
+      nav.querySelectorAll("[data-page]").forEach(b => b.addEventListener("click", () => {
+        const i = parseInt(b.dataset.page, 10);
+        if (i === this._page) return;
+        this._vaiPagina(i);
+      }));
+      // Trascinando la barra col dito il cerchio deve restare attaccato alla
+      // sua voce: si muove insieme al contenuto, senza animazione (durante il
+      // trascinamento un'animazione lo farebbe arrancare dietro al dito).
+      barra0.addEventListener("scroll", () => this._muoviBlob(nav, true), { passive: true });
+      this._navFirma = firma;
+      this._navNuova = true;
     }
-    nav.querySelectorAll("[data-page]").forEach(b => b.addEventListener("click", () => {
-      const i = parseInt(b.dataset.page, 10);
-      if (i === this._page) return;
-      this._vaiPagina(i);
-    }));
-    // La barra e appena stata ridisegnata e puo aver cambiato altezza (una
-    // pagina in piu, una nascosta): rimisuro, senno lo spazio sotto resta
-    // tarato su quella di prima e l'ultima card finisce coperta.
+    // La barra puo aver cambiato altezza (una pagina in piu, una nascosta):
+    // rimisuro, senno lo spazio sotto resta tarato su quella di prima e
+    // l'ultima card finisce coperta.
     this._misuraNav();
     // Ora che ci sono tutte le voci (Stanze compreso) si guarda se ci stanno:
     // se non ci stanno la barra scorre invece di schiacciarle in tacche
@@ -1113,10 +1130,67 @@ class FaberHome extends HTMLElement {
     this._adattaBarra(nav);
     // Se la barra scorre, la voce attiva si porta al centro da sola.
     const barra = nav.querySelector(".fh-navbar.molte");
-    const attiva = barra && barra.querySelector(".fh-navitem.active");
+    const attiva = barra && barra.querySelector(`[data-page="${this._page}"]`);
     if (barra && attiva) {
       barra.scrollLeft = Math.max(0, attiva.offsetLeft - (barra.clientWidth - attiva.offsetWidth) / 2);
     }
+    this._segnaAttiva(nav);
+  }
+
+  // IL CERCHIO CHE SCIVOLA.
+  // Marcare la voce attiva e una cosa; farlo VEDERE e un'altra. Il cerchio si
+  // sposta da solo fino alla voce nuova, con una molla che lo fa arrivare un
+  // filo oltre e rientrare: e quel mezzo secondo che dice "sei passato di li".
+  _segnaAttiva(nav) {
+    const barra = nav.querySelector(".fh-navbar");
+    if (!barra) return;
+    let attiva = null;
+    barra.querySelectorAll(".fh-navitem").forEach(b => {
+      const sua = b.dataset.page !== undefined && parseInt(b.dataset.page, 10) === this._page;
+      b.classList.toggle("active", sua);
+      if (sua) attiva = b;
+    });
+    const blob = nav.querySelector("[data-blob]");
+    if (!blob) return;
+    // Nessuna voce corrisponde (capita in modifica, con una pagina fuori
+    // dall'elenco): il cerchio si ritira invece di restare fermo a mentire.
+    blob.classList.toggle("via", !attiva);
+    if (!attiva) return;
+    const ic = blob.querySelector("[data-blobicon]");
+    const pg = this._cfg.pages[this._page] || {};
+    const icona = pg.icon || "mdi:circle";
+    if (ic.getAttribute("icon") !== icona) {
+      // Il disegno cambia a meta corsa: cosi il cerchio sembra portarsi dietro
+      // la pagina, invece di cambiare faccia prima ancora di partire.
+      ic.classList.add("cambia");
+      clearTimeout(this._blobT);
+      this._blobT = setTimeout(() => {
+        ic.setAttribute("icon", icona);
+        ic.classList.remove("cambia");
+      }, 170);
+    }
+    this._muoviBlob(nav, this._navNuova);
+    this._navNuova = false;
+  }
+
+  // Dove va il cerchio: sopra la voce attiva, tenendo conto di quanto la barra
+  // e scorsa. `secco` salta l'animazione (prima comparsa, o dito che trascina).
+  _muoviBlob(nav, secco) {
+    const barra = nav.querySelector(".fh-navbar");
+    const blob = nav.querySelector("[data-blob]");
+    if (!barra || !blob) return;
+    const attiva = barra.querySelector(".fh-navitem.active");
+    if (!attiva) return;
+    let x = barra.offsetLeft + attiva.offsetLeft - barra.scrollLeft
+      + attiva.offsetWidth / 2 - 27;
+    // Non esce mai dalla barra: se trascini lontano si ferma al bordo invece
+    // di andare a spasso sullo sfondo.
+    const min = barra.offsetLeft + 3;
+    const max = barra.offsetLeft + barra.clientWidth - 57;
+    x = Math.min(Math.max(x, min), Math.max(min, max));
+    if (secco) blob.style.transition = "none";
+    blob.style.transform = `translateX(${Math.round(x)}px)`;
+    if (secco) { void blob.offsetWidth; blob.style.transition = ""; }
   }
 
 
@@ -4076,6 +4150,7 @@ const FH_CSS = `
     mask-image:linear-gradient(90deg,transparent 0,#000 18px,#000 calc(100% - 18px),transparent 100%)}
   .fh-navbar.molte::-webkit-scrollbar{display:none}
   .fh-navbar.molte .fh-navitem{flex:0 0 auto;min-width:66px;scroll-snap-align:center}
+  .fh-navwrap{position:relative;display:flex;justify-content:center;pointer-events:none}
   .fh-navbar{display:flex;align-items:flex-end;justify-content:space-around;gap:4px;
     max-width:560px;margin:0 auto;padding:8px 10px;pointer-events:auto;
     background:var(--fh-panel,rgba(30,38,48,.78));border:1px solid var(--fh-stroke,rgba(255,255,255,.09));border-radius:26px;
@@ -4155,17 +4230,31 @@ const FH_CSS = `
     border-radius:50%;background:var(--fh-muted,#93a1b0)}
   .fh-navitem{position:relative;flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:3px;
     padding:7px 4px;border:none;background:none;cursor:pointer;font:inherit;color:var(--fh-muted,#93a1b0);transition:color .2s}
-  .fh-navitem ha-icon{--mdc-icon-size:23px}
+  .fh-navitem ha-icon{--mdc-icon-size:23px;transition:opacity .22s ease}
   .fh-navlabel{font-size:10.5px;font-weight:700;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .fh-navitem:hover{color:var(--fh-ink,#eaf1f8)}
   /* Pagina attiva: il cerchio rialzato si sposta qui — è il modo in cui si
      capisce dove si è senza leggere le etichette. */
   .fh-navitem.active{color:var(--fh-ink,#eaf1f8)}
-  .fh-navcircle{width:54px;height:54px;border-radius:50%;display:flex;align-items:center;justify-content:center;
-    margin-top:-30px;background:linear-gradient(150deg,#ffc55c,#ffb020 55%,#e6890a);
+  /* Il cerchio non appartiene a nessuna voce: e uno solo, e scivola.
+     La curva non e lineare - parte deciso, arriva un filo oltre e rientra,
+     come una cosa che ha un peso. */
+  .fh-blob{position:absolute;left:0;top:-15px;width:54px;height:54px;border-radius:50%;
+    display:flex;align-items:center;justify-content:center;pointer-events:none;z-index:2;
+    background:linear-gradient(150deg,#ffc55c,#ffb020 55%,#e6890a);
     box-shadow:0 8px 22px rgba(255,176,32,.42),0 2px 6px rgba(0,0,0,.3);
-    border:2px solid var(--fh-panel,rgba(13,20,32,.9))}
-  .fh-navcircle ha-icon{--mdc-icon-size:27px;color:#1c1400}
+    border:2px solid var(--fh-panel,rgba(13,20,32,.9));
+    transition:transform .46s cubic-bezier(.22,1.12,.34,1),opacity .2s}
+  .fh-blob ha-icon{--mdc-icon-size:27px;color:#1c1400;
+    transition:opacity .15s ease,transform .15s ease}
+  .fh-blob ha-icon.cambia{opacity:0;transform:scale(.55)}
+  .fh-blob.via{opacity:0}
+  /* Sotto il cerchio l'icona della voce si toglie di mezzo: sfuma mentre il
+     cerchio arriva, e ricompare quando se ne va. */
+  .fh-navitem.active > ha-icon{opacity:0}
+  @media (prefers-reduced-motion: reduce){
+    .fh-blob,.fh-blob ha-icon{transition:none}
+  }
 
   /* ---- modalita modifica ---- */
   /* fixed come la barra in basso, che si e visto funzionare qui dentro:
