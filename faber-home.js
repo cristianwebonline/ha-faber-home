@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.80.0";
+const FH_VERSION = "0.81.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -3146,6 +3146,7 @@ const FH_CSS = `
   .fh-app.vetro.chiaro .cec{--cec-panel:rgba(255,255,255,.62)!important;--cec-ink:#12161c!important;--cec-muted:#4b5563!important}
   .fh-app.vetro.chiaro .fc,
   .fh-app.vetro.chiaro .fk,
+  .fh-app.vetro.chiaro .pc,
   .fh-app.vetro.chiaro .fp{background:rgba(255,255,255,.62)!important;color:#12161c!important;
     border-color:rgba(15,23,42,.12)!important}
 
@@ -4918,6 +4919,8 @@ class FaberPC extends HTMLElement {
       mar: this._n("input_number.controllo_carichi_margine_prima_del_picco") || 0,
       acceso: this._n("input_number.controllo_carichi_carico_acceso_sopra") || 0,
       voce: this._s("input_boolean.controllo_carichi_avvisi_vocali") === "on",
+      dest: this._lista_testo("input_text.controllo_carichi_destinatari_avvisi"),
+      alto: this._lista_testo("input_text.controllo_carichi_altoparlanti_avvisi"),
       attivo: this._s("input_boolean.attiva_power_control") === "on",
     };
     this._partenza = JSON.stringify(this._bozza);
@@ -4934,6 +4937,12 @@ class FaberPC extends HTMLElement {
     this._pop.onclick = e => { if (e.target === this._pop) this._chiudi(); };
     this._registro();   // registro entita per l'accoppiamento automatico
     this._disegnaPopup();
+  }
+
+  _lista_testo(ent) {
+    const v = this._s(ent) || "";
+    if (["unknown", "unavailable"].includes(v)) return [];
+    return v.split(",").map(x => x.trim()).filter(Boolean);
   }
 
   _chiudi() { this._pop.classList.remove("on"); this._bozza = null; this._segno = null; this._disegna(); }
@@ -5010,6 +5019,18 @@ class FaberPC extends HTMLElement {
   // dispositivo. Non vale per i misuratori separati (il piano induzione ha il
   // sensore su un device e il rele su un altro): li torna vuoto e si sceglie
   // a mano, invece di indovinare.
+  _serviziNotifica() {
+    const s = (this._hass && this._hass.services && this._hass.services.notify) || {};
+    const scarta = ["notify", "send_message", "persistent_notification"];
+    const bello = k => k.replace(/^mobile_app_/, "").replace(/^alexa_media_/, "")
+      .replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+    const chiavi = Object.keys(s).filter(k => !scarta.includes(k));
+    return {
+      telefoni: chiavi.filter(k => !k.startsWith("alexa_media_")).map(k => ({ id: k, nome: bello(k) })),
+      voce: chiavi.filter(k => k.startsWith("alexa_media_")).map(k => ({ id: k, nome: bello(k) })),
+    };
+  }
+
   _presaDi(idSensore) {
     if (!this._reg) return "";
     const e = this._reg.ents.find(x => x.entity_id === idSensore);
@@ -5034,6 +5055,7 @@ class FaberPC extends HTMLElement {
 
   _disegnaPopup() {
     const b = this._bozza, H = this._hass.states;
+    const sn = this._serviziNotifica();
     const cambiato = JSON.stringify(b) !== this._partenza;
     this._modal.innerHTML = `
       <div class="pc-mh">
@@ -5077,6 +5099,25 @@ class FaberPC extends HTMLElement {
         <div class="pc-nota"><b>Riaccende dopo</b>: i minuti di calma sotto soglia prima che i carichi
           staccati tornino su, uno alla volta. <b>Carico acceso sopra</b>: sotto questi watt un carico
           e considerato spento e viene saltato, senza sprecare un distacco.</div>
+
+        <div class="pc-lab">Avvisi <small>chi riceve la notifica sul telefono</small></div>
+        <div class="pc-dest">
+          ${sn.telefoni.length ? sn.telefoni.map(x => `<label class="pc-chk">
+            <input type="checkbox" data-dest="${fhEsc(x.id)}" ${b.dest.includes(x.id) ? "checked" : ""}>
+            <span>${fhEsc(x.nome)}</span></label>`).join("")
+            : `<div class="pc-nota">Nessun servizio di notifica trovato.</div>`}
+        </div>
+        ${b.dest.join(",").length > 255 ? `<div class="pc-nota rosso">Troppi dispositivi: la lista supera i 255 caratteri e non si salva. Togline qualcuno.</div>` : ""}
+
+        <div class="pc-lab">Voce <small>chi lo dice ad alta voce</small></div>
+        <div class="pc-dest">
+          ${sn.voce.length ? sn.voce.map(x => `<label class="pc-chk">
+            <input type="checkbox" data-alto="${fhEsc(x.id)}" ${b.alto.includes(x.id) ? "checked" : ""}>
+            <span>${fhEsc(x.nome)}</span></label>`).join("")
+            : `<div class="pc-nota">Nessun altoparlante trovato.</div>`}
+        </div>
+        <div class="pc-nota">La spunta <b>Avvisi a voce</b> in cima spegne tutte le voci in un colpo,
+          senza perdere questa scelta.</div>
 
         <div class="pc-lab">Ordine <small>in cima = staccato per <b>ultimo</b>, in fondo = il primo a cadere</small></div>
         <div class="pc-lista">
@@ -5146,6 +5187,22 @@ class FaberPC extends HTMLElement {
       b.imm = Math.floor((disp * (1 + b.mar / 100)) / 50) * 50;
       this._disegnaPopup();
     };
+    const aggiornaSalva = () => {
+      const ok = m.querySelector("[data-salva]");
+      if (ok) ok.disabled = JSON.stringify(b) === this._partenza;
+    };
+    m.querySelectorAll("[data-dest]").forEach(x => x.onchange = e => {
+      const id = e.target.dataset.dest;
+      if (e.target.checked) { if (!b.dest.includes(id)) b.dest.push(id); }
+      else b.dest = b.dest.filter(y => y !== id);
+      aggiornaSalva();
+    });
+    m.querySelectorAll("[data-alto]").forEach(x => x.onchange = e => {
+      const id = e.target.dataset.alto;
+      if (e.target.checked) { if (!b.alto.includes(id)) b.alto.push(id); }
+      else b.alto = b.alto.filter(y => y !== id);
+      aggiornaSalva();
+    });
     const sv = m.querySelector("[data-voce]");
     if (sv) sv.onchange = e => { b.voce = e.target.checked; this._disegnaPopup(); };
     const nuovo = m.querySelector("[data-nuovo]");
@@ -5212,6 +5269,16 @@ class FaberPC extends HTMLElement {
         azioni.push({ dominio: "input_number", servizio: "set_value", dati: { entity_id: ent, value: v } });
       }
     });
+    const testi = [
+      ["input_text.controllo_carichi_destinatari_avvisi", b.dest.join(",")],
+      ["input_text.controllo_carichi_altoparlanti_avvisi", b.alto.join(",")],
+    ];
+    testi.forEach(([ent, v]) => {
+      if (v.length > 255) { console.warn("[faber-pc] lista troppo lunga, non salvata:", ent); return; }
+      if (H[ent] && H[ent].state !== v) {
+        azioni.push({ dominio: "input_text", servizio: "set_value", dati: { entity_id: ent, value: v } });
+      }
+    });
     const attivoOra = this._s("input_boolean.attiva_power_control") === "on";
     if (attivoOra !== b.attivo) {
       azioni.push({ dominio: "input_boolean", servizio: b.attivo ? "turn_on" : "turn_off", dati: { entity_id: "input_boolean.attiva_power_control" } });
@@ -5271,6 +5338,13 @@ const PC_CSS = `
   .pc-tasti .pc-imp{flex:1}
   .pc-calc{grid-column:1/-1;display:flex;gap:14px;flex-wrap:wrap;font-size:11px;font-weight:700;opacity:.72;padding-top:2px}
   .pc-calc b{font-weight:900;opacity:1;color:#ffb020}
+  .fh-app.chiaro .pc-calc b{color:#a35b00}
+  .pc-dest{display:flex;flex-wrap:wrap;gap:6px}
+  .pc-chk{display:flex;align-items:center;gap:7px;padding:7px 10px;border-radius:11px;
+    background:rgba(255,255,255,.06);font-size:12px;font-weight:700;cursor:pointer}
+  .fh-app.chiaro .pc-chk{background:rgba(15,23,42,.06)}
+  .pc-chk input{margin:0}
+  .pc-nota.rosso{color:#ff5442;opacity:1;font-weight:800}
   .pc-storia{display:flex;flex-direction:column;gap:4px}
   .pc-sr{display:flex;gap:9px;padding:7px 9px;border-radius:10px;background:rgba(255,255,255,.05);font-size:11.5px}
   .pc-sr.fine{background:rgba(57,217,138,.13)}
