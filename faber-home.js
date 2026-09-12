@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.87.0";
+const FH_VERSION = "0.88.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -807,6 +807,20 @@ class FaberHome extends HTMLElement {
            <ha-icon icon="${fhEsc(p.icon || "mdi:circle-outline")}"></ha-icon>
            <span class="fh-navlabel">${fhEsc(p.title || "")}</span>
          </button>`).join("")}</div>`;
+    // IL TASTO STANZE.
+    // Con una pagina per stanza la barra non le puo contenere tutte, e la Casa
+    // riempita di tessere diventa un muro. Cosi le stanze stanno dietro un
+    // tasto solo: si tocca, si sceglie, si e dentro.
+    const stanze = this._cfg.pages.filter(p => p.stanza);
+    if (stanze.length && !this._edit) {
+      const barra = nav.querySelector(".fh-navbar");
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "fh-navitem";
+      b.innerHTML = `<ha-icon icon="mdi:floor-plan"></ha-icon><span class="fh-navlabel">Stanze</span>`;
+      b.addEventListener("click", () => this._apriStanze());
+      barra.appendChild(b);
+    }
     nav.querySelectorAll("[data-page]").forEach(b => b.addEventListener("click", () => {
       const i = parseInt(b.dataset.page, 10);
       if (i === this._page) return;
@@ -2539,6 +2553,8 @@ class FaberHome extends HTMLElement {
           <button type="button" class="fh-tool${pg.nascosta ? "" : " acceso"}" data-act="vedi"
             title="${pg.nascosta ? "Nascosta dalla barra in basso" : "Si vede nella barra in basso"}">
             <ha-icon icon="${pg.nascosta ? "mdi:eye-off-outline" : "mdi:eye-outline"}"></ha-icon></button>
+          <button type="button" class="fh-tool${pg.stanza ? " acceso" : ""}" data-act="stanza"
+            title="${pg.stanza ? "Compare nell'elenco Stanze" : "Non e una stanza"}"><ha-icon icon="mdi:door-open"></ha-icon></button>
           <button type="button" class="fh-tool${(pg.barra || []).length ? " acceso" : ""}" data-act="barra"
             title="Cosa aggiungere alla barra quando sei in questa pagina"><ha-icon icon="mdi:dock-bottom"></ha-icon></button>
           <button type="button" class="fh-tool" data-act="up" title="Su"><ha-icon icon="mdi:arrow-up"></ha-icon></button>
@@ -2553,7 +2569,8 @@ class FaberHome extends HTMLElement {
         row.querySelector("[data-icon]").addEventListener("change", e => { this._cfg.pages[i].icon = e.target.value; draw(); this._renderNav(); });
         row.querySelectorAll("[data-act]").forEach(b => b.addEventListener("click", () => {
           const a = b.dataset.act, pages = this._cfg.pages;
-          if (a === "barra") { this._sceltaBarra(i); return; }
+          if (a === "stanza") { pages[i].stanza = !pages[i].stanza; }
+          else if (a === "barra") { this._sceltaBarra(i); return; }
           if (a === "vedi") { pages[i].nascosta = !pages[i].nascosta; }
           else if (a === "up" && i > 0) { const [x] = pages.splice(i, 1); pages.splice(i - 1, 0, x); }
           else if (a === "down" && i < pages.length - 1) { const [x] = pages.splice(i, 1); pages.splice(i + 1, 0, x); }
@@ -2574,6 +2591,27 @@ class FaberHome extends HTMLElement {
     this._sheet("Pagine", box, true);
   }
 
+
+  // L'elenco delle stanze, con dentro quello che gia sai di ognuna: la
+  // temperatura se c'e un termometro, quanto tira se c'e un sensore. Toccare
+  // una stanza ci porta dentro.
+  _apriStanze() {
+    fhVibra(8);
+    const box = document.createElement("div");
+    const stanze = this._cfg.pages.map((p, i) => ({ p, i })).filter(x => x.p.stanza);
+    box.innerHTML = `<div class="fh-stanzegrid">${stanze.map(({ p, i }) => `
+      <button type="button" class="fh-stanza" data-vai="${i}">
+        <ha-icon icon="${fhEsc(p.icon || "mdi:door")}"></ha-icon>
+        <span class="fh-stanzanome">${fhEsc(p.title || p.id)}</span>
+      </button>`).join("")}</div>`;
+    box.querySelectorAll("[data-vai]").forEach(b => b.addEventListener("click", () => {
+      const i = parseInt(b.dataset.vai, 10);
+      const scrim = this.querySelector(".fh-scrim");
+      if (scrim) scrim.remove();
+      this._vaiPagina(i);
+    }));
+    this._sheet("Stanze", box, false);
+  }
 
   // Quali pagine aggiungere alla barra quando si e dentro QUESTA pagina.
   // Le pagine sempre presenti non si elencano: ci sono gia per definizione.
@@ -3489,6 +3527,16 @@ const FH_CSS = `
     max-width:560px;margin:0 auto;padding:8px 10px;pointer-events:auto;
     background:var(--fh-panel,rgba(30,38,48,.78));border:1px solid var(--fh-stroke,rgba(255,255,255,.09));border-radius:26px;
     backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);box-shadow:0 12px 30px rgba(0,0,0,.45)}
+  .fh-stanzegrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:10px}
+  .fh-stanza{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;
+    padding:18px 8px;border-radius:18px;cursor:pointer;font:inherit;font-size:12.5px;font-weight:800;
+    color:inherit;border:1px solid var(--fh-stroke,rgba(255,255,255,.12));background:rgba(255,255,255,.06);
+    transition:transform .08s ease,background .16s ease}
+  .fh-app.chiaro .fh-stanza{background:rgba(15,23,42,.05)}
+  .fh-stanza ha-icon{--mdc-icon-size:30px;opacity:.85}
+  .fh-stanza:active{transform:scale(.96)}
+  .fh-stanza:hover{background:rgba(255,176,32,.16)}
+  .fh-stanzanome{line-height:1.2;text-align:center}
   .fh-chipwrap{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px}
   .fh-chipsel{display:flex;align-items:center;gap:6px;padding:8px 11px;border-radius:12px;cursor:pointer;
     font:inherit;font-size:12.5px;font-weight:800;color:inherit;
