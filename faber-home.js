@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.79.0";
+const FH_VERSION = "0.80.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -4916,6 +4916,8 @@ class FaberPC extends HTMLElement {
       imp: this._n("input_number.controllo_carichi_potenza_impegnata") || 0,
       tol: this._n("input_number.controllo_carichi_tolleranza_contatore") || 0,
       mar: this._n("input_number.controllo_carichi_margine_prima_del_picco") || 0,
+      acceso: this._n("input_number.controllo_carichi_carico_acceso_sopra") || 0,
+      voce: this._s("input_boolean.controllo_carichi_avvisi_vocali") === "on",
       attivo: this._s("input_boolean.attiva_power_control") === "on",
     };
     this._partenza = JSON.stringify(this._bozza);
@@ -5043,6 +5045,10 @@ class FaberPC extends HTMLElement {
           <input type="checkbox" data-attivo ${b.attivo ? "checked" : ""}>
           <span>Protezione attiva</span>
         </label>
+        <label class="pc-sw2">
+          <input type="checkbox" data-voce ${b.voce ? "checked" : ""}>
+          <span>Avvisi a voce su Alexa</span>
+        </label>
 
         <div class="pc-lab">Contratto <small>da qui si ricavano le soglie</small></div>
         <div class="pc-gr">
@@ -5066,9 +5072,11 @@ class FaberPC extends HTMLElement {
           <div><label>Contratto (W)</label><input type="number" data-k="rit" value="${b.rit}" step="50"></div>
           <div><label>per (minuti)</label><input type="number" data-k="tRit" value="${b.tRit}" step="10"></div>
           <div><label>Riaccende dopo (min)</label><input type="number" data-k="tStart" value="${b.tStart}" step="1"></div>
+          <div><label>Carico acceso sopra (W)</label><input type="number" data-k="acceso" value="${b.acceso}" step="1"></div>
         </div>
         <div class="pc-nota"><b>Riaccende dopo</b>: i minuti di calma sotto soglia prima che i carichi
-          staccati tornino su, uno alla volta.</div>
+          staccati tornino su, uno alla volta. <b>Carico acceso sopra</b>: sotto questi watt un carico
+          e considerato spento e viene saltato, senza sprecare un distacco.</div>
 
         <div class="pc-lab">Ordine <small>in cima = staccato per <b>ultimo</b>, in fondo = il primo a cadere</small></div>
         <div class="pc-lista">
@@ -5138,6 +5146,8 @@ class FaberPC extends HTMLElement {
       b.imm = Math.floor((disp * (1 + b.mar / 100)) / 50) * 50;
       this._disegnaPopup();
     };
+    const sv = m.querySelector("[data-voce]");
+    if (sv) sv.onchange = e => { b.voce = e.target.checked; this._disegnaPopup(); };
     const nuovo = m.querySelector("[data-nuovo]");
     if (nuovo) nuovo.onclick = () => { this._aggiungi = true; this._disegnaPopup(); };
     const cerca = m.querySelector(".pc-cerca");
@@ -5195,6 +5205,7 @@ class FaberPC extends HTMLElement {
       ["input_number.controllo_carichi_potenza_impegnata", b.imp],
       ["input_number.controllo_carichi_tolleranza_contatore", b.tol],
       ["input_number.controllo_carichi_margine_prima_del_picco", b.mar],
+      ["input_number.controllo_carichi_carico_acceso_sopra", b.acceso],
     ];
     numeri.forEach(([ent, v]) => {
       if (H[ent] && parseFloat(H[ent].state) !== v) {
@@ -5204,6 +5215,10 @@ class FaberPC extends HTMLElement {
     const attivoOra = this._s("input_boolean.attiva_power_control") === "on";
     if (attivoOra !== b.attivo) {
       azioni.push({ dominio: "input_boolean", servizio: b.attivo ? "turn_on" : "turn_off", dati: { entity_id: "input_boolean.attiva_power_control" } });
+    }
+    const voceOra = this._s("input_boolean.controllo_carichi_avvisi_vocali") === "on";
+    if (voceOra !== b.voce) {
+      azioni.push({ dominio: "input_boolean", servizio: b.voce ? "turn_on" : "turn_off", dati: { entity_id: "input_boolean.controllo_carichi_avvisi_vocali" } });
     }
     // Il Salva di PowerControl ricopia i menu nei testi: senza, le formule
     // continuano a leggere i valori vecchi.
