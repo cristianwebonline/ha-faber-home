@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.83.0";
+const FH_VERSION = "0.84.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -1527,6 +1527,9 @@ class FaberHome extends HTMLElement {
         soglia: 10, soglia_freddo: 18, soglia_caldo: 26, prezzo_kwh: 0.30, storico_giorni: 14 } },
       { g: "Faber", n: "Smart Card (tela)", i: "mdi:palette-swatch-outline", c: { type: "custom:smart-card", name: "Smart Card", canvas: { w: 100, h: 50 }, elements: [] } },
       { g: "Faber", n: "Meteo", i: "mdi:weather-partly-cloudy", c: { type: "custom:faber-weather", entity: "", days: 4 } },
+      { g: "Faber", n: "Telecomando", i: "mdi:remote-tv", c: { type: "custom:faber-media", title: "Telecomando",
+        selettore: "input_select.remote_type", script_tasto: "script.remote_press_button",
+        script_sorgente: "script.remote_changesource", extra_nome: "Netflix", mostra_extra: true } },
       { g: "Faber", n: "Persona (avatar animato)", i: "mdi:account-heart", c: { type: "custom:faber-persona",
         person: "", name: "", avatars: "", forma: "cerchio", grandezza: "media", disposizione: "colonna",
         mostra_distanza: true, mostra_indirizzo: true, mostra_batteria: true } },
@@ -1576,6 +1579,9 @@ class FaberHome extends HTMLElement {
         lock: "", door_sensor: "", battery: "", sensors: "", alarm: "", cameras: "", mostra_allarme: false, mostra_porta: false, mostra_telecamere: true } },
       { g: "Home Assistant", n: "Tessera (tile)", i: "mdi:card-outline", c: { type: "tile", entity: "" } },
       { g: "Faber", n: "Meteo", i: "mdi:weather-partly-cloudy", c: { type: "custom:faber-weather", entity: "", days: 4 } },
+      { g: "Faber", n: "Telecomando", i: "mdi:remote-tv", c: { type: "custom:faber-media", title: "Telecomando",
+        selettore: "input_select.remote_type", script_tasto: "script.remote_press_button",
+        script_sorgente: "script.remote_changesource", extra_nome: "Netflix", mostra_extra: true } },
       { g: "Home Assistant", n: "Meteo (nativa)", i: "mdi:weather-cloudy", c: { type: "weather-forecast", entity: "", forecast_type: "daily" } },
       { g: "Home Assistant", n: "Grafico storico", i: "mdi:chart-line", c: { type: "history-graph", entities: [] } },
       { g: "Home Assistant", n: "Testo (markdown)", i: "mdi:format-text", c: { type: "markdown", content: "Scrivi qui" } },
@@ -7527,5 +7533,314 @@ window.customCards.push({
   name: "Faber Home",
   description: "Pannello a schermo intero: sfondo animato, intestazione con orologio e chip, pagine con barra in basso e card di Home Assistant in righe e colonne.",
   preview: false,
+  documentationURL: "https://github.com/cristianwebonline/ha-faber-home",
+});
+
+/* ===========================================================================
+   FABER MEDIA — il telecomando di casa.
+
+   Non e la pulsantiera della vecchia plancia trasportata qui: quella era una
+   griglia di rettangoli grigi nati per un fondo scuro, e dentro Faber Home
+   stonava. Questo e un telecomando vero: la crociera al centro, i bilancieri
+   del volume e dei canali ai lati come sul telecomando che hai in mano, e le
+   sorgenti in cima.
+
+   Il cervello resta dov'era: due script gia esistenti in casa
+   (`remote_press_button` con un comando, `remote_changesource` con un
+   dispositivo). La card non sa niente di infrarossi: manda il nome del tasto.
+
+   Si adatta da sola: tutte le misure sono in `cqw` (percentuale della
+   larghezza della CARD, non dello schermo), quindi sul telefono in colonna
+   singola e sul tablet in mezza pagina resta proporzionata senza due layout
+   diversi da mantenere.
+   =========================================================================== */
+
+const FM_COMANDI = {
+  acceso: "Power on", spento: "power", casa: "Home", sorgente: "input",
+  su: "UP", giu: "down", sinistra: "LEFT", destra: "RIGHT", ok: "OK",
+  info: "info", indietro: "exit", lista: "CH.LIST", guida: "GUIDE",
+  vol_su: "volume_up", vol_giu: "volume_down", muto: "volume_mute",
+  ch_su: "channel+", ch_giu: "channel-", extra: "SOURCE_RADIO",
+};
+
+class FaberMedia extends HTMLElement {
+  setConfig(config) {
+    this._cfg = Object.assign({
+      title: "Telecomando",
+      selettore: "input_select.remote_type",
+      script_tasto: "script.remote_press_button",
+      script_sorgente: "script.remote_changesource",
+      extra_nome: "Netflix",
+      mostra_extra: true,
+      comandi: {},
+    }, config || {});
+    this._cmd = Object.assign({}, FM_COMANDI, this._cfg.comandi || {});
+    this._built = false;
+  }
+  set hass(hass) {
+    this._hass = hass;
+    if (!this._built) { this._built = true; this._render(); }
+    else this._patch();
+  }
+  getCardSize() { return 7; }
+  static getConfigElement() { return document.createElement("faber-media-editor"); }
+  static getStubConfig() { return { type: "custom:faber-media", title: "Telecomando" }; }
+  disconnectedCallback() { this._stopRipeti(); }
+
+  _sorgenti() {
+    const st = this._hass.states[this._cfg.selettore];
+    return {
+      attiva: st ? st.state : "",
+      lista: (st && st.attributes.options) || [],
+    };
+  }
+
+  // --------------------------------------------------------------- comandi
+  _premi(chiave) {
+    const c = this._cmd[chiave];
+    if (!c) return;
+    const [dom, srv] = this._cfg.script_tasto.split(".");
+    this._hass.callService(dom, srv, { command: c });
+  }
+  _cambiaSorgente(dev) {
+    const [dom, srv] = this._cfg.script_sorgente.split(".");
+    this._hass.callService(dom, srv, { device: dev });
+  }
+  // Tenere premuto ripete: sul volume e sui canali e la differenza fra un
+  // telecomando e una fila di pulsanti.
+  _ripeti(chiave) {
+    this._stopRipeti();
+    this._premi(chiave);
+    this._rip1 = setTimeout(() => {
+      this._rip2 = setInterval(() => this._premi(chiave), 260);
+    }, 480);
+  }
+  _stopRipeti() {
+    if (this._rip1) { clearTimeout(this._rip1); this._rip1 = null; }
+    if (this._rip2) { clearInterval(this._rip2); this._rip2 = null; }
+  }
+
+  _patch() {
+    const s = this._sorgenti();
+    this.querySelectorAll("[data-src]").forEach(b => {
+      b.classList.toggle("on", b.dataset.src === s.attiva);
+    });
+  }
+
+  _render() {
+    const s = this._sorgenti();
+    const c = this._cfg;
+    this.innerHTML = `
+      <style>
+        .fm{--fm-ink:#12161c;--fm-fade:rgba(15,23,42,.55);--fm-soft:rgba(15,23,42,.055);
+          --fm-line:rgba(15,23,42,.10);--fm-glass:rgba(255,255,255,.62);--fm-acc:#ffb020;
+          --fm-on:#128a52;--fm-off:#c9372c;
+          container-type:inline-size;
+          font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+          color:var(--fm-ink);border-radius:26px;padding:20px 18px 22px;
+          background:var(--fm-glass);box-shadow:0 14px 34px rgba(20,26,40,.14);
+          transition:background .6s ease,color .6s ease}
+        .fh-app:not(.chiaro) .fm{--fm-ink:#eaf1f8;--fm-fade:rgba(234,241,248,.6);
+          --fm-soft:rgba(255,255,255,.07);--fm-line:rgba(255,255,255,.12);
+          --fm-glass:rgba(30,38,48,.72);--fm-on:#39d98a;--fm-off:#ff5442;
+          box-shadow:0 14px 34px rgba(0,0,0,.34)}
+
+        .fm-top{display:flex;align-items:center;justify-content:space-between;gap:12px}
+        .fm-tit{font-size:clamp(15px,4.6cqw,19px);font-weight:900;letter-spacing:-.01em}
+        .fm-pow{display:flex;gap:8px}
+        .fm-p{width:clamp(36px,10cqw,44px);height:clamp(36px,10cqw,44px);border-radius:50%;
+          border:1px solid var(--fm-line);background:var(--fm-soft);color:inherit;cursor:pointer;
+          display:grid;place-items:center;transition:transform .08s ease,filter .15s ease}
+        .fm-p ha-icon{--mdc-icon-size:clamp(19px,5.4cqw,23px)}
+        .fm-p.acceso{color:var(--fm-on)} .fm-p.spento{color:var(--fm-off)}
+        .fm-p:active{transform:scale(.92)}
+
+        .fm-src{display:flex;gap:7px;flex-wrap:wrap;margin-top:14px}
+        .fm-s{flex:1 1 auto;min-width:72px;padding:9px 10px;border-radius:13px;border:1px solid var(--fm-line);
+          background:var(--fm-soft);color:inherit;cursor:pointer;font:inherit;
+          font-size:clamp(10.5px,3cqw,12.5px);font-weight:800;letter-spacing:.02em;
+          transition:transform .08s ease,background .18s ease,color .18s ease,border-color .18s ease}
+        .fm-s:active{transform:scale(.96)}
+        .fm-s.on{background:var(--fm-acc);border-color:var(--fm-acc);color:#1c1400;box-shadow:0 6px 16px rgba(255,176,32,.34)}
+
+        /* La riga centrale: bilanciere volume, crociera, bilanciere canali.
+           E la disposizione del telecomando vero, e sul telefono funziona
+           meglio di qualunque griglia: i pollici stanno ai lati. */
+        .fm-mid{display:grid;grid-template-columns:auto 1fr auto;align-items:center;
+          gap:clamp(8px,3cqw,18px);margin-top:clamp(14px,4cqw,20px)}
+        .fm-rock{display:flex;flex-direction:column;align-items:center;gap:0;
+          width:clamp(52px,14cqw,66px);border-radius:999px;border:1px solid var(--fm-line);
+          background:var(--fm-soft);overflow:hidden}
+        .fm-rb{width:100%;padding:clamp(11px,3.4cqw,15px) 0;border:0;background:none;color:inherit;
+          cursor:pointer;display:grid;place-items:center;transition:background .15s ease}
+        .fm-rb ha-icon{--mdc-icon-size:clamp(20px,5.6cqw,24px)}
+        .fm-rb:active{background:rgba(255,176,32,.22)}
+        .fm-rlab{font-size:9px;font-weight:900;letter-spacing:.1em;opacity:.55;padding:2px 0}
+
+        .fm-pad{position:relative;width:100%;aspect-ratio:1/1;max-width:clamp(180px,52cqw,280px);
+          margin:0 auto;border-radius:50%;border:1px solid var(--fm-line);background:var(--fm-soft);
+          display:grid;grid-template-columns:1fr 1fr 1fr;grid-template-rows:1fr 1fr 1fr;
+          place-items:stretch}
+        .fm-d{border:0;background:none;color:inherit;cursor:pointer;display:grid;place-items:center;
+          transition:background .15s ease}
+        .fm-d ha-icon{--mdc-icon-size:clamp(24px,7cqw,32px);opacity:.85}
+        .fm-d:active{background:rgba(255,176,32,.2)}
+        .fm-d.su{grid-area:1/2/2/3;border-radius:50% 50% 0 0}
+        .fm-d.sin{grid-area:2/1/3/2;border-radius:50% 0 0 50%}
+        .fm-d.des{grid-area:2/3/3/4;border-radius:0 50% 50% 0}
+        .fm-d.giu{grid-area:3/2/4/3;border-radius:0 0 50% 50%}
+        .fm-ok{grid-area:2/2/3/3;border:0;cursor:pointer;border-radius:50%;margin:6%;
+          background:var(--fm-acc);color:#1c1400;font:inherit;font-size:clamp(13px,3.8cqw,16px);
+          font-weight:900;letter-spacing:.06em;box-shadow:0 8px 20px rgba(255,176,32,.36);
+          transition:transform .08s ease}
+        .fm-ok:active{transform:scale(.93)}
+
+        .fm-riga{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-top:clamp(12px,3.5cqw,18px)}
+        .fm-b{padding:clamp(10px,2.8cqw,13px) 4px;border-radius:14px;border:1px solid var(--fm-line);
+          background:var(--fm-soft);color:inherit;cursor:pointer;font:inherit;
+          font-size:clamp(9.5px,2.7cqw,11.5px);font-weight:800;letter-spacing:.03em;
+          display:flex;flex-direction:column;align-items:center;gap:3px;
+          transition:transform .08s ease,background .15s ease}
+        .fm-b ha-icon{--mdc-icon-size:clamp(17px,4.6cqw,20px);opacity:.8}
+        .fm-b:active{transform:scale(.95);background:rgba(255,176,32,.16)}
+        .fm-extra{margin-top:9px;width:100%;padding:13px;border-radius:15px;border:0;cursor:pointer;
+          font:inherit;font-size:clamp(11px,3cqw,13px);font-weight:900;letter-spacing:.1em;
+          text-transform:uppercase;background:#e50914;color:#fff;
+          box-shadow:0 8px 20px rgba(229,9,20,.3);transition:transform .08s ease}
+        .fm-extra:active{transform:scale(.97)}
+        .fm-vuoto{font-size:12px;font-weight:700;opacity:.6;padding:10px 0}
+
+        /* Sul tablet, o quando la card ha spazio, la crociera cresce e i tasti
+           di sotto si mettono in fila unica invece che a quattro colonne. */
+        @container (min-width: 520px){
+          .fm-riga{grid-template-columns:repeat(4,1fr);gap:10px}
+          .fm{padding:26px 26px 28px}
+        }
+      </style>
+
+      <div class="fm">
+        <div class="fm-top">
+          <div class="fm-tit">${fhEsc(c.title || "Telecomando")}</div>
+          <div class="fm-pow">
+            <button type="button" class="fm-p acceso" data-k="acceso" title="Accendi">
+              <ha-icon icon="mdi:power"></ha-icon></button>
+            <button type="button" class="fm-p spento" data-k="spento" title="Spegni">
+              <ha-icon icon="mdi:power-off"></ha-icon></button>
+          </div>
+        </div>
+
+        ${s.lista.length ? `<div class="fm-src">
+          ${s.lista.map(x => `<button type="button" class="fm-s${x === s.attiva ? " on" : ""}" data-src="${fhEsc(x)}">${fhEsc(x)}</button>`).join("")}
+        </div>` : `<div class="fm-vuoto">Nessun elenco sorgenti: controlla ${fhEsc(c.selettore)}</div>`}
+
+        <div class="fm-mid">
+          <div class="fm-rock">
+            <button type="button" class="fm-rb" data-r="vol_su"><ha-icon icon="mdi:plus"></ha-icon></button>
+            <span class="fm-rlab">VOL</span>
+            <button type="button" class="fm-rb" data-r="vol_giu"><ha-icon icon="mdi:minus"></ha-icon></button>
+          </div>
+
+          <div class="fm-pad">
+            <button type="button" class="fm-d su"  data-k="su"><ha-icon icon="mdi:chevron-up"></ha-icon></button>
+            <button type="button" class="fm-d sin" data-k="sinistra"><ha-icon icon="mdi:chevron-left"></ha-icon></button>
+            <button type="button" class="fm-ok" data-k="ok">OK</button>
+            <button type="button" class="fm-d des" data-k="destra"><ha-icon icon="mdi:chevron-right"></ha-icon></button>
+            <button type="button" class="fm-d giu" data-k="giu"><ha-icon icon="mdi:chevron-down"></ha-icon></button>
+          </div>
+
+          <div class="fm-rock">
+            <button type="button" class="fm-rb" data-r="ch_su"><ha-icon icon="mdi:chevron-up"></ha-icon></button>
+            <span class="fm-rlab">CH</span>
+            <button type="button" class="fm-rb" data-r="ch_giu"><ha-icon icon="mdi:chevron-down"></ha-icon></button>
+          </div>
+        </div>
+
+        <div class="fm-riga">
+          <button type="button" class="fm-b" data-k="muto"><ha-icon icon="mdi:volume-off"></ha-icon>Muto</button>
+          <button type="button" class="fm-b" data-k="indietro"><ha-icon icon="mdi:keyboard-return"></ha-icon>Indietro</button>
+          <button type="button" class="fm-b" data-k="casa"><ha-icon icon="mdi:home"></ha-icon>Home</button>
+          <button type="button" class="fm-b" data-k="sorgente"><ha-icon icon="mdi:import"></ha-icon>Sorgente</button>
+        </div>
+        <div class="fm-riga">
+          <button type="button" class="fm-b" data-k="info"><ha-icon icon="mdi:information-outline"></ha-icon>Info</button>
+          <button type="button" class="fm-b" data-k="lista"><ha-icon icon="mdi:format-list-bulleted"></ha-icon>Lista</button>
+          <button type="button" class="fm-b" data-k="guida"><ha-icon icon="mdi:television-guide"></ha-icon>Guida</button>
+          <button type="button" class="fm-b" data-k="ok"><ha-icon icon="mdi:check"></ha-icon>Conferma</button>
+        </div>
+        ${c.mostra_extra ? `<button type="button" class="fm-extra" data-k="extra">${fhEsc(c.extra_nome || "Netflix")}</button>` : ""}
+      </div>`;
+
+    // un tocco = un comando
+    this.querySelectorAll("[data-k]").forEach(b => {
+      b.addEventListener("click", () => this._premi(b.dataset.k));
+    });
+    // sorgenti
+    this.querySelectorAll("[data-src]").forEach(b => {
+      b.addEventListener("click", () => this._cambiaSorgente(b.dataset.src));
+    });
+    // bilancieri: tenendo premuto ripetono
+    this.querySelectorAll("[data-r]").forEach(b => {
+      const k = b.dataset.r;
+      b.addEventListener("pointerdown", e => { e.preventDefault(); this._ripeti(k); });
+      ["pointerup", "pointerleave", "pointercancel"].forEach(ev =>
+        b.addEventListener(ev, () => this._stopRipeti()));
+    });
+  }
+}
+customElements.define("faber-media", FaberMedia);
+
+class FaberMediaEditor extends HTMLElement {
+  setConfig(config) {
+    this._cfg = Object.assign({ title: "Telecomando", selettore: "input_select.remote_type",
+      script_tasto: "script.remote_press_button", script_sorgente: "script.remote_changesource",
+      extra_nome: "Netflix", mostra_extra: true }, config || {});
+    if (this._interno) { this._interno = false; return; }
+    this._render();
+  }
+  set hass(h) { this._hass = h; if (!this._fatto) { this._fatto = true; this._render(); } }
+  _emit() {
+    this._interno = true;
+    this.dispatchEvent(new CustomEvent("config-changed", { detail: { config: this._cfg }, bubbles: true, composed: true }));
+  }
+  _render() {
+    if (!this._cfg || !this._hass) return;
+    const sel = Object.keys(this._hass.states).filter(e => e.startsWith("input_select."));
+    const scr = Object.keys(this._hass.states).filter(e => e.startsWith("script."));
+    const inp = "padding:9px 10px;border-radius:8px;font-size:14px;width:100%;box-sizing:border-box;" +
+      "border:1px solid var(--divider-color);background:var(--card-background-color);color:var(--primary-text-color)";
+    const opz = (lista, val) => lista.map(e =>
+      `<option value="${e}"${e === val ? " selected" : ""}>${fhEsc((this._hass.states[e].attributes.friendly_name) || e)}</option>`).join("");
+    this.innerHTML = `<div style="display:flex;flex-direction:column;gap:12px;padding:6px 2px;font-family:inherit">
+      <label style="font-size:13px;font-weight:600">Titolo</label>
+      <input id="fmT" value="${fhEsc(this._cfg.title || "")}" style="${inp}">
+      <label style="font-size:13px;font-weight:600">Menu delle sorgenti</label>
+      <select id="fmS" style="${inp}">${opz(sel, this._cfg.selettore)}</select>
+      <label style="font-size:13px;font-weight:600">Script del tasto premuto</label>
+      <select id="fmK" style="${inp}">${opz(scr, this._cfg.script_tasto)}</select>
+      <label style="font-size:13px;font-weight:600">Script del cambio sorgente</label>
+      <select id="fmC" style="${inp}">${opz(scr, this._cfg.script_sorgente)}</select>
+      <label style="font-size:13px;font-weight:600">Tasto grande in fondo</label>
+      <input id="fmE" value="${fhEsc(this._cfg.extra_nome || "")}" style="${inp}">
+      <label style="font-size:13px;font-weight:600;display:flex;align-items:center;gap:8px">
+        <input id="fmX" type="checkbox" ${this._cfg.mostra_extra ? "checked" : ""}> Mostra il tasto grande
+      </label>
+    </div>`;
+    const q = id => this.querySelector(id);
+    const set = (k, v) => { this._cfg = Object.assign({}, this._cfg, { [k]: v }); this._emit(); };
+    q("#fmT").addEventListener("input", e => set("title", e.target.value));
+    q("#fmS").addEventListener("change", e => set("selettore", e.target.value));
+    q("#fmK").addEventListener("change", e => set("script_tasto", e.target.value));
+    q("#fmC").addEventListener("change", e => set("script_sorgente", e.target.value));
+    q("#fmE").addEventListener("input", e => set("extra_nome", e.target.value));
+    q("#fmX").addEventListener("change", e => set("mostra_extra", e.target.checked));
+  }
+}
+customElements.define("faber-media-editor", FaberMediaEditor);
+
+window.customCards.push({
+  type: "faber-media",
+  name: "Faber Telecomando",
+  description: "Il telecomando di casa: sorgenti, crociera, bilancieri di volume e canali. Manda i comandi agli script che hai gia.",
+  preview: true,
   documentationURL: "https://github.com/cristianwebonline/ha-faber-home",
 });
