@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.78.0";
+const FH_VERSION = "0.79.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -4875,10 +4875,15 @@ class FaberPC extends HTMLElement {
         <span class="pc-ev">${ultimo && ultimo !== "unknown" ? fhEsc(ultimo) : "Nessuno registrato finora."}</span>
       </div>
 
-      <button type="button" class="pc-imp" data-apri>Impostazioni</button>`;
+      <div class="pc-tasti">
+        <button type="button" class="pc-imp" data-storico>Storico</button>
+        <button type="button" class="pc-imp" data-apri>Impostazioni</button>
+      </div>`;
 
     const b = this._corpo.querySelector("[data-apri]");
     if (b) b.onclick = () => this._apriPopup();
+    const st = this._corpo.querySelector("[data-storico]");
+    if (st) st.onclick = () => this._apriStorico();
   }
 
   // ============================ L'UNICA PORTA DI SCRITTURA ===================
@@ -4907,6 +4912,10 @@ class FaberPC extends HTMLElement {
       rit: this._n("input_number.potenza_massima_ritardato") || 0,
       tImm: this._n("input_number.tempo_stop_immediato") || 0,
       tRit: this._n("input_number.tempo_stop_ritardato") || 0,
+      tStart: this._n("input_number.tempo_start") || 0,
+      imp: this._n("input_number.controllo_carichi_potenza_impegnata") || 0,
+      tol: this._n("input_number.controllo_carichi_tolleranza_contatore") || 0,
+      mar: this._n("input_number.controllo_carichi_margine_prima_del_picco") || 0,
       attivo: this._s("input_boolean.attiva_power_control") === "on",
     };
     this._partenza = JSON.stringify(this._bozza);
@@ -4926,6 +4935,62 @@ class FaberPC extends HTMLElement {
   }
 
   _chiudi() { this._pop.classList.remove("on"); this._bozza = null; this._segno = null; this._disegna(); }
+
+  // Lo storico non lo teniamo noi: ogni evento e gia nel logbook, scritto
+  // dall'automazione anche a schermi spenti. Qui si legge e basta.
+  async _apriStorico() {
+    if (!this._pop) {
+      this._pop = document.createElement("div");
+      this._pop.className = "pc-scrim";
+      document.body.appendChild(this._pop);
+    }
+    this._pop.innerHTML = `<style>${PC_CSS}</style>
+      <div class="pc-modal">
+        <div class="pc-mh">
+          <div class="pc-mt">Storico sovraccarichi</div>
+          <button type="button" class="pc-x" data-chiudi>&times;</button>
+        </div>
+        <div class="pc-mc"><div class="pc-nota">Leggo lo storico...</div></div>
+      </div>`;
+    this._pop.classList.add("on");
+    this._pop.onclick = e => { if (e.target === this._pop) this._chiudiStorico(); };
+    this._pop.querySelector("[data-chiudi]").onclick = () => this._chiudiStorico();
+
+    let righe = null;
+    try {
+      const ev = await this._hass.callWS({
+        type: "logbook/get_events",
+        start_time: new Date(Date.now() - 30 * 86400000).toISOString(),
+        entity_ids: ["input_text.controllo_carichi_ultimo_sovraccarico"],
+      });
+      const tutte = ev || [];
+      righe = tutte.filter(x => x.message);
+      if (!righe.length) righe = tutte.filter(x => x.state);
+      righe = righe.reverse().slice(0, 40);
+    } catch (err) { righe = null; }
+
+    const corpo = this._pop.querySelector(".pc-mc");
+    if (!corpo) return;
+    if (righe === null) {
+      corpo.innerHTML = `<div class="pc-nota">Storico non disponibile: il registro non risponde.</div>`;
+      return;
+    }
+    if (!righe.length) {
+      corpo.innerHTML = `<div class="pc-nota">Nessun sovraccarico negli ultimi 30 giorni.</div>`;
+      return;
+    }
+    corpo.innerHTML = `<div class="pc-storia">${righe.map(x => {
+      const testo = x.message || x.state || "";
+      const q = new Date(x.when * 1000).toLocaleString("it-IT",
+        { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+      return `<div class="pc-sr ${/rientr/i.test(testo) ? "fine" : "inizio"}">
+        <span class="pc-sq">${fhEsc(q)}</span>
+        <span class="pc-sm">${fhEsc(testo)}</span>
+      </div>`;
+    }).join("")}</div>`;
+  }
+
+  _chiudiStorico() { if (this._pop) this._pop.classList.remove("on"); }
 
   async _registro() {
     if (this._reg) return;
@@ -4979,14 +5044,31 @@ class FaberPC extends HTMLElement {
           <span>Protezione attiva</span>
         </label>
 
+        <div class="pc-lab">Contratto <small>da qui si ricavano le soglie</small></div>
+        <div class="pc-gr">
+          <div><label>Potenza impegnata (W)</label><input type="number" data-k="imp" value="${b.imp}" step="100"></div>
+          <div><label>Tolleranza contatore (%)</label><input type="number" data-k="tol" value="${b.tol}" step="1"></div>
+          <div><label>Margine prima del picco (%)</label><input type="number" data-k="mar" value="${b.mar}" step="1"></div>
+          <div class="pc-calc">
+            <span>disponibile <b>${pcW(b.imp * (1 + b.tol / 100))} W</b></span>
+            <span>picco contatore <b>${pcW(b.imp * (1 + b.tol / 100) * (1 + b.mar / 100))} W</b></span>
+          </div>
+        </div>
+        <button type="button" class="pc-add" data-calcola>Ricava le soglie da questi numeri</button>
+        <div class="pc-nota">Sotto la <b>disponibile</b> il contatore tiene senza limiti di tempo.
+          Sopra parte il conto alla rovescia; oltre il <b>picco</b> stacca in pochi minuti.
+          Le soglie qui sotto stanno apposta un filo piu in basso, per intervenire prima del contatore.</div>
+
+        <div class="pc-lab">Soglie</div>
         <div class="pc-gr">
           <div><label>Picco (W)</label><input type="number" data-k="imm" value="${b.imm}" step="50"></div>
           <div><label>per (secondi)</label><input type="number" data-k="tImm" value="${b.tImm}" step="1"></div>
           <div><label>Contratto (W)</label><input type="number" data-k="rit" value="${b.rit}" step="50"></div>
           <div><label>per (minuti)</label><input type="number" data-k="tRit" value="${b.tRit}" step="10"></div>
+          <div><label>Riaccende dopo (min)</label><input type="number" data-k="tStart" value="${b.tStart}" step="1"></div>
         </div>
-        <div class="pc-nota">Le soglie si contano sulla <b>potenza disponibile</b> (contratto +10%).
-          Sopra quella parte il conto alla rovescia del contatore; il picco e la soglia oltre cui stacca in pochi minuti.</div>
+        <div class="pc-nota"><b>Riaccende dopo</b>: i minuti di calma sotto soglia prima che i carichi
+          staccati tornino su, uno alla volta.</div>
 
         <div class="pc-lab">Ordine <small>in cima = staccato per <b>ultimo</b>, in fondo = il primo a cadere</small></div>
         <div class="pc-lista">
@@ -5049,6 +5131,13 @@ class FaberPC extends HTMLElement {
     m.querySelectorAll("[data-via]").forEach(x => x.onclick = () => {
       b.carichi.splice(+x.dataset.via, 1); this._disegnaPopup();
     });
+    const calc = m.querySelector("[data-calcola]");
+    if (calc) calc.onclick = () => {
+      const disp = b.imp * (1 + b.tol / 100);
+      b.rit = Math.max(0, Math.floor(disp / 50) * 50 - 50);
+      b.imm = Math.floor((disp * (1 + b.mar / 100)) / 50) * 50;
+      this._disegnaPopup();
+    };
     const nuovo = m.querySelector("[data-nuovo]");
     if (nuovo) nuovo.onclick = () => { this._aggiungi = true; this._disegnaPopup(); };
     const cerca = m.querySelector(".pc-cerca");
@@ -5102,6 +5191,10 @@ class FaberPC extends HTMLElement {
       ["input_number.potenza_massima_ritardato", b.rit],
       ["input_number.tempo_stop_immediato", b.tImm],
       ["input_number.tempo_stop_ritardato", b.tRit],
+      ["input_number.tempo_start", b.tStart],
+      ["input_number.controllo_carichi_potenza_impegnata", b.imp],
+      ["input_number.controllo_carichi_tolleranza_contatore", b.tol],
+      ["input_number.controllo_carichi_margine_prima_del_picco", b.mar],
     ];
     numeri.forEach(([ent, v]) => {
       if (H[ent] && parseFloat(H[ent].state) !== v) {
@@ -5159,6 +5252,15 @@ const PC_CSS = `
   .pc-ev{font-weight:700;line-height:1.35}
   .pc-imp{border:1px solid rgba(255,176,32,.45);background:none;color:inherit;cursor:pointer;font:inherit;
     font-size:12px;font-weight:800;padding:9px;border-radius:12px}
+  .pc-tasti{display:flex;gap:8px}
+  .pc-tasti .pc-imp{flex:1}
+  .pc-calc{grid-column:1/-1;display:flex;gap:14px;flex-wrap:wrap;font-size:11px;font-weight:700;opacity:.72;padding-top:2px}
+  .pc-calc b{font-weight:900;opacity:1;color:#ffb020}
+  .pc-storia{display:flex;flex-direction:column;gap:4px}
+  .pc-sr{display:flex;gap:9px;padding:7px 9px;border-radius:10px;background:rgba(255,255,255,.05);font-size:11.5px}
+  .pc-sr.fine{background:rgba(57,217,138,.13)}
+  .pc-sq{flex:0 0 auto;font-weight:900;opacity:.7;white-space:nowrap}
+  .pc-sm{flex:1 1 auto;font-weight:600;line-height:1.35}
   .pc-scrim{position:fixed;inset:0;z-index:100;background:rgba(4,5,8,.62);backdrop-filter:blur(6px);
     display:flex;align-items:center;justify-content:center;padding:18px;opacity:0;pointer-events:none;
     transition:opacity .18s}
