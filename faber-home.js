@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.85.1";
+const FH_VERSION = "0.86.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -7577,6 +7577,20 @@ window.customCards.push({
    diversi da mantenere.
    =========================================================================== */
 
+// I tasti della fila in basso: questa e solo la dotazione di partenza. Da qui
+// in poi vivono nella configurazione della card e si cambiano dalla card
+// stessa, senza passare dall'editor di Home Assistant.
+const FM_TASTI = [
+  { nome: "Muto", icona: "mdi:volume-off", cmd: "volume_mute" },
+  { nome: "Indietro", icona: "mdi:keyboard-return", cmd: "exit" },
+  { nome: "Home", icona: "mdi:home", cmd: "Home" },
+  { nome: "Sorgente", icona: "mdi:import", cmd: "input" },
+  { nome: "Info", icona: "mdi:information-outline", cmd: "info" },
+  { nome: "Lista", icona: "mdi:format-list-bulleted", cmd: "CH.LIST" },
+  { nome: "Guida", icona: "mdi:television-guide", cmd: "GUIDE" },
+  { nome: "Netflix", icona: "mdi:netflix", cmd: "SOURCE_RADIO" },
+];
+
 const FM_COMANDI = {
   acceso: "Power on", spento: "power", casa: "Home", sorgente: "input",
   su: "UP", giu: "down", sinistra: "LEFT", destra: "RIGHT", ok: "OK",
@@ -7592,11 +7606,12 @@ class FaberMedia extends HTMLElement {
       selettore: "input_select.remote_type",
       script_tasto: "script.remote_press_button",
       script_sorgente: "script.remote_changesource",
-      extra_nome: "Netflix",
-      mostra_extra: true,
+      apprendimento: "input_boolean.remote_learning",
       comandi: {},
+      tasti: null,
     }, config || {});
     this._cmd = Object.assign({}, FM_COMANDI, this._cfg.comandi || {});
+    this._tasti = Array.isArray(this._cfg.tasti) ? this._cfg.tasti.slice() : FM_TASTI.slice();
     this._built = false;
   }
   set hass(hass) {
@@ -7609,6 +7624,47 @@ class FaberMedia extends HTMLElement {
   static getStubConfig() { return { type: "custom:faber-media", title: "Telecomando" }; }
   disconnectedCallback() { this._stopRipeti(); }
 
+  // ================== L'UNICA PORTA DI SCRITTURA DELLA CONFIGURAZIONE =======
+  // Stessa regola imparata col controllo carichi: una card non deve poter
+  // riscrivere la propria configurazione se non dentro un gesto esplicito.
+  // Fuori dal tasto Salva questa rifiuta e lo scrive in console.
+  async _salvaConfig(tasti) {
+    if (!this._gesto) {
+      console.warn("[faber-media] scrittura rifiutata: nessun gesto esplicito");
+      return false;
+    }
+    const url = (location.pathname.split("/")[1]) || "lovelace";
+    const dash = await this._hass.callWS({ type: "lovelace/config", url_path: url });
+    let quante = 0;
+    const gira = c => {
+      if (!c || typeof c !== "object") return;
+      if (c.type === "custom:faber-media") {
+        if (!this._cfg.fm_id || c.fm_id === this._cfg.fm_id) { c.tasti = tasti; quante++; }
+      }
+      ["cards", "pages", "rows", "cols"].forEach(k => {
+        if (Array.isArray(c[k])) c[k].forEach(gira);
+      });
+      if (c.fh_popup) gira(c.fh_popup);
+    };
+    (dash.views || []).forEach(v => (v.cards || []).forEach(gira));
+    if (quante !== 1) {
+      console.warn("[faber-media] trovate " + quante + " card: non salvo per non toccare quella sbagliata");
+      return false;
+    }
+    await this._hass.callWS({ type: "lovelace/config/save", url_path: url, config: dash });
+    return true;
+  }
+
+  _imparando() {
+    const st = this._hass.states[this._cfg.apprendimento];
+    return !!st && st.state === "on";
+  }
+  _accendiApprendimento(acceso) {
+    const e = this._cfg.apprendimento;
+    if (!e) return;
+    this._hass.callService("input_boolean", acceso ? "turn_on" : "turn_off", { entity_id: e });
+  }
+
   _sorgenti() {
     const st = this._hass.states[this._cfg.selettore];
     return {
@@ -7618,8 +7674,8 @@ class FaberMedia extends HTMLElement {
   }
 
   // --------------------------------------------------------------- comandi
-  _premi(chiave) {
-    const c = this._cmd[chiave];
+  _premi(chiave) { this._mandaCmd(this._cmd[chiave]); }
+  _mandaCmd(c) {
     if (!c) return;
     const [dom, srv] = this._cfg.script_tasto.split(".");
     this._hass.callService(dom, srv, { command: c });
@@ -7735,6 +7791,45 @@ class FaberMedia extends HTMLElement {
           box-shadow:0 8px 20px rgba(229,9,20,.3);transition:transform .08s ease}
         .fm-extra:active{transform:scale(.97)}
         .fm-vuoto{font-size:12px;font-weight:700;opacity:.6;padding:10px 0}
+        .fm-imp{margin-top:12px;width:100%;padding:11px;border-radius:14px;border:1px dashed var(--fm-line);
+          background:none;color:inherit;cursor:pointer;font:inherit;font-size:12px;font-weight:800;
+          display:flex;align-items:center;justify-content:center;gap:7px;opacity:.75}
+        .fm-imp ha-icon{--mdc-icon-size:18px}
+        .fm-imp:hover{opacity:1}
+        .fm-scrim{position:fixed;inset:0;z-index:100;background:rgba(4,5,8,.62);backdrop-filter:blur(6px);
+          display:flex;align-items:center;justify-content:center;padding:18px;opacity:0;pointer-events:none;
+          transition:opacity .18s}
+        .fm-scrim.on{opacity:1;pointer-events:auto}
+        .fm-modal{width:min(520px,100%);max-height:86vh;overflow:auto;border-radius:22px;
+          background:#1a1b21;color:#eaf1f8;display:flex;flex-direction:column;
+          font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}
+        .fm-mh{display:flex;align-items:center;justify-content:space-between;padding:16px 18px 8px}
+        .fm-mt{font-size:15px;font-weight:900}
+        .fm-x{border:0;background:none;color:inherit;font-size:20px;cursor:pointer;line-height:1}
+        .fm-mc{padding:0 18px 14px;display:flex;flex-direction:column;gap:11px}
+        .fm-lab{font-size:10.5px;font-weight:900;letter-spacing:.06em;text-transform:uppercase;opacity:.6}
+        .fm-lab small{display:block;font-size:10px;font-weight:700;letter-spacing:0;text-transform:none;
+          opacity:.85;margin-top:2px}
+        .fm-riga2{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:12px;
+          background:rgba(255,255,255,.05)}
+        .fm-riga2 input{flex:1 1 auto;min-width:0;padding:7px 9px;border-radius:9px;font:inherit;font-size:12.5px;
+          font-weight:700;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:inherit}
+        .fm-mini{border:1px solid rgba(255,255,255,.18);background:none;color:inherit;cursor:pointer;
+          border-radius:9px;width:30px;height:30px;flex:0 0 auto;font-size:14px;line-height:1}
+        .fm-mini:disabled{opacity:.3;cursor:not-allowed}
+        .fm-add{width:100%;padding:10px;border-radius:12px;border:1px dashed rgba(255,255,255,.22);
+          background:none;color:inherit;cursor:pointer;font:inherit;font-size:12.5px;font-weight:800}
+        .fm-nota{font-size:10.5px;line-height:1.45;opacity:.62}
+        .fm-nota.forte{opacity:1;color:#ffb020;font-weight:800}
+        .fm-sw{display:flex;align-items:center;gap:10px;padding:11px 12px;border-radius:14px;
+          background:rgba(255,176,32,.12);border:1px solid rgba(255,176,32,.35);font-size:12.5px;font-weight:800}
+        .fm-sw input{width:18px;height:18px}
+        .fm-mf{display:flex;gap:8px;padding:12px 18px 18px;border-top:1px solid rgba(255,255,255,.09)}
+        .fm-mf button{flex:1;padding:11px;border:0;border-radius:12px;font:inherit;font-size:13px;
+          font-weight:800;cursor:pointer}
+        .fm-ann{background:rgba(255,255,255,.09);color:inherit}
+        .fm-ok2{background:#ffb020;color:#1c1400}
+        .fm-ok2:disabled{opacity:.4;cursor:not-allowed}
 
         /* Sul tablet, o quando la card ha spazio, la crociera cresce e i tasti
            di sotto si mettono in fila unica invece che a quattro colonne. */
@@ -7782,24 +7877,25 @@ class FaberMedia extends HTMLElement {
         </div>
 
         <div class="fm-riga">
-          <button type="button" class="fm-b" data-k="muto"><ha-icon icon="mdi:volume-off"></ha-icon>Muto</button>
-          <button type="button" class="fm-b" data-k="indietro"><ha-icon icon="mdi:keyboard-return"></ha-icon>Indietro</button>
-          <button type="button" class="fm-b" data-k="casa"><ha-icon icon="mdi:home"></ha-icon>Home</button>
-          <button type="button" class="fm-b" data-k="sorgente"><ha-icon icon="mdi:import"></ha-icon>Sorgente</button>
+          ${this._tasti.map((x, i) => `<button type="button" class="fm-b" data-cmd="${fhEsc(x.cmd)}" data-i="${i}">
+            <ha-icon icon="${fhEsc(x.icona || "mdi:remote")}"></ha-icon>${fhEsc(x.nome)}</button>`).join("")}
         </div>
-        <div class="fm-riga">
-          <button type="button" class="fm-b" data-k="info"><ha-icon icon="mdi:information-outline"></ha-icon>Info</button>
-          <button type="button" class="fm-b" data-k="lista"><ha-icon icon="mdi:format-list-bulleted"></ha-icon>Lista</button>
-          <button type="button" class="fm-b" data-k="guida"><ha-icon icon="mdi:television-guide"></ha-icon>Guida</button>
-          <button type="button" class="fm-b" data-k="ok"><ha-icon icon="mdi:check"></ha-icon>Conferma</button>
-        </div>
-        ${c.mostra_extra ? `<button type="button" class="fm-extra" data-k="extra">${fhEsc(c.extra_nome || "Netflix")}</button>` : ""}
+
+        <button type="button" class="fm-imp" data-imp>
+          <ha-icon icon="mdi:tune-variant"></ha-icon> Tasti e accoppiamento
+        </button>
       </div>`;
 
     // un tocco = un comando
     this.querySelectorAll("[data-k]").forEach(b => {
       b.addEventListener("click", () => this._premi(b.dataset.k));
     });
+    // i tasti della fila personalizzabile mandano il comando cosi com'e scritto
+    this.querySelectorAll("[data-cmd]").forEach(b => {
+      b.addEventListener("click", () => this._mandaCmd(b.dataset.cmd));
+    });
+    const imp = this.querySelector("[data-imp]");
+    if (imp) imp.addEventListener("click", () => this._apriPannello());
     // sorgenti
     this.querySelectorAll("[data-src]").forEach(b => {
       b.addEventListener("click", () => this._cambiaSorgente(b.dataset.src));
@@ -7814,6 +7910,116 @@ class FaberMedia extends HTMLElement {
   }
 }
 customElements.define("faber-media", FaberMedia);
+
+// ------------------------------------------------------------------ pannello
+// Si apre dalla card, si modifica una BOZZA, e solo il tasto Salva scrive.
+// Lo scrim sta agganciato al documento, non alla card: dentro Faber Home la
+// card ha il vetro sfocato, che diventerebbe il riferimento dei position:fixed
+// e terrebbe il pannello prigioniero nei suoi confini.
+FaberMedia.prototype._apriPannello = function () {
+  this._bozza = this._tasti.map(x => Object.assign({}, x));
+  this._partenza = JSON.stringify(this._bozza);
+  if (!this._pop) {
+    this._pop = document.createElement("div");
+    this._pop.className = "fm-scrim";
+    document.body.appendChild(this._pop);
+  }
+  this._pop.innerHTML = "<style>" + (this.querySelector("style") ? this.querySelector("style").textContent : "") + "</style><div class=\"fm-modal\"></div>";
+  this._modal = this._pop.querySelector(".fm-modal");
+  this._pop.classList.add("on");
+  this._pop.onclick = e => { if (e.target === this._pop) this._chiudiPannello(); };
+  this._disegnaPannello();
+};
+
+FaberMedia.prototype._chiudiPannello = function () {
+  if (this._pop) this._pop.classList.remove("on");
+  this._bozza = null;
+  this._nuovo = null;
+};
+
+FaberMedia.prototype._disegnaPannello = function () {
+  const b = this._bozza;
+  const cambiato = JSON.stringify(b) !== this._partenza;
+  const imparo = this._imparando();
+  this._modal.innerHTML = `
+    <div class="fm-mh">
+      <div class="fm-mt">Tasti e accoppiamento</div>
+      <button type="button" class="fm-x" data-chiudi>&times;</button>
+    </div>
+    <div class="fm-mc">
+      <label class="fm-sw">
+        <input type="checkbox" data-impara ${imparo ? "checked" : ""}>
+        <span>Modalita accoppiamento${imparo ? " — ACCESA" : ""}</span>
+      </label>
+      <div class="fm-nota${imparo ? " forte" : ""}">
+        ${imparo
+          ? "Adesso ogni tasto che tocchi qui dentro NON comanda: <b>impara</b>. Punta il telecomando vero verso il Broadlink della sala e premi il tasto entro pochi secondi. Poi spegni questa levetta."
+          : "Accendila per insegnare un tasto nuovo: scegli il dispositivo in cima alla card (BOSE, TV, Decoder, FIRE TV), poi tocca il tasto qui sotto e premi quello vero sul telecomando."}
+      </div>
+
+      <div class="fm-lab">Tasti della fila <small>nome, icona e comando: il comando e il nome con cui il Broadlink lo ha imparato</small></div>
+      ${b.map((x, i) => `
+        <div class="fm-riga2">
+          <input data-n="${i}" value="${fhEsc(x.nome)}" placeholder="Nome">
+          <input data-c="${i}" value="${fhEsc(x.cmd)}" placeholder="Comando">
+          <button type="button" class="fm-mini" data-prova="${i}" title="Prova questo tasto">&#9654;</button>
+          <button type="button" class="fm-mini" data-su="${i}" ${i === 0 ? "disabled" : ""}>&uarr;</button>
+          <button type="button" class="fm-mini" data-giu="${i}" ${i === b.length - 1 ? "disabled" : ""}>&darr;</button>
+          <button type="button" class="fm-mini" data-via="${i}">&times;</button>
+        </div>`).join("")}
+      <button type="button" class="fm-add" data-nuovo>+ Aggiungi un tasto</button>
+    </div>
+    <div class="fm-mf">
+      <button type="button" class="fm-ann" data-chiudi>Annulla</button>
+      <button type="button" class="fm-ok2" data-salva ${cambiato ? "" : "disabled"}>${cambiato ? "Salva" : "Nessuna modifica"}</button>
+    </div>`;
+
+  const m = this._modal;
+  m.querySelectorAll("[data-chiudi]").forEach(x => x.onclick = () => this._chiudiPannello());
+  const sw = m.querySelector("[data-impara]");
+  if (sw) sw.onchange = e => { this._accendiApprendimento(e.target.checked); setTimeout(() => this._disegnaPannello(), 400); };
+  m.querySelectorAll("[data-n]").forEach(x => x.oninput = e => { b[+e.target.dataset.n].nome = e.target.value; this._aggiornaSalva(); });
+  m.querySelectorAll("[data-c]").forEach(x => x.oninput = e => { b[+e.target.dataset.c].cmd = e.target.value; this._aggiornaSalva(); });
+  m.querySelectorAll("[data-prova]").forEach(x => x.onclick = () => this._mandaCmd(b[+x.dataset.prova].cmd));
+  m.querySelectorAll("[data-su]").forEach(x => x.onclick = () => {
+    const i = +x.dataset.su; const tmp = b[i]; b[i] = b[i - 1]; b[i - 1] = tmp; this._disegnaPannello();
+  });
+  m.querySelectorAll("[data-giu]").forEach(x => x.onclick = () => {
+    const i = +x.dataset.giu; const tmp = b[i]; b[i] = b[i + 1]; b[i + 1] = tmp; this._disegnaPannello();
+  });
+  m.querySelectorAll("[data-via]").forEach(x => x.onclick = () => { b.splice(+x.dataset.via, 1); this._disegnaPannello(); });
+  const nuovo = m.querySelector("[data-nuovo]");
+  if (nuovo) nuovo.onclick = () => { b.push({ nome: "Nuovo", icona: "mdi:remote", cmd: "" }); this._disegnaPannello(); };
+  const ok = m.querySelector("[data-salva]");
+  if (ok) ok.onclick = () => this._salva();
+};
+
+FaberMedia.prototype._aggiornaSalva = function () {
+  const ok = this._modal && this._modal.querySelector("[data-salva]");
+  if (!ok) return;
+  const cambiato = JSON.stringify(this._bozza) !== this._partenza;
+  ok.disabled = !cambiato;
+  ok.textContent = cambiato ? "Salva" : "Nessuna modifica";
+};
+
+FaberMedia.prototype._salva = async function () {
+  const puliti = this._bozza.filter(x => (x.nome || "").trim() && (x.cmd || "").trim());
+  const ok = this._modal.querySelector("[data-salva]");
+  if (ok) { ok.disabled = true; ok.textContent = "Salvo..."; }
+  this._gesto = true;
+  let fatto = false;
+  try { fatto = await this._salvaConfig(puliti); } finally { this._gesto = false; }
+  if (fatto) {
+    this._tasti = puliti;
+    this._cfg.tasti = puliti;
+    this._built = false;
+    this._render();
+    this._chiudiPannello();
+  } else if (ok) {
+    ok.disabled = false;
+    ok.textContent = "Non riesco a salvare";
+  }
+};
 
 class FaberMediaEditor extends HTMLElement {
   setConfig(config) {
