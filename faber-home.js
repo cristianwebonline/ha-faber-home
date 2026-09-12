@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.77.1";
+const FH_VERSION = "0.78.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -4754,35 +4754,37 @@ const FCE_CSS = `
 customElements.define("faber-carichi-editor", FaberCarichiEditor);
 
 // ===========================================================================
-// CONTROLLO CARICHI — il pannello di PowerControl
+// CONTROLLO CARICHI — pannello di PowerControl
 //
-// Il cervello resta dov'e: le automazioni del pacchetto pc.yaml. Una card
-// gira solo mentre qualcuno la guarda, e un distacco che protegge il
-// contatore deve funzionare alle tre di notte a schermi spenti. Qui si
-// COMANDA, non si decide.
+// DUE REGOLE, e sono la ragione per cui questa card e stata riscritta.
 //
-// Il modello dei dati e quello di PowerControl e non lo tocchiamo: venti
-// posizioni, ognuna con un input_select (il menu) e un input_text (quello
-// che le formule leggono davvero). Si scrive nel menu e poi si lancia lo
-// script "Salva", che ricopia i menu nei testi: e la stessa strada che usa
-// la configurazione originale, quindi niente doppioni di logica.
+// 1) Il cervello NON sta qui. Il distacco vive nelle automazioni del pacchetto
+//    pc.yaml, perche deve funzionare alle tre di notte a schermi spenti. Qui si
+//    guarda e si configura, non si decide.
+//
+// 2) SI SCRIVE SOLO DENTRO UN GESTO ESPLICITO. La prima versione di questa card
+//    ha riscritto da sola l'ordine dei carichi mentre la pagina era solo aperta
+//    (11/9/2026, due scritture col contesto della sessione browser, percorso nel
+//    codice mai trovato). Quindi adesso: una sola funzione sa scrivere, ed e
+//    _scrivi(); rifiuta se _gesto non e vero; _gesto lo accende soltanto il
+//    tasto Salva e lo rimette a falso in un finally. Il disegno non chiama mai
+//    un servizio. Anche se restasse un baco, non puo arrivare agli helper.
+//
+// Ordine: posizione 1 = ULTIMO a essere staccato (il piu protetto). Lo script
+// stop_carichi_generale parte da carico_20 e scende. La prima versione scriveva
+// il contrario, ed era il modo perfetto per far ribaltare la protezione.
 // ===========================================================================
 const PC_MAX = 20;
-const PC_DEFAULTS = {
-  title: "Controllo Carichi",
-  prezzo_kwh: 0.30,
-};
+const PC_DEFAULTS = { title: "Controllo Carichi" };
 
-// Un sensore "_device_power" degli Shelly misura la PRESA, non cio che ci
-// attacchi: e una riga piatta di mezzo watt. Ne avevamo uno configurato per
-// la lavastoviglie e il sistema la credeva spenta sempre. La card lo dice.
-function pcSospetto(id) {
-  return /_device_power$/.test(id);
-}
-
-function pcW(n) {
-  if (n === null || n === undefined || isNaN(n)) return "—";
-  return Math.round(n).toLocaleString("it-IT");
+// Gli Shelly espongono un "_device_power" che misura LA PRESA, non il carico:
+// una riga piatta di mezzo watt. Ne avevamo uno sulla lavastoviglie e il
+// sistema la credeva sempre spenta.
+function pcSospetto(id) { return /_device_power$/.test(id); }
+function pcW(n) { return (n === null || n === undefined || isNaN(n)) ? "—" : Math.round(n).toLocaleString("it-IT"); }
+function pcPulisci(s) {
+  return String(s || "").replace(/ Potenza$| Power$| power$/, "").replace(" Energy Meter 0", "")
+    .replace(/^Presa /, "").replace(/^SHELLY /, "").trim();
 }
 
 class FaberPC extends HTMLElement {
@@ -4791,99 +4793,52 @@ class FaberPC extends HTMLElement {
 
   setConfig(config) {
     this._cfg = Object.assign({}, PC_DEFAULTS, JSON.parse(JSON.stringify(config || {})));
-    this._built = false;
-    this._segno = null;
-    if (this._hass) this._render();
+    this._costruita = false; this._segno = null;
+    if (this._hass) this._disegna();
   }
+  set hass(h) { this._hass = h; this._disegna(); }
+  getCardSize() { return 5; }
+  disconnectedCallback() { if (this._pop) { this._pop.remove(); this._pop = null; } }
 
-  set hass(h) { this._hass = h; this._render(); }
-  getCardSize() { return 9; }
+  // ------------------------------------------------------------- sola lettura
+  _n(id) { const s = this._hass.states[id]; const v = s ? parseFloat(s.state) : NaN; return isNaN(v) ? null : v; }
+  _s(id) { const s = this._hass.states[id]; return s ? s.state : ""; }
 
-  // ---------------------------------------------------------------- lettura
   _lista() {
     const H = this._hass.states, out = [];
     for (let i = 1; i <= PC_MAX; i++) {
       const t = H["input_text.carico_" + i + "_potenza"];
       const id = t ? String(t.state || "").trim() : "";
-      if (!id || id === "Seleziona" || id === "unknown" || id === "unavailable") continue;
-      const st = H[id];
-      const so = H["input_number.potenza_" + i + "_sospesa"];
+      if (!id || ["Seleziona", "unknown", "unavailable"].includes(id)) continue;
+      const sw = (H["input_text.carico_" + i + "_switch"] || {}).state || "";
+      const st = H[id], so = H["input_number.potenza_" + i + "_sospesa"];
       out.push({
-        pos: i, id,
-        nome: st ? (st.attributes.friendly_name || id) : id,
+        pos: i, id, sw,
+        nome: pcPulisci(st ? (st.attributes.friendly_name || id) : id),
         w: st && !isNaN(parseFloat(st.state)) ? parseFloat(st.state) : null,
         manca: !st,
+        senzaPresa: !sw || sw === "Seleziona",
         sospesa: so ? (parseFloat(so.state) || 0) : 0,
       });
     }
     return out;
   }
 
-  _num(id) { const s = this._hass.states[id]; const v = s ? parseFloat(s.state) : NaN; return isNaN(v) ? null : v; }
-
-  // ---------------------------------------------------------------- scrittura
-  // Si scrivono solo le posizioni che cambiano davvero: su questo Raspberry
-  // venti chiamate di fila si sentono tutte.
-  async _applica(nuova) {
-    const H = this._hass.states;
-    const voluti = [];
-    for (let i = 0; i < PC_MAX; i++) voluti.push(nuova[i] ? nuova[i].id : "Seleziona");
-    const cambi = [];
-    for (let i = 0; i < PC_MAX; i++) {
-      const sel = H["input_select.carico_" + (i + 1) + "_potenza"];
-      const ora = sel ? sel.state : "Seleziona";
-      if (ora !== voluti[i]) cambi.push({ n: i + 1, v: voluti[i] });
-    }
-    if (!cambi.length) return;
-    this._occupato = true; this._segno = null; this._render();
-    for (const c of cambi) {
-      await this._hass.callService("input_select", "select_option", {
-        entity_id: "input_select.carico_" + c.n + "_potenza", option: c.v,
-      });
-    }
-    // E il Salva che rende effettive le modifiche: finche non gira, le
-    // formule continuano a leggere i valori vecchi negli input_text.
-    await this._hass.callService("script", "turn_on", {
-      entity_id: "script.powercontrol_configurazione_salva",
-    });
-    this._occupato = false; this._segno = null;
-    this._render();
-  }
-
-  _sposta(pos, verso) {
-    const l = this._lista();
-    const i = l.findIndex(x => x.pos === pos);
-    const j = i + verso;
-    if (i < 0 || j < 0 || j >= l.length) return;
-    const t = l[i]; l[i] = l[j]; l[j] = t;
-    this._applica(l);
-  }
-
-  _togli(pos) {
-    this._applica(this._lista().filter(x => x.pos !== pos));
-  }
-
-  _aggiungi(id) {
-    const l = this._lista();
-    if (l.length >= PC_MAX || l.some(x => x.id === id)) return;
-    l.push({ id });
-    this._applica(l);
-  }
-
-  // ---------------------------------------------------------------- il disegno
-  _render() {
+  // --------------------------------------------------------------- IL DISEGNO
+  // Non chiama mai un servizio. Solo lettura e aggancio di tasti.
+  _disegna() {
     if (!this._hass || !this._cfg) return;
-    if (!this._built) {
+    if (!this._costruita) {
       this.innerHTML = "<style>" + PC_CSS + "</style><ha-card class=\"pc\"><div class=\"pc-body\"></div></ha-card>";
-      this._body = this.querySelector(".pc-body");
-      this._built = true;
+      this._corpo = this.querySelector(".pc-body");
+      this._costruita = true;
     }
-
     const l = this._lista();
-    const tot = this._num("sensor.potenza_carichi_selezionato");
-    const imm = this._num("sensor.potenza_massima_immediato");
-    const rit = this._num("sensor.potenza_massima_ritardato");
-    const attivo = (this._hass.states["input_boolean.attiva_power_control"] || {}).state === "on";
+    const tot = this._n("sensor.potenza_carichi_selezionato");
+    const imm = this._n("sensor.potenza_massima_immediato");
+    const rit = this._n("sensor.potenza_massima_ritardato");
+    const attivo = this._s("input_boolean.attiva_power_control") === "on";
+    const ultimo = this._s("input_text.controllo_carichi_ultimo_sovraccarico");
     const sospesi = l.filter(x => x.sospesa > 0);
 
     let tono = "ok", eti = "sotto controllo";
@@ -4891,12 +4846,11 @@ class FaberPC extends HTMLElement {
     else if (tot !== null && rit !== null && tot > rit) { tono = "medio"; eti = "sopra contratto"; }
     const perc = imm ? Math.min(100, ((tot || 0) / imm) * 100) : 0;
 
-    const impronta = [l.map(x => x.pos + x.id + Math.round(x.w || 0) + x.sospesa).join(","),
-      tot, imm, rit, attivo, this._occupato, this._apri, this._filtro, this._modifica].join("|");
+    const impronta = [tot, imm, rit, attivo, ultimo, sospesi.map(x => x.pos + ":" + x.sospesa).join(",")].join("|");
     if (impronta === this._segno) return;
     this._segno = impronta;
 
-    this._body.innerHTML = `
+    this._corpo.innerHTML = `
       <div class="pc-top">
         <div>
           <div class="pc-t1">${fhEsc(this._cfg.title)}</div>
@@ -4904,223 +4858,364 @@ class FaberPC extends HTMLElement {
         </div>
         <div class="pc-tot">
           <div class="pc-big ${tono}">${pcW(tot)}<span>W</span></div>
-          <button type="button" class="pc-sw ${attivo ? "on" : ""}" data-act="master">
-            ${attivo ? "protezione accesa" : "protezione spenta"}
-          </button>
+          <div class="pc-sub">${attivo ? "protezione attiva" : "PROTEZIONE SPENTA"}</div>
         </div>
       </div>
-
       <div class="pc-barra"><div class="pc-fill ${tono}" style="width:${perc}%"></div>
         <div class="pc-tacca" style="left:${imm ? (rit / imm) * 100 : 0}%"></div></div>
-      <div class="pc-leg">
-        <span>contratto ${this._sogliaHTML("rit", rit)} per ${this._num("input_number.tempo_stop_ritardato") || "—"} min</span>
-        <span>picco ${this._sogliaHTML("imm", imm)} per ${this._num("input_number.tempo_stop_immediato") || "—"} s</span>
-      </div>
+      <div class="pc-leg"><span>contratto ${pcW(rit)} W</span><span>picco ${pcW(imm)} W</span></div>
 
-      ${sospesi.length ? `<div class="pc-sosp">
+      ${sospesi.length ? `<div class="pc-box rosso">
         <b>${sospesi.length === 1 ? "Un carico staccato" : sospesi.length + " carichi staccati"} dalla protezione</b>
         ${sospesi.map(x => `<span>${fhEsc(x.nome)} · ${pcW(x.sospesa)} W</span>`).join("")}
       </div>` : ""}
 
-      <div class="pc-lab">Ordine di stacco <small>il primo della lista cade per primo</small></div>
-      <div class="pc-lista">
-        ${l.length ? l.map((x, i) => `
-          <div class="pc-riga${x.sospesa > 0 ? " staccato" : ""}${x.manca ? " rotto" : ""}">
-            <span class="pc-n">${i + 1}</span>
-            <span class="pc-nome">${fhEsc(x.nome)}
-              ${pcSospetto(x.id) ? `<em class="pc-avviso" title="Misura la presa, non il carico">misura la presa</em>` : ""}
-              ${x.manca ? `<em class="pc-avviso">sensore sparito</em>` : ""}
-            </span>
-            <span class="pc-w">${pcW(x.w)} W</span>
-            <span class="pc-cmd">
-              <button type="button" data-su="${x.pos}" ${i === 0 ? "disabled" : ""} title="Stacca prima">&uarr;</button>
-              <button type="button" data-giu="${x.pos}" ${i === l.length - 1 ? "disabled" : ""} title="Stacca dopo">&darr;</button>
-              <button type="button" data-via="${x.pos}" title="Togli dalla lista">&times;</button>
-            </span>
-          </div>`).join("") : `<div class="pc-vuoto">Nessun carico in lista.</div>`}
+      <div class="pc-box">
+        <b>Ultimo sovraccarico</b>
+        <span class="pc-ev">${ultimo && ultimo !== "unknown" ? fhEsc(ultimo) : "Nessuno registrato finora."}</span>
       </div>
 
-      <button type="button" class="pc-add" data-act="aggiungi">+ Aggiungi un carico</button>
-      ${this._occupato ? `<div class="pc-attesa">Salvo la configurazione...</div>` : ""}
-      ${this._apri ? this._pickerHTML() : ""}
-    `;
+      <button type="button" class="pc-imp" data-apri>Impostazioni</button>`;
 
-    const q = s => this._body.querySelector(s);
-    this._body.querySelectorAll("[data-su]").forEach(b => b.onclick = () => this._sposta(parseInt(b.dataset.su), -1));
-    this._body.querySelectorAll("[data-giu]").forEach(b => b.onclick = () => this._sposta(parseInt(b.dataset.giu), 1));
-    this._body.querySelectorAll("[data-via]").forEach(b => b.onclick = () => this._togli(parseInt(b.dataset.via)));
-    const mst = q('[data-act="master"]');
-    if (mst) mst.onclick = () => this._hass.callService("input_boolean", attivo ? "turn_off" : "turn_on",
-      { entity_id: "input_boolean.attiva_power_control" });
-    const add = q('[data-act="aggiungi"]');
-    if (add) add.onclick = () => { this._apri = true; this._segno = null; this._render(); };
-    this._body.querySelectorAll("[data-edit]").forEach(b => b.onclick = () => {
-      this._modifica = b.dataset.edit; this._segno = null; this._render();
-      const c = this._body.querySelector("[data-sin]"); if (c) { c.focus(); c.select(); }
-    });
-    this._body.querySelectorAll("[data-ok]").forEach(b => b.onclick = () => this._salvaSoglia(b.dataset.ok));
-    this._body.querySelectorAll("[data-no]").forEach(b => b.onclick = () => {
-      this._modifica = null; this._segno = null; this._render();
-    });
-    const sin = this._body.querySelector("[data-sin]");
-    if (sin) sin.onkeydown = e => {
-      if (e.key === "Enter") this._salvaSoglia(sin.dataset.sin);
-      if (e.key === "Escape") { this._modifica = null; this._segno = null; this._render(); }
+    const b = this._corpo.querySelector("[data-apri]");
+    if (b) b.onclick = () => this._apriPopup();
+  }
+
+  // ============================ L'UNICA PORTA DI SCRITTURA ===================
+  // Fuori dal tasto Salva questa rifiuta e lo scrive in console. Non e una
+  // buona intenzione: e un blocco.
+  async _scrivi(azioni) {
+    if (!this._gesto) {
+      console.warn("[faber-pc] scrittura rifiutata: nessun gesto esplicito dell'utente", azioni);
+      return false;
+    }
+    for (const a of azioni) {
+      await this._hass.callService(a.dominio, a.servizio, a.dati);
+    }
+    return true;
+  }
+
+  // ------------------------------------------------------------------- POPUP
+  // Lo scrim si aggancia al DOCUMENTO, non alla card: dentro Faber Home la card
+  // ha il vetro sfocato, che diventa il riferimento dei position:fixed e
+  // terrebbe il foglio prigioniero nei suoi confini.
+  _apriPopup() {
+    const l = this._lista();
+    this._bozza = {
+      carichi: l.map(x => ({ id: x.id, sw: x.sw, nome: x.nome })),
+      imm: this._n("input_number.potenza_massima_immediato") || 0,
+      rit: this._n("input_number.potenza_massima_ritardato") || 0,
+      tImm: this._n("input_number.tempo_stop_immediato") || 0,
+      tRit: this._n("input_number.tempo_stop_ritardato") || 0,
+      attivo: this._s("input_boolean.attiva_power_control") === "on",
     };
-    this._wirePicker();
+    this._partenza = JSON.stringify(this._bozza);
+    this._cerca = ""; this._aggiungi = false;
+
+    if (!this._pop) {
+      this._pop = document.createElement("div");
+      this._pop.className = "pc-scrim";
+      document.body.appendChild(this._pop);
+    }
+    this._pop.innerHTML = "<style>" + PC_CSS + "</style><div class=\"pc-modal\"></div>";
+    this._modal = this._pop.querySelector(".pc-modal");
+    this._pop.classList.add("on");
+    this._pop.onclick = e => { if (e.target === this._pop) this._chiudi(); };
+    this._registro();   // registro entita per l'accoppiamento automatico
+    this._disegnaPopup();
   }
 
-  // Le soglie si cambiano al tocco, dentro la card. NIENTE window.prompt: nella
-  // WebView dell'app Companion quella finestrella non compare proprio, e il
-  // tasto sembra rotto. Gia successo altrove, non si ripete.
-  _sogliaHTML(quale, valore) {
-    if (this._modifica !== quale) {
-      return `<b data-edit="${quale}">${pcW(valore)} W</b>`;
-    }
-    return `<span class="pc-edit">
-      <input type="number" inputmode="numeric" class="pc-sin" data-sin="${quale}" value="${Math.round(valore || 0)}" min="100" step="50">
-      <button type="button" data-ok="${quale}" title="Conferma">&#10003;</button>
-      <button type="button" data-no="1" title="Annulla">&times;</button>
-    </span>`;
+  _chiudi() { this._pop.classList.remove("on"); this._bozza = null; this._segno = null; this._disegna(); }
+
+  async _registro() {
+    if (this._reg) return;
+    try {
+      const ents = await this._hass.callWS({ type: "config/entity_registry/list" });
+      const devs = await this._hass.callWS({ type: "config/device_registry/list" });
+      const nomi = {}; devs.forEach(d => nomi[d.id] = d.name_by_user || d.name);
+      const perDev = {};
+      ents.forEach(e => { if (e.device_id) (perDev[e.device_id] = perDev[e.device_id] || []).push(e); });
+      this._reg = { ents, nomi, perDev };
+    } catch (e) { this._reg = null; }
   }
 
-  async _salvaSoglia(quale) {
-    const campo = this._body.querySelector(`[data-sin="${quale}"]`);
-    if (!campo) return;
-    const n = parseInt(String(campo.value).replace(/[^0-9]/g, ""), 10);
-    this._modifica = null;
-    if (isFinite(n) && n > 0) {
-      const id = quale === "imm" ? "input_number.potenza_massima_immediato" : "input_number.potenza_massima_ritardato";
-      await this._hass.callService("input_number", "set_value", { entity_id: id, value: n });
-    }
-    this._segno = null; this._render();
+  // Dal sensore di potenza alla presa che lo alimenta: stanno sullo stesso
+  // dispositivo. Non vale per i misuratori separati (il piano induzione ha il
+  // sensore su un device e il rele su un altro): li torna vuoto e si sceglie
+  // a mano, invece di indovinare.
+  _presaDi(idSensore) {
+    if (!this._reg) return "";
+    const e = this._reg.ents.find(x => x.entity_id === idSensore);
+    if (!e || !e.device_id) return "";
+    const dev = this._reg.nomi[e.device_id] || "";
+    const scarta = /child_lock|backlight|_led|remote_access|do_not_disturb|sound|privacy|alarm|tracking|sleep|overtemp|mute|repeat|shuffle/i;
+    const cand = (this._reg.perDev[e.device_id] || [])
+      .filter(x => x.entity_id.startsWith("switch.") && !scarta.test(x.entity_id));
+    const pr = cand.find(x => (x.original_name || x.name || "") === dev) || cand[0];
+    return pr ? pr.entity_id : "";
   }
 
   _candidati() {
-    const H = this._hass.states, gia = new Set(this._lista().map(x => x.id));
+    const H = this._hass.states, gia = new Set(this._bozza.carichi.map(x => x.id));
+    const f = (this._cerca || "").toLowerCase();
     return Object.keys(H)
       .filter(id => id.startsWith("sensor.") && H[id].attributes.device_class === "power" && !gia.has(id))
-      .map(id => ({ id, nome: H[id].attributes.friendly_name || id, w: parseFloat(H[id].state) }))
-      .sort((a, b) => String(a.nome).localeCompare(String(b.nome), "it"));
+      .map(id => ({ id, nome: pcPulisci(H[id].attributes.friendly_name || id), w: parseFloat(H[id].state) }))
+      .filter(x => !f || x.nome.toLowerCase().includes(f) || x.id.includes(f))
+      .sort((a, b) => a.nome.localeCompare(b.nome, "it")).slice(0, 40);
   }
 
-  _opzioniHTML() {
-    const f = (this._filtro || "").toLowerCase();
-    const c = this._candidati().filter(x => !f || String(x.nome).toLowerCase().includes(f) || x.id.includes(f)).slice(0, 40);
-    if (!c.length) return `<div class="pc-vuoto">Nessun sensore trovato.</div>`;
-    return c.map(x => `<button type="button" class="pc-opt" data-add="${fhEsc(x.id)}">
-      <span>${fhEsc(x.nome)}${pcSospetto(x.id) ? ` <em class="pc-avviso">misura la presa</em>` : ""}</span>
-      <small>${fhEsc(x.id)} · ${pcW(x.w)} W</small>
-    </button>`).join("");
+  _disegnaPopup() {
+    const b = this._bozza, H = this._hass.states;
+    const cambiato = JSON.stringify(b) !== this._partenza;
+    this._modal.innerHTML = `
+      <div class="pc-mh">
+        <div class="pc-mt">Impostazioni carichi</div>
+        <button type="button" class="pc-x" data-chiudi>&times;</button>
+      </div>
+      <div class="pc-mc">
+        <label class="pc-sw2">
+          <input type="checkbox" data-attivo ${b.attivo ? "checked" : ""}>
+          <span>Protezione attiva</span>
+        </label>
+
+        <div class="pc-gr">
+          <div><label>Picco (W)</label><input type="number" data-k="imm" value="${b.imm}" step="50"></div>
+          <div><label>per (secondi)</label><input type="number" data-k="tImm" value="${b.tImm}" step="1"></div>
+          <div><label>Contratto (W)</label><input type="number" data-k="rit" value="${b.rit}" step="50"></div>
+          <div><label>per (minuti)</label><input type="number" data-k="tRit" value="${b.tRit}" step="10"></div>
+        </div>
+        <div class="pc-nota">Le soglie si contano sulla <b>potenza disponibile</b> (contratto +10%).
+          Sopra quella parte il conto alla rovescia del contatore; il picco e la soglia oltre cui stacca in pochi minuti.</div>
+
+        <div class="pc-lab">Ordine <small>in cima = staccato per <b>ultimo</b>, in fondo = il primo a cadere</small></div>
+        <div class="pc-lista">
+          ${b.carichi.map((x, i) => {
+            const st = H[x.id];
+            const w = st && !isNaN(parseFloat(st.state)) ? parseFloat(st.state) : null;
+            const senzaPresa = !x.sw || x.sw === "Seleziona";
+            return `<div class="pc-riga${senzaPresa || !st ? " guaio" : ""}">
+              <span class="pc-n">${i + 1}</span>
+              <span class="pc-nome">${fhEsc(x.nome)}
+                ${pcSospetto(x.id) ? `<em class="pc-av">misura la presa</em>` : ""}
+                ${!st ? `<em class="pc-av">sensore sparito</em>` : ""}
+                ${senzaPresa ? `<em class="pc-av">manca la presa</em>` : ""}
+              </span>
+              <span class="pc-w">${pcW(w)} W</span>
+              <span class="pc-cmd">
+                <button type="button" data-su="${i}" ${i === 0 ? "disabled" : ""} title="Proteggi di piu">&uarr;</button>
+                <button type="button" data-giu="${i}" ${i === b.carichi.length - 1 ? "disabled" : ""} title="Stacca prima">&darr;</button>
+                <button type="button" data-via="${i}" title="Togli">&times;</button>
+              </span>
+            </div>`;
+          }).join("") || `<div class="pc-vuoto">Nessun carico.</div>`}
+        </div>
+
+        ${this._aggiungi ? `
+          <div class="pc-pick">
+            <input class="pc-cerca" placeholder="Cerca un sensore di potenza..." value="${fhEsc(this._cerca)}">
+            <div class="pc-opz">${this._candidati().map(c => {
+              const presa = this._presaDi(c.id);
+              return `<button type="button" class="pc-opt" data-add="${fhEsc(c.id)}">
+                <span>${fhEsc(c.nome)}${pcSospetto(c.id) ? ` <em class="pc-av">misura la presa</em>` : ""}</span>
+                <small>${presa ? "presa trovata: " + fhEsc(pcPulisci((H[presa] || {}).attributes ? H[presa].attributes.friendly_name : presa)) : "presa da scegliere a mano"} · ${pcW(c.w)} W</small>
+              </button>`;
+            }).join("") || `<div class="pc-vuoto">Nessun sensore trovato.</div>`}</div>
+          </div>` : `<button type="button" class="pc-add" data-nuovo>+ Aggiungi un carico</button>`}
+      </div>
+      <div class="pc-mf">
+        <button type="button" class="pc-ann" data-chiudi>Annulla</button>
+        <button type="button" class="pc-ok" data-salva ${cambiato ? "" : "disabled"}>${cambiato ? "Salva" : "Nessuna modifica"}</button>
+      </div>`;
+    this._aggancia();
   }
 
-  _pickerHTML() {
-    return `<div class="pc-pick">
-      <div class="pc-pickh"><b>Aggiungi un carico</b><button type="button" data-act="chiudi">&times;</button></div>
-      <input class="pc-cerca" placeholder="Cerca fra i sensori di potenza..." value="${fhEsc(this._filtro || "")}">
-      <div class="pc-opzioni">${this._opzioniHTML()}</div>
-    </div>`;
-  }
-
-  _wirePicker() {
-    const p = this._body.querySelector(".pc-pick");
-    if (!p) return;
-    p.querySelector('[data-act="chiudi"]').onclick = () => {
-      this._apri = false; this._filtro = ""; this._segno = null; this._render();
-    };
-    const inp = p.querySelector(".pc-cerca");
-    // Si riscrive solo l'elenco, non tutta la card: se no il campo perde il
-    // fuoco a ogni lettera. E lo stesso difetto gia visto negli altri editor.
-    inp.oninput = e => {
-      this._filtro = e.target.value;
-      p.querySelector(".pc-opzioni").innerHTML = this._opzioniHTML();
-      this._wireOpzioni();
-    };
-    inp.focus();
-    this._wireOpzioni();
-  }
-
-  _wireOpzioni() {
-    this._body.querySelectorAll("[data-add]").forEach(b => b.onclick = () => {
-      const id = b.dataset.add;
-      this._apri = false; this._filtro = ""; this._segno = null;
-      this._aggiungi(id);
+  _aggancia() {
+    const m = this._modal, b = this._bozza;
+    m.querySelectorAll("[data-chiudi]").forEach(x => x.onclick = () => this._chiudi());
+    const att = m.querySelector("[data-attivo]");
+    if (att) att.onchange = e => { b.attivo = e.target.checked; this._disegnaPopup(); };
+    m.querySelectorAll("[data-k]").forEach(x => x.onchange = e => {
+      const v = parseInt(e.target.value, 10);
+      if (isFinite(v) && v >= 0) b[e.target.dataset.k] = v;
+      this._disegnaPopup();
     });
+    m.querySelectorAll("[data-su]").forEach(x => x.onclick = () => {
+      const i = +x.dataset.su; const t = b.carichi[i]; b.carichi[i] = b.carichi[i - 1]; b.carichi[i - 1] = t; this._disegnaPopup();
+    });
+    m.querySelectorAll("[data-giu]").forEach(x => x.onclick = () => {
+      const i = +x.dataset.giu; const t = b.carichi[i]; b.carichi[i] = b.carichi[i + 1]; b.carichi[i + 1] = t; this._disegnaPopup();
+    });
+    m.querySelectorAll("[data-via]").forEach(x => x.onclick = () => {
+      b.carichi.splice(+x.dataset.via, 1); this._disegnaPopup();
+    });
+    const nuovo = m.querySelector("[data-nuovo]");
+    if (nuovo) nuovo.onclick = () => { this._aggiungi = true; this._disegnaPopup(); };
+    const cerca = m.querySelector(".pc-cerca");
+    if (cerca) {
+      cerca.oninput = e => {
+        this._cerca = e.target.value;
+        m.querySelector(".pc-opz").innerHTML = this._candidati().map(c => {
+          const presa = this._presaDi(c.id);
+          return `<button type="button" class="pc-opt" data-add="${fhEsc(c.id)}">
+            <span>${fhEsc(c.nome)}</span><small>${presa ? "presa trovata" : "presa da scegliere a mano"} · ${pcW(c.w)} W</small>
+          </button>`;
+        }).join("") || `<div class="pc-vuoto">Nessun sensore trovato.</div>`;
+        this._agganciaOpz();
+      };
+      cerca.focus();
+      this._agganciaOpz();
+    }
+    const salva = m.querySelector("[data-salva]");
+    if (salva) salva.onclick = () => this._salva();
+  }
+
+  _agganciaOpz() {
+    this._modal.querySelectorAll("[data-add]").forEach(x => x.onclick = () => {
+      const id = x.dataset.add;
+      const H = this._hass.states;
+      this._bozza.carichi.push({ id, sw: this._presaDi(id), nome: pcPulisci(H[id].attributes.friendly_name || id) });
+      this._aggiungi = false; this._cerca = "";
+      this._disegnaPopup();
+    });
+  }
+
+  // ------------------------------------------------------------------ SALVA
+  // L'unico punto che accende _gesto. Tutto il resto qui sopra tocca solo la
+  // bozza in memoria.
+  async _salva() {
+    const b = this._bozza, H = this._hass.states;
+    const azioni = [];
+
+    for (let i = 0; i < PC_MAX; i++) {
+      const c = b.carichi[i];
+      for (const [suff, voluto] of [["potenza", c ? c.id : "Seleziona"], ["switch", c ? (c.sw || "Seleziona") : "Seleziona"]]) {
+        const ent = "input_select.carico_" + (i + 1) + "_" + suff;
+        const ora = H[ent] ? H[ent].state : null;
+        if (ora !== null && ora !== voluto) {
+          azioni.push({ dominio: "input_select", servizio: "select_option", dati: { entity_id: ent, option: voluto } });
+        }
+      }
+    }
+    const numeri = [
+      ["input_number.potenza_massima_immediato", b.imm],
+      ["input_number.potenza_massima_ritardato", b.rit],
+      ["input_number.tempo_stop_immediato", b.tImm],
+      ["input_number.tempo_stop_ritardato", b.tRit],
+    ];
+    numeri.forEach(([ent, v]) => {
+      if (H[ent] && parseFloat(H[ent].state) !== v) {
+        azioni.push({ dominio: "input_number", servizio: "set_value", dati: { entity_id: ent, value: v } });
+      }
+    });
+    const attivoOra = this._s("input_boolean.attiva_power_control") === "on";
+    if (attivoOra !== b.attivo) {
+      azioni.push({ dominio: "input_boolean", servizio: b.attivo ? "turn_on" : "turn_off", dati: { entity_id: "input_boolean.attiva_power_control" } });
+    }
+    // Il Salva di PowerControl ricopia i menu nei testi: senza, le formule
+    // continuano a leggere i valori vecchi.
+    if (azioni.length) {
+      azioni.push({ dominio: "script", servizio: "turn_on", dati: { entity_id: "script.powercontrol_configurazione_salva" } });
+    }
+
+    const ok = this._modal.querySelector("[data-salva]");
+    if (ok) { ok.disabled = true; ok.textContent = "Salvo..."; }
+    this._gesto = true;
+    try {
+      await this._scrivi(azioni);
+    } finally {
+      this._gesto = false;
+    }
+    this._chiudi();
   }
 }
 
 const PC_CSS = `
-  .pc{padding:14px 14px 16px;border-radius:20px;display:flex;flex-direction:column}
-  .pc-body{display:flex;flex-direction:column;gap:10px}
+  .pc{padding:14px;border-radius:20px}
+  .pc-body{display:flex;flex-direction:column;gap:9px}
   .pc-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
   .pc-t1{font-size:11px;font-weight:900;letter-spacing:.10em;text-transform:uppercase;opacity:.62}
   .pc-t2{font-size:12.5px;font-weight:800;margin-top:3px}
   .pc-t2.ok{color:#39d98a}.pc-t2.medio{color:#ffb020}.pc-t2.alto{color:#ff5442}
   .fh-app.chiaro .pc-t2.ok{color:#128a52}.fh-app.chiaro .pc-t2.medio{color:#a35b00}
   .pc-tot{text-align:right;flex:0 0 auto}
-  .pc-big{font-size:30px;font-weight:900;line-height:1;letter-spacing:-.02em}
+  .pc-big{font-size:29px;font-weight:900;line-height:1}
   .pc-big span{font-size:13px;font-weight:800;margin-left:2px;opacity:.7}
   .pc-big.ok{color:#39d98a}.pc-big.medio{color:#ffb020}.pc-big.alto{color:#ff5442}
   .fh-app.chiaro .pc-big.ok{color:#128a52}.fh-app.chiaro .pc-big.medio{color:#a35b00}
-  .pc-sw{margin-top:5px;border:0;cursor:pointer;font:inherit;font-size:10px;font-weight:800;
-    padding:4px 10px;border-radius:999px;background:rgba(255,84,66,.18);color:#ff8a7a}
-  .pc-sw.on{background:rgba(57,217,138,.16);color:#39d98a}
-  .fh-app.chiaro .pc-sw.on{background:rgba(18,138,82,.13);color:#0f7345}
+  .pc-sub{font-size:9.5px;font-weight:800;opacity:.55;letter-spacing:.04em}
   .pc-barra{position:relative;height:8px;border-radius:999px;background:rgba(255,255,255,.10)}
   .fh-app.chiaro .pc-barra{background:rgba(15,23,42,.10)}
   .pc-fill{height:100%;border-radius:999px;transition:width .5s ease}
   .pc-fill.ok{background:#39d98a}.pc-fill.medio{background:#ffb020}.pc-fill.alto{background:#ff5442}
   .pc-tacca{position:absolute;top:-2px;width:2px;height:12px;background:rgba(255,255,255,.55)}
   .fh-app.chiaro .pc-tacca{background:rgba(15,23,42,.45)}
-  .pc-leg{display:flex;justify-content:space-between;gap:10px;font-size:10.5px;font-weight:700;opacity:.75;flex-wrap:wrap}
-  .pc-leg b{cursor:pointer;border-bottom:1px dashed currentColor;font-weight:900}
-  .pc-edit{display:inline-flex;align-items:center;gap:4px;vertical-align:middle}
-  .pc-sin{width:76px;padding:3px 6px;border-radius:7px;font:inherit;font-size:11.5px;font-weight:900;
-    border:1px solid rgba(255,176,32,.6);background:rgba(255,255,255,.08);color:inherit}
-  .fh-app.chiaro .pc-sin{background:#fff;color:#12161c}
-  .pc-edit button{width:24px;height:24px;border:0;border-radius:7px;cursor:pointer;font:inherit;
-    font-size:12px;font-weight:900;background:rgba(255,176,32,.25);color:inherit}
-  .pc-sosp{padding:9px 11px;border-radius:12px;background:rgba(255,84,66,.12);
-    border:1px solid rgba(255,84,66,.3);font-size:11.5px;display:flex;flex-direction:column;gap:3px}
-  .pc-sosp b{font-size:12px}
-  .pc-lab{font-size:11px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;opacity:.55;margin-top:2px}
-  .pc-lab small{display:block;font-size:10px;font-weight:700;letter-spacing:0;text-transform:none;opacity:.8;margin-top:2px}
+  .pc-leg{display:flex;justify-content:space-between;font-size:10.5px;font-weight:700;opacity:.7}
+  .pc-box{padding:9px 11px;border-radius:12px;background:rgba(255,255,255,.055);
+    display:flex;flex-direction:column;gap:3px;font-size:11.5px}
+  .fh-app.chiaro .pc-box{background:rgba(15,23,42,.05)}
+  .pc-box.rosso{background:rgba(255,84,66,.12);border:1px solid rgba(255,84,66,.3)}
+  .pc-box b{font-size:10.5px;font-weight:900;letter-spacing:.06em;text-transform:uppercase;opacity:.65}
+  .pc-ev{font-weight:700;line-height:1.35}
+  .pc-imp{border:1px solid rgba(255,176,32,.45);background:none;color:inherit;cursor:pointer;font:inherit;
+    font-size:12px;font-weight:800;padding:9px;border-radius:12px}
+  .pc-scrim{position:fixed;inset:0;z-index:100;background:rgba(4,5,8,.62);backdrop-filter:blur(6px);
+    display:flex;align-items:center;justify-content:center;padding:18px;opacity:0;pointer-events:none;
+    transition:opacity .18s}
+  .pc-scrim.on{opacity:1;pointer-events:auto}
+  .pc-modal{width:min(560px,100%);max-height:86vh;overflow:auto;border-radius:20px;padding:0;
+    background:#1a1b21;color:#eaf1f8;display:flex;flex-direction:column;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}
+  .fh-app.chiaro .pc-modal{background:#fbfaf7;color:#12161c}
+  .pc-mh{display:flex;align-items:center;justify-content:space-between;padding:14px 16px 8px}
+  .pc-mt{font-size:15px;font-weight:900}
+  .pc-x{border:0;background:none;color:inherit;font-size:20px;cursor:pointer;line-height:1}
+  .pc-mc{padding:0 16px 12px;display:flex;flex-direction:column;gap:11px}
+  .pc-mf{display:flex;gap:8px;padding:12px 16px 16px;border-top:1px solid rgba(255,255,255,.09)}
+  .fh-app.chiaro .pc-mf{border-color:rgba(15,23,42,.12)}
+  .pc-mf button{flex:1;padding:11px;border:0;border-radius:12px;font:inherit;font-size:13px;font-weight:800;cursor:pointer}
+  .pc-ann{background:rgba(255,255,255,.09);color:inherit}
+  .fh-app.chiaro .pc-ann{background:rgba(15,23,42,.08)}
+  .pc-ok{background:#ffb020;color:#1c1400}
+  .pc-ok:disabled{opacity:.4;cursor:not-allowed}
+  .pc-sw2{display:flex;align-items:center;gap:9px;font-size:13px;font-weight:800;cursor:pointer}
+  .pc-gr{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+  .pc-gr label{display:block;font-size:10px;font-weight:800;opacity:.6;margin-bottom:3px;text-transform:uppercase;letter-spacing:.05em}
+  .pc-gr input{width:100%;box-sizing:border-box;padding:8px 10px;border-radius:10px;font:inherit;font-size:13px;font-weight:800;
+    border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.06);color:inherit}
+  .fh-app.chiaro .pc-gr input{background:#fff;border-color:rgba(15,23,42,.18)}
+  .pc-nota{font-size:10.5px;line-height:1.45;opacity:.62}
+  .pc-lab{font-size:10.5px;font-weight:900;letter-spacing:.06em;text-transform:uppercase;opacity:.6}
+  .pc-lab small{display:block;font-size:10px;font-weight:700;letter-spacing:0;text-transform:none;opacity:.85;margin-top:2px}
   .pc-lista{display:flex;flex-direction:column;gap:5px}
-  .pc-riga{display:flex;align-items:center;gap:9px;padding:7px 9px;border-radius:11px;
-    background:rgba(255,255,255,.05)}
+  .pc-riga{display:flex;align-items:center;gap:8px;padding:7px 9px;border-radius:11px;background:rgba(255,255,255,.05)}
   .fh-app.chiaro .pc-riga{background:rgba(15,23,42,.05)}
-  .pc-riga.staccato{background:rgba(255,84,66,.14)}
-  .pc-riga.rotto{opacity:.55}
+  .pc-riga.guaio{background:rgba(255,84,66,.14)}
   .pc-n{flex:0 0 auto;width:20px;height:20px;border-radius:6px;display:grid;place-items:center;
     font-size:10.5px;font-weight:900;background:rgba(255,176,32,.22);color:#ffb020}
   .fh-app.chiaro .pc-n{background:rgba(163,91,0,.15);color:#a35b00}
   .pc-nome{flex:1 1 auto;font-size:12.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .pc-avviso{font-style:normal;font-size:9.5px;font-weight:900;padding:1px 6px;border-radius:999px;
-    background:rgba(255,84,66,.2);color:#ff8a7a;margin-left:5px}
-  .pc-w{flex:0 0 auto;font-size:12px;font-weight:900;opacity:.85;min-width:58px;text-align:right}
+  .pc-av{font-style:normal;font-size:9px;font-weight:900;padding:1px 5px;border-radius:999px;
+    background:rgba(255,84,66,.22);color:#ff8a7a;margin-left:4px}
+  .pc-w{flex:0 0 auto;font-size:11.5px;font-weight:900;opacity:.8;min-width:54px;text-align:right}
   .pc-cmd{flex:0 0 auto;display:flex;gap:3px}
-  .pc-cmd button{width:26px;height:26px;border:0;border-radius:8px;cursor:pointer;font:inherit;
-    font-size:13px;font-weight:900;background:rgba(255,255,255,.08);color:inherit}
+  .pc-cmd button{width:25px;height:25px;border:0;border-radius:8px;cursor:pointer;font:inherit;
+    font-size:12px;font-weight:900;background:rgba(255,255,255,.08);color:inherit}
   .fh-app.chiaro .pc-cmd button{background:rgba(15,23,42,.08)}
   .pc-cmd button:disabled{opacity:.25;cursor:not-allowed}
   .pc-add{border:1px dashed rgba(255,176,32,.5);background:none;color:inherit;cursor:pointer;font:inherit;
     font-size:12px;font-weight:800;padding:9px;border-radius:12px}
-  .pc-attesa{font-size:11px;font-weight:800;opacity:.7;text-align:center}
-  .pc-vuoto{font-size:11.5px;opacity:.6;padding:8px 2px}
-  .pc-pick{border-radius:14px;padding:11px;background:rgba(0,0,0,.3);border:1px solid rgba(255,255,255,.12);
-    display:flex;flex-direction:column;gap:8px}
-  .fh-app.chiaro .pc-pick{background:rgba(255,255,255,.85);border-color:rgba(15,23,42,.14)}
-  .pc-pickh{display:flex;justify-content:space-between;align-items:center;font-size:12.5px}
-  .pc-pickh button{border:0;background:none;color:inherit;font-size:17px;cursor:pointer}
-  .pc-cerca{width:100%;box-sizing:border-box;padding:8px 10px;border-radius:10px;font:inherit;font-size:12.5px;
+  .pc-pick{display:flex;flex-direction:column;gap:7px}
+  .pc-cerca{width:100%;box-sizing:border-box;padding:9px 11px;border-radius:10px;font:inherit;font-size:13px;
     border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.06);color:inherit}
   .fh-app.chiaro .pc-cerca{background:#fff;border-color:rgba(15,23,42,.18)}
-  .pc-opzioni{max-height:260px;overflow:auto;display:flex;flex-direction:column;gap:3px}
+  .pc-opz{max-height:230px;overflow:auto;display:flex;flex-direction:column;gap:3px}
   .pc-opt{text-align:left;border:0;background:rgba(255,255,255,.05);color:inherit;cursor:pointer;font:inherit;
     padding:7px 9px;border-radius:9px;display:flex;flex-direction:column;gap:1px}
   .fh-app.chiaro .pc-opt{background:rgba(15,23,42,.05)}
   .pc-opt span{font-size:12px;font-weight:700}
-  .pc-opt small{font-size:10px;opacity:.6}
+  .pc-opt small{font-size:9.5px;opacity:.6}
+  .pc-vuoto{font-size:11.5px;opacity:.6;padding:7px 2px}
 `;
 
 class FaberPCEditor extends HTMLElement {
@@ -5140,8 +5235,8 @@ class FaberPCEditor extends HTMLElement {
           <input class="fce-in" id="pceTit" value="${fhEsc(this._cfg.title || "")}">
         </div>
         <div class="fce-f">
-          <span class="fce-h">Il resto si regola dalla card stessa: soglie, ordine dei carichi,
-          aggiunta e rimozione. Le automazioni del pacchetto PowerControl non vengono toccate.</span>
+          <span class="fce-h">Soglie, ordine dei carichi e aggiunta si regolano dal tasto
+          Impostazioni della card, non da qui. Le automazioni di PowerControl non vengono toccate.</span>
         </div>
       </div>`;
     this.querySelector("#pceTit").addEventListener("input", e => this._set("title", e.target.value));
