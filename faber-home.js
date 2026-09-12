@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.97.2";
+const FH_VERSION = "0.97.3";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -1083,6 +1083,8 @@ class FaberHome extends HTMLElement {
       [p.id, p.title || "", p.icon || "", p.nascosta ? 1 : 0].join("~")).join("|") +
       "||" + (conStanze ? "S" : "-") + (modoStanza ? "m" : "-") + (this._edit ? "e" : "-");
 
+    const bloboVecchio = nav.querySelector("[data-blob]");
+    const xPrima = bloboVecchio ? bloboVecchio.style.transform : "";
     if (this._navFirma !== firma || !nav.querySelector(".fh-navbar")) {
       // Il cerchio ambra sta FUORI dalla barra che scorre: quando le voci sono
       // tante la barra diventa un contenitore a scorrimento, e un contenitore
@@ -1117,8 +1119,17 @@ class FaberHome extends HTMLElement {
       // sua voce: si muove insieme al contenuto, senza animazione (durante il
       // trascinamento un'animazione lo farebbe arrancare dietro al dito).
       barra0.addEventListener("scroll", () => this._muoviBlob(nav, true), { passive: true });
+      if (xPrima) {
+        // Il cerchio e nuovo di zecca ma riparte da dove stava quello di
+        // prima: cosi anche entrando in una stanza lo si vede spostarsi.
+        const b = nav.querySelector("[data-blob]");
+        b.style.transition = "none";
+        b.style.transform = xPrima;
+        void b.offsetWidth;
+        b.style.transition = "";
+      }
       this._navFirma = firma;
-      this._navNuova = true;
+      this._navNuova = !xPrima;
     }
     // La barra puo aver cambiato altezza (una pagina in piu, una nascosta):
     // rimisuro, senno lo spazio sotto resta tarato su quella di prima e
@@ -1159,7 +1170,9 @@ class FaberHome extends HTMLElement {
     const ic = blob.querySelector("[data-blobicon]");
     const pg = this._cfg.pages[this._page] || {};
     const icona = pg.icon || "mdi:circle";
-    if (ic.getAttribute("icon") !== icona) {
+    if (!ic.getAttribute("icon")) {
+      ic.setAttribute("icon", icona);
+    } else if (ic.getAttribute("icon") !== icona) {
       // Il disegno cambia a meta corsa: cosi il cerchio sembra portarsi dietro
       // la pagina, invece di cambiare faccia prima ancora di partire.
       ic.classList.add("cambia");
