@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.82.0";
+const FH_VERSION = "0.83.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -3144,6 +3144,20 @@ const FH_CSS = `
   .fh-app.vetro.chiaro .csc{--csc-panel:rgba(255,255,255,.62)!important;--csc-ink:#12161c!important;--csc-muted:#4b5563!important}
   .fh-app.vetro.chiaro .cbc{--cbc-panel:rgba(255,255,255,.62)!important;--cbc-ink:#12161c!important;--cbc-muted:#4b5563!important}
   .fh-app.vetro.chiaro .cec{--cec-panel:rgba(255,255,255,.62)!important;--cec-ink:#12161c!important;--cec-muted:#4b5563!important}
+  /* I COLORI DELLE CARD DI HOME ASSISTANT OSPITATE QUI DENTRO.
+     Una card di HA (intestazioni, entities, tile, mushroom...) non legge i
+     nostri colori: legge le variabili del TEMA DI HOME ASSISTANT, che qui e
+     scuro. Di giorno, sul vetro chiaro, quelle scritte sbiadivano fino a
+     sparire. Le variabili CSS attraversano lo shadow DOM, quindi basta
+     ridefinirle sul contenitore e valgono per qualunque card, anche future. */
+  .fh-app .fh-cardwrap, .fh-popup{
+    --primary-text-color:#eaf1f8; --secondary-text-color:#93a1b0;
+    --ha-card-header-color:#eaf1f8;
+  }
+  .fh-app.chiaro .fh-cardwrap, .fh-app.chiaro .fh-popup{
+    --primary-text-color:#12161c; --secondary-text-color:#4b5563;
+    --ha-card-header-color:#12161c;
+  }
   .fh-app.vetro.chiaro .fc,
   .fh-app.vetro.chiaro .fk,
   .fh-app.vetro.chiaro .pc,
