@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.90.1";
+const FH_VERSION = "0.91.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -426,6 +426,12 @@ const FH_ARTE_CSS = `
     .fh-vapore,.fh-goccia,.fh-cestello,.fh-foglia,.fh-zzz,.fh-schermo,.fh-luce,.fh-sole{animation:none}
   }`;
 
+const FH_SCENE = [
+  ["camera", "Camera"], ["cameretta", "Cameretta (stella)"], ["cameretta2", "Cameretta (palla)"],
+  ["cucina", "Cucina"], ["sala", "Sala"], ["bagno", "Bagno"], ["lavatoio", "Lavatoio"],
+  ["giardino", "Giardino"], ["ufficio", "Ufficio"], ["porta", "Generica"],
+];
+
 // Dal nome dell'icona si indovina la scena: cosi le stanze che ci sono gia
 // funzionano senza toccare niente. Con `arte:` nella pagina si forza a mano.
 function fhTipoStanza(pg) {
@@ -454,6 +460,22 @@ function fhArteStanza(tipo, s) {
       <path d="M19 28h18a4 4 0 0 1 4 4v2"/>
       <path d="M5 34h38"/><path d="M9 34v3"/><path d="M39 34v3"/>
       <rect x="9" y="23" width="8" height="5" rx="2.2" fill="currentColor" opacity=".22" stroke="none"/>`,
+    cameretta: `
+      <g class="fh-sole an" style="transform-origin:34px 13px">
+        <path d="M34 9l1.4 2.9 3.1.4-2.3 2.2.6 3.1-2.8-1.5-2.8 1.5.6-3.1-2.3-2.2 3.1-.4z"
+          fill="currentColor" stroke="none" opacity=".5"/></g>
+      <path d="M8 34v-8a3 3 0 0 1 3-3h4a3 3 0 0 1 3 3v2"/>
+      <path d="M18 28h14a4 4 0 0 1 4 4v2"/>
+      <path d="M6 34h32"/><path d="M10 34v3"/><path d="M34 34v3"/>
+      <rect x="10" y="24" width="6" height="4" rx="1.8" fill="currentColor" opacity=".22" stroke="none"/>`,
+    cameretta2: `
+      <g class="fh-foglia an" style="transform-origin:34px 14px">
+        <circle cx="34" cy="14" r="4.6"/><path d="M29.6 12.6c2.6 1 6.2 1 8.8 0" stroke-width="1.5"/>
+        <path d="M34 9.4c-1.4 2.6-1.4 6.6 0 9.2" stroke-width="1.5"/></g>
+      <path d="M8 34v-8a3 3 0 0 1 3-3h4a3 3 0 0 1 3 3v2"/>
+      <path d="M18 28h14a4 4 0 0 1 4 4v2"/>
+      <path d="M6 34h32"/><path d="M10 34v3"/><path d="M34 34v3"/>
+      <rect x="10" y="24" width="6" height="4" rx="1.8" fill="currentColor" opacity=".22" stroke="none"/>`,
     cucina: `
       <path class="fh-vapore" style="animation-delay:0s" d="M20 17c0-2 2-2 2-4" stroke-width="1.7" opacity=".8"/>
       <path class="fh-vapore" style="animation-delay:.7s" d="M24 16c0-2 2-2 2-4" stroke-width="1.7" opacity=".8"/>
@@ -976,7 +998,7 @@ class FaberHome extends HTMLElement {
     const modoStanza = !this._edit && pgOra && pgOra.nascosta;
     // Il cerchio ambra rialzato NON è una voce fissa: marca la pagina attiva,
     // e si sposta quando cambi pagina.
-    nav.innerHTML = `<div class="fh-navbar">${voci.map(({ pg: p, i }) => i === this._page
+    nav.innerHTML = `<div class="fh-navbar${voci.length > 6 ? " molte" : ""}">${voci.map(({ pg: p, i }) => i === this._page
       ? `<button type="button" class="fh-navitem active" data-page="${i}">
            <span class="fh-navcircle"><ha-icon icon="${fhEsc(p.icon || "mdi:circle")}"></ha-icon></span>
            <span class="fh-navlabel">${fhEsc(p.title || "")}</span>
@@ -2770,6 +2792,26 @@ class FaberHome extends HTMLElement {
   }
 
 
+  // Chiedere un testo senza `prompt`: nella WebView dell'app la finestrella di
+  // sistema non compare e il tasto sembra rotto.
+  _chiediNome(valore, poi) {
+    const box = document.createElement("div");
+    box.innerHTML = `<input class="fh-input" id="fhNome" value="${fhEsc(valore)}" placeholder="Nome della stanza"
+        style="width:100%;box-sizing:border-box">
+      <button type="button" class="fh-btn primary" id="fhNomeOk" style="margin-top:12px;width:100%">Conferma</button>`;
+    const scrim = this._sheet(valore ? "Rinomina" : "Nuova stanza", box, false);
+    const inp = box.querySelector("#fhNome");
+    const chiudi = () => { const s = this.querySelector(".fh-scrim"); if (s) s.remove(); };
+    box.querySelector("#fhNomeOk").addEventListener("click", () => {
+      const v = inp.value.trim();
+      chiudi();
+      poi(v);
+      this._apriStanze();
+    });
+    setTimeout(() => inp.focus(), 60);
+    return scrim;
+  }
+
   // L'elenco delle stanze, con dentro quello che gia sai di ognuna: la
   // temperatura se c'e un termometro, quanto tira se c'e un sensore. Toccare
   // una stanza ci porta dentro.
@@ -2779,9 +2821,12 @@ class FaberHome extends HTMLElement {
     this._ordinaStanze = false;
     const draw = () => {
     const stanze = this._cfg.pages.map((p, i) => ({ p, i })).filter(x => x.p.stanza);
-    const ord = this._ordinaStanze;
+    const ord = this._ordinaStanze, mod = this._modificaStanze;
     box.innerHTML = `<style>${FH_ARTE_CSS}</style>
       <div class="fh-stanzetop">
+        <button type="button" class="fh-ordbtn${mod ? " on" : ""}" data-modifica>
+          <ha-icon icon="${mod ? "mdi:check" : "mdi:pencil-outline"}"></ha-icon>${mod ? "Fatto" : "Modifica"}
+        </button>
         <button type="button" class="fh-ordbtn${ord ? " on" : ""}" data-ordina>
           <ha-icon icon="${ord ? "mdi:check" : "mdi:sort"}"></ha-icon>${ord ? "Fatto" : "Ordina"}
         </button>
@@ -2802,11 +2847,63 @@ class FaberHome extends HTMLElement {
           <button type="button" data-su="${k}" ${k === 0 ? "disabled" : ""}>&larr;</button>
           <button type="button" data-giu="${k}" ${k === stanze.length - 1 ? "disabled" : ""}>&rarr;</button>
         </span>` : ""}
+        ${mod ? `<span class="fh-frecce">
+          <button type="button" data-scena="${i}" title="Cambia disegno"><ha-icon icon="mdi:palette-outline"></ha-icon></button>
+          <button type="button" data-rinomina="${i}" title="Rinomina"><ha-icon icon="mdi:rename-outline"></ha-icon></button>
+          <button type="button" class="via" data-togli="${i}" title="Togli dalle stanze">&times;</button>
+        </span>` : ""}
       </div>`;
-    }).join("")}</div>
-      ${ord ? `<div class="fh-note">Le frecce spostano la stanza nell'elenco. Premi <b>Fatto</b> per salvare: se chiudi prima, l'ordine torna com'era.</div>` : ""}`;
+    }).join("")}
+      ${mod ? `<button type="button" class="fh-stanza aggiungi" data-nuova>
+        <ha-icon icon="mdi:plus"></ha-icon><span class="fh-stanzanome">Nuova stanza</span></button>` : ""}
+      </div>
+      ${ord ? `<div class="fh-note">Le frecce spostano la stanza nell'elenco. Premi <b>Fatto</b> per salvare: se chiudi prima, l'ordine torna com'era.</div>` : ""}
+      ${mod ? `<div class="fh-note">La tavolozza cambia il disegno, la matita il nome, la <b>&times;</b> toglie la stanza dall'elenco (la pagina resta, non si cancella niente). Premi <b>Fatto</b> per salvare.</div>` : ""}`;
 
+    const salvaSeServe = () => {
+      if (this._stanzeMosse) { this._stanzeMosse = false; this._save(true); }
+    };
+    box.querySelector("[data-modifica]").addEventListener("click", () => {
+      this._modificaStanze = !this._modificaStanze;
+      if (this._modificaStanze) this._ordinaStanze = false;
+      else salvaSeServe();
+      draw();
+    });
+    box.querySelectorAll("[data-scena]").forEach(b => b.addEventListener("click", () => {
+      const pg = this._cfg.pages[+b.dataset.scena];
+      const ora = fhTipoStanza(pg);
+      const k = FH_SCENE.findIndex(x => x[0] === ora);
+      pg.arte = FH_SCENE[(k + 1 + FH_SCENE.length) % FH_SCENE.length][0];
+      this._stanzeMosse = true;
+      draw();
+    }));
+    box.querySelectorAll("[data-rinomina]").forEach(b => b.addEventListener("click", () => {
+      const pg = this._cfg.pages[+b.dataset.rinomina];
+      this._chiediNome(pg.title || "", nome => {
+        if (!nome) return;
+        pg.title = nome;
+        this._stanzeMosse = true;
+        draw(); this._renderNav();
+      });
+    }));
+    box.querySelectorAll("[data-togli]").forEach(b => b.addEventListener("click", () => {
+      if (b.dataset.sicuro !== "1") { b.dataset.sicuro = "1"; b.textContent = "Sicuro?"; b.classList.add("chiede"); return; }
+      this._cfg.pages[+b.dataset.togli].stanza = false;
+      this._stanzeMosse = true;
+      draw();
+    }));
+    const nuova = box.querySelector("[data-nuova]");
+    if (nuova) nuova.addEventListener("click", () => {
+      this._chiediNome("", nome => {
+        if (!nome) return;
+        this._cfg.pages.push({ id: fhUid("st"), title: nome, icon: "mdi:door",
+          stanza: true, nascosta: true, arte: "porta", rows: [] });
+        this._stanzeMosse = true;
+        draw(); this._renderNav();
+      });
+    });
     box.querySelector("[data-ordina]").addEventListener("click", () => {
+      if (!this._ordinaStanze) this._modificaStanze = false;
       this._ordinaStanze = !this._ordinaStanze;
       // Si salva USCENDO dall'ordinamento, non a ogni freccia: salvare subito
       // fa ricaricare la configurazione a Home Assistant, il pannello si
@@ -3772,6 +3869,10 @@ const FH_CSS = `
   .fh-empty small{font-size:11.5px;max-width:320px;line-height:1.5}
   .fh-nav{position:fixed;left:0;right:0;bottom:0;z-index:6;
     padding:0 12px calc(12px + env(safe-area-inset-bottom,0px));pointer-events:none}
+  .fh-navbar.molte{justify-content:flex-start;overflow-x:auto;scrollbar-width:none;
+    scroll-snap-type:x proximity;max-width:min(760px,96vw)}
+  .fh-navbar.molte::-webkit-scrollbar{display:none}
+  .fh-navbar.molte .fh-navitem{flex:0 0 auto;min-width:66px;scroll-snap-align:center}
   .fh-navbar{display:flex;align-items:flex-end;justify-content:space-around;gap:4px;
     max-width:560px;margin:0 auto;padding:8px 10px;pointer-events:auto;
     background:var(--fh-panel,rgba(30,38,48,.78));border:1px solid var(--fh-stroke,rgba(255,255,255,.09));border-radius:26px;
@@ -3801,6 +3902,14 @@ const FH_CSS = `
   .fh-frecce button{width:30px;height:26px;border-radius:8px;cursor:pointer;font:inherit;font-size:13px;
     color:inherit;border:1px solid var(--fh-stroke,rgba(255,255,255,.18));background:rgba(255,255,255,.08)}
   .fh-frecce button:disabled{opacity:.3;cursor:not-allowed}
+  .fh-frecce button ha-icon{--mdc-icon-size:15px}
+  .fh-frecce button.via{color:#ff8f80}
+  .fh-frecce button.chiede{width:auto;padding:0 8px;font-size:11px;font-weight:800;color:#ff5442;
+    border-color:rgba(255,84,66,.5)}
+  .fh-stanza.aggiungi{border-style:dashed;opacity:.75}
+  .fh-stanza.aggiungi ha-icon{--mdc-icon-size:28px}
+  .fh-stanza.aggiungi:hover{opacity:1}
+  .fh-stanzetop{gap:8px}
   .fh-stanza:active{transform:scale(.95)}
   .fh-stanza:hover{background:rgba(255,176,32,.14);border-color:rgba(255,176,32,.4)}
   .fh-stanzanome{line-height:1.2;text-align:center}
