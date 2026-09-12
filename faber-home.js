@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.89.0";
+const FH_VERSION = "0.89.1";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -2663,7 +2663,7 @@ class FaberHome extends HTMLElement {
         <span class="fh-stanzanome">${fhEsc(p.title || p.id)}</span>
         <span class="fh-stanzadati">
           ${gr != null ? `<b>${String(gr.toFixed(1)).replace(".", ",")}\u00b0</b>` : ""}
-          ${acc ? `<i>${acc} acceso${acc === 1 ? "" : "i"}</i>` : ""}
+          ${acc ? `<i>${acc} ${acc === 1 ? "acceso" : "accesi"}</i>` : ""}
         </span>
       </button>`;
     }).join("")}</div>`;
