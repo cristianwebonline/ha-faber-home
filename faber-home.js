@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.91.0";
+const FH_VERSION = "0.92.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -2792,6 +2792,47 @@ class FaberHome extends HTMLElement {
   }
 
 
+  // Aggiungere una stanza: quasi sempre la pagina ESISTE GIA (l'hai fatta tu,
+  // magari con le sue card dentro) e va solo segnata come stanza. Creare una
+  // pagina nuova e il caso raro, quindi sta in fondo.
+  _aggiungiStanza() {
+    const box = document.createElement("div");
+    const libere = this._cfg.pages
+      .map((p, i) => ({ p, i }))
+      .filter(x => !x.p.stanza);
+    box.innerHTML = `
+      <div class="fh-note">Segna come stanza una pagina che hai gia: resta tutto com'e,
+        compare solo nell'elenco Stanze.</div>
+      ${libere.length ? `<div class="fh-chipwrap">${libere.map(({ p, i }) => `
+        <button type="button" class="fh-chipsel" data-prendi="${i}">
+          <ha-icon icon="${fhEsc(p.icon || "mdi:file-outline")}"></ha-icon>${fhEsc(p.title || p.id)}
+        </button>`).join("")}</div>`
+        : `<div class="fh-note">Sono gia tutte stanze.</div>`}
+      <div style="height:14px"></div>
+      <button type="button" class="fh-btn primary" data-crea style="width:100%">+ Crea una stanza nuova</button>`;
+    box.querySelectorAll("[data-prendi]").forEach(b => b.addEventListener("click", () => {
+      const pg = this._cfg.pages[+b.dataset.prendi];
+      pg.stanza = true;
+      if (pg.nascosta === undefined) pg.nascosta = true;
+      this._stanzeMosse = true;
+      this._modificaStanze = true;
+      const s = this.querySelector(".fh-scrim"); if (s) s.remove();
+      this._renderNav();
+      this._apriStanze();
+    }));
+    box.querySelector("[data-crea]").addEventListener("click", () => {
+      this._chiediNome("", nome => {
+        if (!nome) return;
+        this._cfg.pages.push({ id: fhUid("st"), title: nome, icon: "mdi:door",
+          stanza: true, nascosta: true, arte: "porta", rows: [] });
+        this._stanzeMosse = true;
+        this._modificaStanze = true;
+        this._renderNav();
+      });
+    });
+    this._sheet("Aggiungi una stanza", box, false);
+  }
+
   // Chiedere un testo senza `prompt`: nella WebView dell'app la finestrella di
   // sistema non compare e il tasto sembra rotto.
   _chiediNome(valore, poi) {
@@ -2893,15 +2934,7 @@ class FaberHome extends HTMLElement {
       draw();
     }));
     const nuova = box.querySelector("[data-nuova]");
-    if (nuova) nuova.addEventListener("click", () => {
-      this._chiediNome("", nome => {
-        if (!nome) return;
-        this._cfg.pages.push({ id: fhUid("st"), title: nome, icon: "mdi:door",
-          stanza: true, nascosta: true, arte: "porta", rows: [] });
-        this._stanzeMosse = true;
-        draw(); this._renderNav();
-      });
-    });
+    if (nuova) nuova.addEventListener("click", () => this._aggiungiStanza());
     box.querySelector("[data-ordina]").addEventListener("click", () => {
       if (!this._ordinaStanze) this._modificaStanze = false;
       this._ordinaStanze = !this._ordinaStanze;
