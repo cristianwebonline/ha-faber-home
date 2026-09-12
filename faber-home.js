@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.85.0";
+const FH_VERSION = "0.85.1";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -790,6 +790,11 @@ class FaberHome extends HTMLElement {
     const nav = this.querySelector("[data-nav]");
     if (!nav) return;
     const voci = this._pagineVisibili();
+    // Nella barra della stanza le pagine "nascoste" sono a casa loro: non vanno
+    // sbiadite come quando compaiono per sbaglio nella barra generale.
+    const pgOra = this._cfg.pages[this._page];
+    const modoStanza = !this._edit && pgOra && pgOra.nascosta
+      && Array.isArray(pgOra.barra) && pgOra.barra.length;
     // Il cerchio ambra rialzato NON è una voce fissa: marca la pagina attiva,
     // e si sposta quando cambi pagina.
     nav.innerHTML = `<div class="fh-navbar">${voci.map(({ pg: p, i }) => i === this._page
@@ -797,7 +802,7 @@ class FaberHome extends HTMLElement {
            <span class="fh-navcircle"><ha-icon icon="${fhEsc(p.icon || "mdi:circle")}"></ha-icon></span>
            <span class="fh-navlabel">${fhEsc(p.title || "")}</span>
          </button>`
-      : `<button type="button" class="fh-navitem${p.nascosta ? " nascosta" : ""}" data-page="${i}">
+      : `<button type="button" class="fh-navitem${p.nascosta && !modoStanza ? " nascosta" : ""}" data-page="${i}">
            <ha-icon icon="${fhEsc(p.icon || "mdi:circle-outline")}"></ha-icon>
            <span class="fh-navlabel">${fhEsc(p.title || "")}</span>
          </button>`).join("")}</div>`;
