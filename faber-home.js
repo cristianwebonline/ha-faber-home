@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.81.0";
+const FH_VERSION = "0.81.1";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -5189,7 +5189,10 @@ class FaberPC extends HTMLElement {
     };
     const aggiornaSalva = () => {
       const ok = m.querySelector("[data-salva]");
-      if (ok) ok.disabled = JSON.stringify(b) === this._partenza;
+      if (!ok) return;
+      const cambiato = JSON.stringify(b) !== this._partenza;
+      ok.disabled = !cambiato;
+      ok.textContent = cambiato ? "Salva" : "Nessuna modifica";
     };
     m.querySelectorAll("[data-dest]").forEach(x => x.onchange = e => {
       const id = e.target.dataset.dest;
