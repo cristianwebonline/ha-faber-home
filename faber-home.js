@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.96.0";
+const FH_VERSION = "0.96.1";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -1115,9 +1115,7 @@ class FaberHome extends HTMLElement {
     const barra = nav.querySelector(".fh-navbar.molte");
     const attiva = barra && barra.querySelector(".fh-navitem.active");
     if (barra && attiva) {
-      const x = attiva.offsetLeft - (barra.clientWidth - attiva.offsetWidth) / 2;
-      barra.scrollTo({ left: Math.max(0, x), behavior: this._navPronta ? "smooth" : "auto" });
-      this._navPronta = true;
+      barra.scrollLeft = Math.max(0, attiva.offsetLeft - (barra.clientWidth - attiva.offsetWidth) / 2);
     }
   }
 
@@ -4073,7 +4071,7 @@ const FH_CSS = `
     padding:0 12px calc(12px + env(safe-area-inset-bottom,0px));pointer-events:none}
   .fh-navbar.molte{justify-content:flex-start;overflow-x:auto;scrollbar-width:none;
     scroll-snap-type:x proximity;max-width:min(760px,96vw);
-    overscroll-behavior-x:contain;scroll-behavior:smooth;
+    overscroll-behavior-x:contain;
     -webkit-mask-image:linear-gradient(90deg,transparent 0,#000 18px,#000 calc(100% - 18px),transparent 100%);
     mask-image:linear-gradient(90deg,transparent 0,#000 18px,#000 calc(100% - 18px),transparent 100%)}
   .fh-navbar.molte::-webkit-scrollbar{display:none}
