@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.95.1";
+const FH_VERSION = "0.96.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -1075,7 +1075,7 @@ class FaberHome extends HTMLElement {
     const modoStanza = !this._edit && pgOra && pgOra.nascosta;
     // Il cerchio ambra rialzato NON è una voce fissa: marca la pagina attiva,
     // e si sposta quando cambi pagina.
-    nav.innerHTML = `<div class="fh-navbar${voci.length > 6 ? " molte" : ""}">${voci.map(({ pg: p, i }) => i === this._page
+    nav.innerHTML = `<div class="fh-navbar">${voci.map(({ pg: p, i }) => i === this._page
       ? `<button type="button" class="fh-navitem active" data-page="${i}">
            <span class="fh-navcircle"><ha-icon icon="${fhEsc(p.icon || "mdi:circle")}"></ha-icon></span>
            <span class="fh-navlabel">${fhEsc(p.title || "")}</span>
@@ -1107,6 +1107,10 @@ class FaberHome extends HTMLElement {
     // pagina in piu, una nascosta): rimisuro, senno lo spazio sotto resta
     // tarato su quella di prima e l'ultima card finisce coperta.
     this._misuraNav();
+    // Ora che ci sono tutte le voci (Stanze compreso) si guarda se ci stanno:
+    // se non ci stanno la barra scorre invece di schiacciarle in tacche
+    // illeggibili.
+    this._adattaBarra(nav);
     // Se la barra scorre, la voce attiva si porta al centro da sola.
     const barra = nav.querySelector(".fh-navbar.molte");
     const attiva = barra && barra.querySelector(".fh-navitem.active");
@@ -1117,6 +1121,18 @@ class FaberHome extends HTMLElement {
     }
   }
 
+
+  // Ogni voce vuole almeno 66 px per restare leggibile (icona + parola). Se
+  // sommate non ci stanno nello spazio disponibile, la barra passa a
+  // scorrimento: si trascina col dito e la voce attiva si mette al centro.
+  _adattaBarra(nav) {
+    const barra = nav.querySelector(".fh-navbar");
+    if (!barra) return;
+    const n = barra.children.length;
+    const disp = Math.min(760, (nav.clientWidth || window.innerWidth || 360) * 0.96);
+    const serve = n * 66 + (n - 1) * 4 + 20;
+    barra.classList.toggle("molte", serve > disp + 1);
+  }
 
   // ------------------------------------------------------- fasce di larghezza
   // Niente container queries qui dentro: `container-type` porta con se
