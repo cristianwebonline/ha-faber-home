@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.88.0";
+const FH_VERSION = "0.89.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -671,6 +671,48 @@ class FaberHome extends HTMLElement {
     this._startClock();
   }
 
+  // Scorre le card di una pagina e raccoglie le entita che nominano. Serve a
+  // due cose: contare cosa e acceso, e trovare da solo il termometro di una
+  // stanza senza che nessuno debba configurarlo.
+  _entitaDiPagina(id, chiavi) {
+    const pg = this._cfg.pages.find(p => p.id === id);
+    const out = [];
+    if (!pg) return out;
+    const gira = c => {
+      if (!c || typeof c !== "object") return;
+      chiavi.forEach(k => { if (typeof c[k] === "string" && c[k].includes(".")) out.push(c[k]); });
+      ["cards", "rows", "cols"].forEach(k => { if (Array.isArray(c[k])) c[k].forEach(gira); });
+    };
+    (pg.rows || []).forEach(gira);
+    return out;
+  }
+  _contaAccesiPagina(id) {
+    const hass = this._hass;
+    if (!hass) return 0;
+    const ent = this._entitaDiPagina(id, ["climate", "switch", "entity"]);
+    let n = 0;
+    [...new Set(ent)].forEach(e => {
+      const st = hass.states[e];
+      if (!st) return;
+      if (e.startsWith("climate.")) { if (!["off", "unavailable", "unknown"].includes(st.state)) n++; }
+      else if (["on", "open", "unlocked"].includes(st.state)) n++;
+    });
+    return n;
+  }
+  // Il termometro della stanza: il primo sensore di temperatura che le sue card
+  // nominano. Nessuna configurazione in piu da tenere allineata.
+  _tempDiPagina(id) {
+    const hass = this._hass;
+    if (!hass) return null;
+    const ent = this._entitaDiPagina(id, ["temp"]);
+    for (const e of [...new Set(ent)]) {
+      const st = hass.states[e];
+      const v = st ? parseFloat(st.state) : NaN;
+      if (!isNaN(v)) return v;
+    }
+    return null;
+  }
+
   _chipsHTML() {
     const hass = this._hass;
     const h = this._cfg.header;
@@ -686,6 +728,18 @@ class FaberHome extends HTMLElement {
       </div>`);
     }
     (h.chips || []).forEach(chip => {
+      // Una chip puo anche essere una SCORCIATOIA a una pagina invece che un
+      // interruttore: tiene a portata una vista (il clima di tutta la casa)
+      // senza occupare un posto nella barra in basso.
+      if (chip.pagina) {
+        const acc = this._contaAccesiPagina(chip.pagina);
+        out.push(`<button type="button" class="fh-chip${acc ? " on" : ""}" data-chip-page="${fhEsc(chip.pagina)}">
+          ${chip.icon ? `<ha-icon icon="${fhEsc(chip.icon)}"></ha-icon>` : ""}
+          <span>${fhEsc(chip.label || chip.pagina)}</span>
+          ${acc ? `<small>${acc} ${acc === 1 ? "acceso" : "accesi"}</small>` : ""}
+        </button>`);
+        return;
+      }
       const st = chip.entity && hass ? hass.states[chip.entity] : null;
       const on = st && ["on", "home", "open", "unlocked"].includes(st.state);
       out.push(`<button type="button" class="fh-chip${on ? " on" : ""}" data-chip-entity="${fhEsc(chip.entity || "")}">
@@ -2599,11 +2653,20 @@ class FaberHome extends HTMLElement {
     fhVibra(8);
     const box = document.createElement("div");
     const stanze = this._cfg.pages.map((p, i) => ({ p, i })).filter(x => x.p.stanza);
-    box.innerHTML = `<div class="fh-stanzegrid">${stanze.map(({ p, i }) => `
-      <button type="button" class="fh-stanza" data-vai="${i}">
+    box.innerHTML = `<div class="fh-stanzegrid">${stanze.map(({ p, i }, k) => {
+      const gr = this._tempDiPagina(p.id);
+      const acc = this._contaAccesiPagina(p.id);
+      return `<button type="button" class="fh-stanza${acc ? " viva" : ""}" data-vai="${i}"
+        style="--ritardo:${(k % 5) * 140}ms">
+        <span class="fh-alone"></span>
         <ha-icon icon="${fhEsc(p.icon || "mdi:door")}"></ha-icon>
         <span class="fh-stanzanome">${fhEsc(p.title || p.id)}</span>
-      </button>`).join("")}</div>`;
+        <span class="fh-stanzadati">
+          ${gr != null ? `<b>${String(gr.toFixed(1)).replace(".", ",")}\u00b0</b>` : ""}
+          ${acc ? `<i>${acc} acceso${acc === 1 ? "" : "i"}</i>` : ""}
+        </span>
+      </button>`;
+    }).join("")}</div>`;
     box.querySelectorAll("[data-vai]").forEach(b => b.addEventListener("click", () => {
       const i = parseInt(b.dataset.vai, 10);
       const scrim = this.querySelector(".fh-scrim");
@@ -2960,6 +3023,12 @@ class FaberHome extends HTMLElement {
   }
 
   _wireChips() {
+    this.querySelectorAll("[data-chip-page]").forEach(btn => {
+      btn.onclick = () => {
+        const i = this._cfg.pages.findIndex(p => p.id === btn.dataset.chipPage);
+        if (i >= 0) this._vaiPagina(i);
+      };
+    });
     this.querySelectorAll("[data-chip-entity]").forEach(btn => {
       btn.onclick = () => {
         const ent = btn.dataset.chipEntity;
@@ -3527,16 +3596,39 @@ const FH_CSS = `
     max-width:560px;margin:0 auto;padding:8px 10px;pointer-events:auto;
     background:var(--fh-panel,rgba(30,38,48,.78));border:1px solid var(--fh-stroke,rgba(255,255,255,.09));border-radius:26px;
     backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);box-shadow:0 12px 30px rgba(0,0,0,.45)}
-  .fh-stanzegrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:10px}
-  .fh-stanza{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;
-    padding:18px 8px;border-radius:18px;cursor:pointer;font:inherit;font-size:12.5px;font-weight:800;
-    color:inherit;border:1px solid var(--fh-stroke,rgba(255,255,255,.12));background:rgba(255,255,255,.06);
-    transition:transform .08s ease,background .16s ease}
+  /* L'ELENCO DELLE STANZE.
+     Una griglia di nomi non dice niente: qui ogni riquadro porta gia la
+     temperatura della stanza e quanto c'e di acceso, e l'icona respira. Il
+     movimento e sfalsato fra un riquadro e l'altro, cosi sembra vivo e non una
+     fila di cose che pulsano insieme. */
+  .fh-stanzegrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(116px,1fr));gap:11px}
+  .fh-stanza{position:relative;overflow:hidden;display:flex;flex-direction:column;align-items:center;
+    justify-content:center;gap:7px;padding:20px 9px 16px;border-radius:20px;cursor:pointer;font:inherit;
+    font-size:12.5px;font-weight:800;color:inherit;
+    border:1px solid var(--fh-stroke,rgba(255,255,255,.12));background:rgba(255,255,255,.06);
+    transition:transform .1s ease,background .18s ease,border-color .18s ease}
   .fh-app.chiaro .fh-stanza{background:rgba(15,23,42,.05)}
-  .fh-stanza ha-icon{--mdc-icon-size:30px;opacity:.85}
-  .fh-stanza:active{transform:scale(.96)}
-  .fh-stanza:hover{background:rgba(255,176,32,.16)}
+  .fh-stanza ha-icon{--mdc-icon-size:32px;opacity:.9;position:relative;
+    animation:fh-respira 3.6s ease-in-out infinite;animation-delay:var(--ritardo,0ms)}
+  .fh-stanza:active{transform:scale(.95)}
+  .fh-stanza:hover{background:rgba(255,176,32,.14);border-color:rgba(255,176,32,.4)}
   .fh-stanzanome{line-height:1.2;text-align:center}
+  .fh-stanzadati{display:flex;flex-direction:column;align-items:center;gap:1px;line-height:1.15}
+  .fh-stanzadati b{font-size:14px;font-weight:900;font-variant-numeric:tabular-nums}
+  .fh-stanzadati i{font-style:normal;font-size:9.5px;font-weight:800;letter-spacing:.03em;opacity:.62}
+  /* L'alone si accende solo dove c'e qualcosa acceso: in un colpo d'occhio si
+     vede dove sta consumando la casa. */
+  .fh-alone{position:absolute;top:-30%;left:50%;width:120%;aspect-ratio:1/1;transform:translateX(-50%);
+    border-radius:50%;background:radial-gradient(circle,rgba(255,176,32,.30),rgba(255,176,32,0) 62%);
+    opacity:0;transition:opacity .4s ease;pointer-events:none}
+  .fh-stanza.viva .fh-alone{opacity:1;animation:fh-pulsa 3.2s ease-in-out infinite;
+    animation-delay:var(--ritardo,0ms)}
+  .fh-stanza.viva ha-icon{color:#ffb020;opacity:1}
+  @keyframes fh-respira{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-4px) scale(1.06)}}
+  @keyframes fh-pulsa{0%,100%{opacity:.55}50%{opacity:1}}
+  @media (prefers-reduced-motion: reduce){
+    .fh-stanza ha-icon,.fh-stanza.viva .fh-alone{animation:none}
+  }
   .fh-chipwrap{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px}
   .fh-chipsel{display:flex;align-items:center;gap:6px;padding:8px 11px;border-radius:12px;cursor:pointer;
     font:inherit;font-size:12.5px;font-weight:800;color:inherit;
