@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.97.0";
+const FH_VERSION = "0.97.1";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -4150,7 +4150,10 @@ const FH_CSS = `
     mask-image:linear-gradient(90deg,transparent 0,#000 18px,#000 calc(100% - 18px),transparent 100%)}
   .fh-navbar.molte::-webkit-scrollbar{display:none}
   .fh-navbar.molte .fh-navitem{flex:0 0 auto;min-width:66px;scroll-snap-align:center}
-  .fh-navwrap{position:relative;display:flex;justify-content:center;pointer-events:none}
+  /* Il contenitore del cerchio deve restare largo quanto la barra intera: se
+     diventa un flex, la barra si stringe sul contenuto e le parole si
+     accorciano in "Sicur...". Resta un blocco, e la barra si centra da se. */
+  .fh-navwrap{position:relative;pointer-events:none}
   .fh-navbar{display:flex;align-items:flex-end;justify-content:space-around;gap:4px;
     max-width:560px;margin:0 auto;padding:8px 10px;pointer-events:auto;
     background:var(--fh-panel,rgba(30,38,48,.78));border:1px solid var(--fh-stroke,rgba(255,255,255,.09));border-radius:26px;
