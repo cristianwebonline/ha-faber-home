@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.93.0";
+const FH_VERSION = "0.93.1";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -2836,7 +2836,15 @@ class FaberHome extends HTMLElement {
             <span class="fh-arte fucina">${ic.svg}</span><span>${fhEsc(ic.nome || "senza nome")}</span>
           </button>`).join("")}</div>`
           : `<div class="fh-note">La raccolta e vuota. Le icone si disegnano con la <b>Fucina Icone</b> e si salvano
-             dall'editor di una Mini Card: da li finiscono nella raccolta e compaiono anche qui.</div>`}`;
+             dall'editor di una Mini Card: da li finiscono nella raccolta e compaiono anche qui.</div>`}
+        <button type="button" class="fh-btn primary" data-torna style="width:100%;margin-top:16px">
+          Torna alle stanze</button>`;
+      const tr = box.querySelector("[data-torna]");
+      if (tr) tr.addEventListener("click", () => {
+        const s = this.querySelector(".fh-scrim"); if (s) s.remove();
+        this._modificaStanze = true;
+        this._apriStanze();
+      });
       box.querySelectorAll("[data-scena]").forEach(b => b.addEventListener("click", () => {
         pg.arte = b.dataset.scena;
         pg.icona_svg = ""; pg.icona_id = "";
