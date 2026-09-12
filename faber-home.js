@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.97.1";
+const FH_VERSION = "0.97.2";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -1169,8 +1169,21 @@ class FaberHome extends HTMLElement {
         ic.classList.remove("cambia");
       }, 170);
     }
-    this._muoviBlob(nav, this._navNuova);
+    const primo = this._navNuova;
+    this._muoviBlob(nav, primo);
     this._navNuova = false;
+    // La prima misura puo essere presa prima che la barra sia al suo posto:
+    // si ricontrolla al quadro successivo, quando la pagina e assestata.
+    requestAnimationFrame(() => this._riallineaBlob(primo));
+  }
+
+  // Rimettere il cerchio dove deve stare senza ridisegnare niente: serve dopo
+  // una rotazione dello schermo, un cambio di larghezza, o la prima comparsa.
+  _riallineaBlob(secco) {
+    const nav = this.querySelector("[data-nav]");
+    if (!nav || !nav.querySelector(".fh-navbar")) return;
+    this._adattaBarra(nav);
+    this._muoviBlob(nav, secco !== false);
   }
 
   // Dove va il cerchio: sopra la voce attiva, tenendo conto di quanto la barra
@@ -1268,6 +1281,9 @@ class FaberHome extends HTMLElement {
         const cambiata = f !== this._fascia;
         this._fascia = f;
         this._segnaFascia();
+        // La barra ha cambiato larghezza: il cerchio si riallinea subito,
+        // senza animazione (non e un cambio di pagina, e un riassestamento).
+        this._riallineaBlob(true);
         // La PRIMA misura vera fa sempre ridisegnare, anche se la fascia
         // sembra la stessa: quella di partenza era una supposizione, non una
         // misura, e il numero di colonne poteva gia essere sbagliato.
