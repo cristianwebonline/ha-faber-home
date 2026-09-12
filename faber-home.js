@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.86.0";
+const FH_VERSION = "0.87.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -771,19 +771,21 @@ class FaberHome extends HTMLElement {
     // li sono le cose di QUELLA stanza. Una pagina nascosta puo quindi
     // dichiarare `barra: ["id", "id"]` e la barra diventa: Casa, la stanza in
     // cui sei, e le sue pagine. Senza `barra` si comporta come prima.
+    // Le pagine SEMPRE presenti sono quelle non nascoste: Casa, Sicurezza,
+    // Consumi. Non spariscono mai, da nessuna parte.
+    const fisse = tutte.filter(x => !x.pg.nascosta);
     const ora = tutte[this._page];
-    if (ora && ora.pg.nascosta && Array.isArray(ora.pg.barra) && ora.pg.barra.length) {
-      const voci = [];
-      const casa = tutte.find(x => !x.pg.nascosta);
-      if (casa) voci.push(casa);
-      voci.push(ora);
-      ora.pg.barra.forEach(id => {
-        const v = tutte.find(x => x.pg.id === id);
-        if (v && !voci.includes(v)) voci.push(v);
-      });
-      return voci;
-    }
-    return tutte.filter(x => !x.pg.nascosta);
+    if (!ora || !ora.pg.nascosta) return fisse;
+    // Dentro una stanza alle fisse si AGGIUNGONO la stanza stessa e le pagine
+    // che quella stanza ha scelto: in sala il telecomando, in cucina gli
+    // elettrodomestici, in camera il clima. La scelta e per stanza.
+    const voci = fisse.slice();
+    if (!voci.includes(ora)) voci.push(ora);
+    (ora.pg.barra || []).forEach(id => {
+      const v = tutte.find(x => x.pg.id === id);
+      if (v && !voci.includes(v)) voci.push(v);
+    });
+    return voci;
   }
 
   _renderNav() {
@@ -793,8 +795,7 @@ class FaberHome extends HTMLElement {
     // Nella barra della stanza le pagine "nascoste" sono a casa loro: non vanno
     // sbiadite come quando compaiono per sbaglio nella barra generale.
     const pgOra = this._cfg.pages[this._page];
-    const modoStanza = !this._edit && pgOra && pgOra.nascosta
-      && Array.isArray(pgOra.barra) && pgOra.barra.length;
+    const modoStanza = !this._edit && pgOra && pgOra.nascosta;
     // Il cerchio ambra rialzato NON è una voce fissa: marca la pagina attiva,
     // e si sposta quando cambi pagina.
     nav.innerHTML = `<div class="fh-navbar">${voci.map(({ pg: p, i }) => i === this._page
@@ -2538,11 +2539,13 @@ class FaberHome extends HTMLElement {
           <button type="button" class="fh-tool${pg.nascosta ? "" : " acceso"}" data-act="vedi"
             title="${pg.nascosta ? "Nascosta dalla barra in basso" : "Si vede nella barra in basso"}">
             <ha-icon icon="${pg.nascosta ? "mdi:eye-off-outline" : "mdi:eye-outline"}"></ha-icon></button>
+          <button type="button" class="fh-tool${(pg.barra || []).length ? " acceso" : ""}" data-act="barra"
+            title="Cosa aggiungere alla barra quando sei in questa pagina"><ha-icon icon="mdi:dock-bottom"></ha-icon></button>
           <button type="button" class="fh-tool" data-act="up" title="Su"><ha-icon icon="mdi:arrow-up"></ha-icon></button>
           <button type="button" class="fh-tool" data-act="down" title="Giu"><ha-icon icon="mdi:arrow-down"></ha-icon></button>
           <button type="button" class="fh-tool" data-act="del" title="Elimina"><ha-icon icon="mdi:delete-outline"></ha-icon></button>
         </div>`).join("") +
-        `<div class="fh-note">L'occhio nasconde una pagina dalla barra in basso: resta raggiungibile dalle card che ci portano, e qui in modifica si vede sempre. Con una pagina per ogni stanza la barra diventerebbe altrimenti lunghissima.</div>
+        `<div class="fh-note">L'occhio decide se una pagina sta <b>sempre</b> nella barra in basso (Casa, Sicurezza, Consumi) o solo quando serve. Il quadratino accanto sceglie <b>cosa aggiungere alla barra quando sei dentro quella pagina</b>: in sala il telecomando, in cucina gli elettrodomestici, in camera il clima. Le pagine sempre presenti restano comunque al loro posto.</div>
          <button type="button" class="fh-btn primary" data-addpage>+ Aggiungi pagina</button>`;
       box.querySelectorAll(".fh-pagerow").forEach(row => {
         const i = parseInt(row.dataset.p, 10);
@@ -2550,6 +2553,7 @@ class FaberHome extends HTMLElement {
         row.querySelector("[data-icon]").addEventListener("change", e => { this._cfg.pages[i].icon = e.target.value; draw(); this._renderNav(); });
         row.querySelectorAll("[data-act]").forEach(b => b.addEventListener("click", () => {
           const a = b.dataset.act, pages = this._cfg.pages;
+          if (a === "barra") { this._sceltaBarra(i); return; }
           if (a === "vedi") { pages[i].nascosta = !pages[i].nascosta; }
           else if (a === "up" && i > 0) { const [x] = pages.splice(i, 1); pages.splice(i - 1, 0, x); }
           else if (a === "down" && i < pages.length - 1) { const [x] = pages.splice(i, 1); pages.splice(i + 1, 0, x); }
@@ -2570,6 +2574,36 @@ class FaberHome extends HTMLElement {
     this._sheet("Pagine", box, true);
   }
 
+
+  // Quali pagine aggiungere alla barra quando si e dentro QUESTA pagina.
+  // Le pagine sempre presenti non si elencano: ci sono gia per definizione.
+  _sceltaBarra(i) {
+    const pg = this._cfg.pages[i];
+    if (!Array.isArray(pg.barra)) pg.barra = [];
+    const box = document.createElement("div");
+    const draw = () => {
+      const altre = this._cfg.pages
+        .map((p, j) => ({ p, j }))
+        .filter(x => x.j !== i && x.p.nascosta);
+      box.innerHTML = `
+        <div class="fh-note">Quando sei in <b>${fhEsc(pg.title || "questa pagina")}</b> la barra mostra sempre
+          Casa, Sicurezza e Consumi, piu questa pagina. Qui scegli cos'altro aggiungere.</div>
+        ${altre.length ? `<div class="fh-chipwrap">${altre.map(({ p }) => `
+          <button type="button" class="fh-chipsel${(pg.barra || []).includes(p.id) ? " on" : ""}" data-id="${fhEsc(p.id)}">
+            <ha-icon icon="${fhEsc(p.icon || "mdi:circle-outline")}"></ha-icon>${fhEsc(p.title || p.id)}
+          </button>`).join("")}</div>`
+          : `<div class="fh-note">Non ci sono altre pagine da aggiungere.</div>`}`;
+      box.querySelectorAll("[data-id]").forEach(b => b.addEventListener("click", () => {
+        const id = b.dataset.id;
+        pg.barra = (pg.barra || []).includes(id)
+          ? pg.barra.filter(x => x !== id)
+          : (pg.barra || []).concat([id]);
+        draw(); this._renderNav();
+      }));
+    };
+    draw();
+    this._sheet("Barra di " + (pg.title || "questa pagina"), box, true);
+  }
 
   // --------------------------------------------------------- impostazioni
   // Tutto quello che prima si poteva cambiare solo scrivendo la
@@ -3455,6 +3489,12 @@ const FH_CSS = `
     max-width:560px;margin:0 auto;padding:8px 10px;pointer-events:auto;
     background:var(--fh-panel,rgba(30,38,48,.78));border:1px solid var(--fh-stroke,rgba(255,255,255,.09));border-radius:26px;
     backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);box-shadow:0 12px 30px rgba(0,0,0,.45)}
+  .fh-chipwrap{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px}
+  .fh-chipsel{display:flex;align-items:center;gap:6px;padding:8px 11px;border-radius:12px;cursor:pointer;
+    font:inherit;font-size:12.5px;font-weight:800;color:inherit;
+    border:1px solid var(--fh-stroke,rgba(255,255,255,.14));background:rgba(255,255,255,.06)}
+  .fh-chipsel ha-icon{--mdc-icon-size:17px}
+  .fh-chipsel.on{background:#ffb020;border-color:#ffb020;color:#1c1400}
   .fh-navitem.nascosta{opacity:.45}
   .fh-navitem.nascosta::after{content:"";position:absolute;top:6px;right:8px;width:5px;height:5px;
     border-radius:50%;background:var(--fh-muted,#93a1b0)}
