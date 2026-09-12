@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.90.0";
+const FH_VERSION = "0.90.1";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -2804,10 +2804,17 @@ class FaberHome extends HTMLElement {
         </span>` : ""}
       </div>`;
     }).join("")}</div>
-      ${ord ? `<div class="fh-note">Le frecce spostano la stanza nell'elenco. Si salva da solo.</div>` : ""}`;
+      ${ord ? `<div class="fh-note">Le frecce spostano la stanza nell'elenco. Premi <b>Fatto</b> per salvare: se chiudi prima, l'ordine torna com'era.</div>` : ""}`;
 
     box.querySelector("[data-ordina]").addEventListener("click", () => {
       this._ordinaStanze = !this._ordinaStanze;
+      // Si salva USCENDO dall'ordinamento, non a ogni freccia: salvare subito
+      // fa ricaricare la configurazione a Home Assistant, il pannello si
+      // ridisegna e il foglio ti si chiude in faccia a meta lavoro.
+      if (!this._ordinaStanze && this._stanzeMosse) {
+        this._stanzeMosse = false;
+        this._save(true);
+      }
       draw();
     });
     if (!ord) {
@@ -2826,9 +2833,9 @@ class FaberHome extends HTMLElement {
       const pagine = this._cfg.pages;
       const tmp = pagine[a.i]; pagine[a.i] = pagine[b.i]; pagine[b.i] = tmp;
       this._pageId = (this._cfg.pages[this._page] || {}).id || this._pageId;
+      this._stanzeMosse = true;
       draw();
       this._renderNav();
-      this._save(true);
     };
     box.querySelectorAll("[data-su]").forEach(b => b.addEventListener("click", () => sposta(+b.dataset.su, -1)));
     box.querySelectorAll("[data-giu]").forEach(b => b.addEventListener("click", () => sposta(+b.dataset.giu, 1)));
