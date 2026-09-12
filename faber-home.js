@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.92.1";
+const FH_VERSION = "0.93.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -425,6 +425,25 @@ const FH_ARTE_CSS = `
   @media (prefers-reduced-motion: reduce){
     .fh-vapore,.fh-goccia,.fh-cestello,.fh-foglia,.fh-zzz,.fh-schermo,.fh-luce,.fh-sole{animation:none}
   }`;
+
+// LE ICONE DELLA FUCINA.
+// Non se ne fa una copia: si legge la stessa raccolta che usa Mini Card
+// (`faber_icone` nelle preferenze del frontend). Un'icona disegnata col
+// telefono si ritrova qui, e viceversa.
+const FH_CHIAVE_ICONE = "faber_icone";
+let FH_ICONE_MIE = null;
+async function fhIconeCarica(hass) {
+  if (FH_ICONE_MIE) return FH_ICONE_MIE;
+  try {
+    const r = await hass.callWS({ type: "frontend/get_user_data", key: FH_CHIAVE_ICONE });
+    const v = r && r.value;
+    FH_ICONE_MIE = Array.isArray(v && v.icone) ? v.icone : [];
+  } catch (e) {
+    console.warn("[faber-home] raccolta icone non leggibile:", e);
+    FH_ICONE_MIE = [];
+  }
+  return FH_ICONE_MIE;
+}
 
 const FH_SCENE = [
   ["camera", "Camera"], ["cameretta", "Cameretta (stella)"], ["cameretta2", "Cameretta (palla)"],
@@ -2792,6 +2811,51 @@ class FaberHome extends HTMLElement {
   }
 
 
+  // Il disegno della stanza: o una delle scene animate del pannello, o una
+  // delle icone che hai disegnato con la Fucina. La raccolta e quella vera,
+  // non una copia: quello che aggiungi li compare qui senza fare niente.
+  async _sceltaDisegno(indice) {
+    const pg = this._cfg.pages[indice];
+    const box = document.createElement("div");
+    box.innerHTML = `<div class="fh-note">Carico le tue icone...</div>`;
+    this._sheet("Disegno di " + (pg.title || "questa stanza"), box, false);
+    const mie = await fhIconeCarica(this._hass);
+    const draw = () => {
+      const ora = fhTipoStanza(pg);
+      box.innerHTML = `
+        <style>${FH_ARTE_CSS}</style>
+        <div class="fh-lab2">Disegni del pannello <small>si muovono da soli</small></div>
+        <div class="fh-disegni">${FH_SCENE.map(([id, nome]) => `
+          <button type="button" class="fh-dis${!pg.icona_svg && ora === id ? " on" : ""}" data-scena="${id}">
+            <span class="fh-arte">${fhArteStanza(id, 40)}</span><span>${fhEsc(nome)}</span>
+          </button>`).join("")}</div>
+
+        <div class="fh-lab2" style="margin-top:16px">Le tue icone <small>quelle della Fucina</small></div>
+        ${mie.length ? `<div class="fh-disegni">${mie.map(ic => `
+          <button type="button" class="fh-dis${pg.icona_id === ic.id ? " on" : ""}" data-mia="${fhEsc(ic.id)}">
+            <span class="fh-arte fucina">${ic.svg}</span><span>${fhEsc(ic.nome || "senza nome")}</span>
+          </button>`).join("")}</div>`
+          : `<div class="fh-note">La raccolta e vuota. Le icone si disegnano con la <b>Fucina Icone</b> e si salvano
+             dall'editor di una Mini Card: da li finiscono nella raccolta e compaiono anche qui.</div>`}`;
+      box.querySelectorAll("[data-scena]").forEach(b => b.addEventListener("click", () => {
+        pg.arte = b.dataset.scena;
+        pg.icona_svg = ""; pg.icona_id = "";
+        this._stanzeMosse = true;
+        draw();
+      }));
+      box.querySelectorAll("[data-mia]").forEach(b => b.addEventListener("click", () => {
+        const ic = mie.find(x => x.id === b.dataset.mia);
+        if (!ic) return;
+        // Si porta dietro il disegno, non solo il riferimento: resta a posto
+        // anche se un giorno quell'icona sparisce dalla raccolta.
+        pg.icona_svg = ic.svg; pg.icona_id = ic.id;
+        this._stanzeMosse = true;
+        draw();
+      }));
+    };
+    draw();
+  }
+
   // Aggiungere una stanza: quasi sempre la pagina ESISTE GIA (l'hai fatta tu,
   // magari con le sue card dentro) e va solo segnata come stanza. Creare una
   // pagina nuova e il caso raro, quindi sta in fondo.
@@ -2878,7 +2942,9 @@ class FaberHome extends HTMLElement {
       return `<div class="fh-stanza${acc ? " viva" : ""}${ord ? " ord" : ""}" data-vai="${i}"
         style="--ritardo:${(k % 5) * 140}ms">
         <span class="fh-alone"></span>
-        <span class="fh-arte">${fhArteStanza(fhTipoStanza(p), 46)}</span>
+        <span class="fh-arte${p.icona_svg ? " fucina" : ""}">${p.icona_svg
+          ? p.icona_svg
+          : fhArteStanza(fhTipoStanza(p), 46)}</span>
         <span class="fh-stanzanome">${fhEsc(p.title || p.id)}</span>
         <span class="fh-stanzadati">
           ${gr != null ? `<b>${String(gr.toFixed(1)).replace(".", ",")}\u00b0</b>` : ""}
@@ -2913,12 +2979,7 @@ class FaberHome extends HTMLElement {
     box.querySelectorAll(".fh-frecce button").forEach(b =>
       b.addEventListener("click", e => e.stopPropagation()));
     box.querySelectorAll("[data-scena]").forEach(b => b.addEventListener("click", () => {
-      const pg = this._cfg.pages[+b.dataset.scena];
-      const ora = fhTipoStanza(pg);
-      const k = FH_SCENE.findIndex(x => x[0] === ora);
-      pg.arte = FH_SCENE[(k + 1 + FH_SCENE.length) % FH_SCENE.length][0];
-      this._stanzeMosse = true;
-      draw();
+      this._sceltaDisegno(+b.dataset.scena);
     }));
     box.querySelectorAll("[data-rinomina]").forEach(b => b.addEventListener("click", () => {
       const pg = this._cfg.pages[+b.dataset.rinomina];
@@ -3941,6 +4002,18 @@ const FH_CSS = `
   .fh-frecce button.via{color:#ff8f80}
   .fh-frecce button.chiede{width:auto;padding:0 8px;font-size:11px;font-weight:800;color:#ff5442;
     border-color:rgba(255,84,66,.5)}
+  .fh-lab2{font-size:10.5px;font-weight:900;letter-spacing:.06em;text-transform:uppercase;opacity:.6;
+    margin-bottom:8px}
+  .fh-lab2 small{font-size:10px;font-weight:700;letter-spacing:0;text-transform:none;opacity:.85;
+    margin-left:6px}
+  .fh-disegni{display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:9px}
+  .fh-dis{display:flex;flex-direction:column;align-items:center;gap:7px;padding:12px 6px;border-radius:15px;
+    cursor:pointer;font:inherit;font-size:10.5px;font-weight:800;color:inherit;text-align:center;
+    border:1px solid var(--fh-stroke,rgba(255,255,255,.12));background:rgba(255,255,255,.05)}
+  .fh-dis:hover{background:rgba(255,176,32,.14)}
+  .fh-dis.on{border-color:#ffb020;background:rgba(255,176,32,.18);color:#ffb020}
+  .fh-arte.fucina svg{width:46px;height:46px}
+  .fh-dis .fh-arte.fucina svg{width:40px;height:40px}
   .fh-stanza.aggiungi{border-style:dashed;opacity:.75}
   .fh-stanza.aggiungi ha-icon{--mdc-icon-size:28px}
   .fh-stanza.aggiungi:hover{opacity:1}
