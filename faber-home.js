@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.81.1";
+const FH_VERSION = "0.82.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -5025,9 +5025,19 @@ class FaberPC extends HTMLElement {
     const bello = k => k.replace(/^mobile_app_/, "").replace(/^alexa_media_/, "")
       .replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
     const chiavi = Object.keys(s).filter(k => !scarta.includes(k));
+    // Il nome del servizio e quello che il dispositivo aveva QUANDO e stato
+    // aggiunto: se poi lo rinomini nell'app Alexa, il servizio resta indietro.
+    // Qui si va a leggere il nome vero dal media_player corrispondente, se c'e,
+    // se no l'elenco mente (l'Echo "sala" era in realta quello di Leonardo).
+    const H = (this._hass && this._hass.states) || {};
+    const nomeVero = k => {
+      const mp = H["media_player." + k.replace(/^alexa_media_/, "")];
+      const fn = mp && mp.attributes && mp.attributes.friendly_name;
+      return fn || bello(k);
+    };
     return {
       telefoni: chiavi.filter(k => !k.startsWith("alexa_media_")).map(k => ({ id: k, nome: bello(k) })),
-      voce: chiavi.filter(k => k.startsWith("alexa_media_")).map(k => ({ id: k, nome: bello(k) })),
+      voce: chiavi.filter(k => k.startsWith("alexa_media_")).map(k => ({ id: k, nome: nomeVero(k) })),
     };
   }
 
@@ -5116,7 +5126,8 @@ class FaberPC extends HTMLElement {
             <span>${fhEsc(x.nome)}</span></label>`).join("")
             : `<div class="pc-nota">Nessun altoparlante trovato.</div>`}
         </div>
-        <div class="pc-nota">La spunta <b>Avvisi a voce</b> in cima spegne tutte le voci in un colpo,
+        <div class="pc-nota">I nomi qui sopra sono quelli veri dell'app Alexa: se rinomini un Echo,
+          cambia anche qui. La spunta <b>Avvisi a voce</b> in cima spegne tutte le voci in un colpo,
           senza perdere questa scelta.</div>
 
         <div class="pc-lab">Ordine <small>in cima = staccato per <b>ultimo</b>, in fondo = il primo a cadere</small></div>
