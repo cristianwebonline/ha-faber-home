@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.94.0";
+const FH_VERSION = "0.95.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -870,7 +870,52 @@ class FaberHome extends HTMLElement {
     return null;
   }
 
-  _chipsHTML() {
+  _chipsHTML() { return this._chipsDati().map(d => this._chipHTML(d)).join(""); }
+
+  _chipHTML(d) {
+    const tag = d.tipo === "meteo" ? "div" : "button";
+    const attr = d.tipo === "meteo" ? "" :
+      d.tipo === "link" ? ` type="button" data-chip-link="${fhEsc(d.target)}"`
+      : d.tipo === "pagina" ? ` type="button" data-chip-page="${fhEsc(d.target)}"`
+      : ` type="button" data-chip-entity="${fhEsc(d.target || "")}"`;
+    return `<${tag} class="fh-chip${d.on ? " on" : ""}" data-key="${fhEsc(d.key)}"${attr}>
+      ${d.icon ? `<ha-icon icon="${fhEsc(d.icon)}"></ha-icon>` : ""}
+      <span data-eti>${fhEsc(d.label || "")}</span>
+      ${d.sotto ? `<small data-sotto>${fhEsc(d.sotto)}</small>` : ""}
+    </${tag}>`;
+  }
+
+  // Aggiornamento su misura: se le chip sono le stesse si tocca solo cio che
+  // cambia, e il dito continua a scorrere senza scatti.
+  _updateChips() {
+    const box = this.querySelector("[data-chips]");
+    if (!box) return;
+    const dati = this._chipsDati();
+    const nodi = Array.from(box.children);
+    const stesse = nodi.length === dati.length &&
+      dati.every((d, i) => nodi[i].dataset.key === d.key);
+    if (stesse) {
+      dati.forEach((d, i) => {
+        const n = nodi[i];
+        n.classList.toggle("on", !!d.on);
+        const eti = n.querySelector("[data-eti]");
+        if (eti && eti.textContent !== (d.label || "")) eti.textContent = d.label || "";
+        const so = n.querySelector("[data-sotto]");
+        if (d.sotto) {
+          if (so) { if (so.textContent !== d.sotto) so.textContent = d.sotto; }
+          else n.insertAdjacentHTML("beforeend", `<small data-sotto>${fhEsc(d.sotto)}</small>`);
+        } else if (so) so.remove();
+      });
+      return;
+    }
+    // Sono cambiate davvero: si rifa la riga, ma lo scorrimento resta dov'era.
+    const x = box.scrollLeft;
+    box.innerHTML = dati.map(d => this._chipHTML(d)).join("");
+    box.scrollLeft = x;
+    this._wireChips();
+  }
+
+  _chipsDati() {
     const hass = this._hass;
     const h = this._cfg.header;
     const out = [];
@@ -878,42 +923,38 @@ class FaberHome extends HTMLElement {
     const tEnt = h.temperature && hass ? hass.states[h.temperature] : null;
     const temp = tEnt ? tEnt.state : (wEnt && wEnt.attributes ? wEnt.attributes.temperature : null);
     if (temp != null) {
-      out.push(`<div class="fh-chip" data-weatherchip>
-        <ha-icon icon="${fhEsc(wEnt ? (FH_WEATHER_ICON[wEnt.state] || "mdi:weather-partly-cloudy") : "mdi:thermometer")}"></ha-icon>
-        <span data-wtemp>${fhEsc(temp)}°</span>
-        ${wEnt ? `<small data-wcond>${fhEsc(FH_WEATHER_IT[wEnt.state] || wEnt.state)}</small>` : ""}
-      </div>`);
+      out.push({
+        key: "meteo", tipo: "meteo",
+        icon: wEnt ? (FH_WEATHER_ICON[wEnt.state] || "mdi:weather-partly-cloudy") : "mdi:thermometer",
+        label: temp + "\u00b0",
+        sotto: wEnt ? (FH_WEATHER_IT[wEnt.state] || wEnt.state) : "",
+      });
     }
     (h.chips || []).forEach(chip => {
       // Una chip puo anche essere una SCORCIATOIA a una pagina invece che un
       // interruttore: tiene a portata una vista (il clima di tutta la casa)
       // senza occupare un posto nella barra in basso.
       if (chip.link) {
-        out.push(`<button type="button" class="fh-chip" data-chip-link="${fhEsc(chip.link)}">
-          ${chip.icon ? `<ha-icon icon="${fhEsc(chip.icon)}"></ha-icon>` : ""}
-          <span>${fhEsc(chip.label || chip.link)}</span>
-          <small>apri</small>
-        </button>`);
+        out.push({ key: "l:" + chip.link, tipo: "link", target: chip.link,
+          icon: chip.icon, label: chip.label || chip.link, sotto: "apri" });
         return;
       }
       if (chip.pagina) {
         const acc = this._contaAccesiPagina(chip.pagina);
-        out.push(`<button type="button" class="fh-chip${acc ? " on" : ""}" data-chip-page="${fhEsc(chip.pagina)}">
-          ${chip.icon ? `<ha-icon icon="${fhEsc(chip.icon)}"></ha-icon>` : ""}
-          <span>${fhEsc(chip.label || chip.pagina)}</span>
-          ${acc ? `<small>${acc} ${acc === 1 ? "acceso" : "accesi"}</small>` : ""}
-        </button>`);
+        out.push({ key: "p:" + chip.pagina, tipo: "pagina", target: chip.pagina,
+          icon: chip.icon, label: chip.label || chip.pagina, on: !!acc,
+          sotto: acc ? acc + " " + (acc === 1 ? "acceso" : "accesi") : "" });
         return;
       }
       const st = chip.entity && hass ? hass.states[chip.entity] : null;
-      const on = st && ["on", "home", "open", "unlocked"].includes(st.state);
-      out.push(`<button type="button" class="fh-chip${on ? " on" : ""}" data-chip-entity="${fhEsc(chip.entity || "")}">
-        ${chip.icon ? `<ha-icon icon="${fhEsc(chip.icon)}"></ha-icon>` : ""}
-        <span>${fhEsc(chip.label || (st ? st.attributes.friendly_name : ""))}</span>
-        ${st ? `<small data-chip-state>${fhEsc(fhStateText(st))}</small>` : ""}
-      </button>`);
+      out.push({
+        key: "e:" + (chip.entity || ""), tipo: "entita", target: chip.entity,
+        icon: chip.icon, label: chip.label || (st ? st.attributes.friendly_name : ""),
+        on: !!(st && ["on", "home", "open", "unlocked"].includes(st.state)),
+        sotto: st ? fhStateText(st) : "",
+      });
     });
-    return out.join("");
+    return out;
   }
 
   // Il numero della pagina da solo non basta a ritrovarla dopo un
@@ -930,6 +971,9 @@ class FaberHome extends HTMLElement {
     }
     this._renderNav();
     this._renderPage();
+    // Ogni pagina riparte dalla sua cima: ritrovarsi a meta di una pagina
+    // nuova, alla stessa altezza di quella che hai lasciato, disorienta.
+    try { window.scrollTo({ top: 0, behavior: "auto" }); } catch (e) { window.scrollTo(0, 0); }
   }
 
   // La barra laterale di Home Assistant e una preferenza dell'UTENTE, non
@@ -1049,6 +1093,14 @@ class FaberHome extends HTMLElement {
     // pagina in piu, una nascosta): rimisuro, senno lo spazio sotto resta
     // tarato su quella di prima e l'ultima card finisce coperta.
     this._misuraNav();
+    // Se la barra scorre, la voce attiva si porta al centro da sola.
+    const barra = nav.querySelector(".fh-navbar.molte");
+    const attiva = barra && barra.querySelector(".fh-navitem.active");
+    if (barra && attiva) {
+      const x = attiva.offsetLeft - (barra.clientWidth - attiva.offsetWidth) / 2;
+      barra.scrollTo({ left: Math.max(0, x), behavior: this._navPronta ? "smooth" : "auto" });
+      this._navPronta = true;
+    }
   }
 
 
@@ -3398,9 +3450,7 @@ class FaberHome extends HTMLElement {
       const app = this.querySelector(".fh-app");
       if (app) app.style.background = this._pageBackground();
     }
-    const box = this.querySelector("[data-chips]");
-    if (box) box.innerHTML = this._chipsHTML();
-    this._wireChips();
+    this._updateChips();
   }
 
   _wireChips() {
@@ -3471,7 +3521,13 @@ const FH_CSS = `
      sul telefono, e il primo finiva sotto le icone in alto a destra. */
   .fh-chips{display:flex;flex-wrap:nowrap;gap:7px;align-items:center;min-width:0;
     overflow-x:auto;overflow-y:hidden;scrollbar-width:none;-ms-overflow-style:none;
-    padding-bottom:2px;-webkit-overflow-scrolling:touch}
+    padding-bottom:2px;-webkit-overflow-scrolling:touch;
+    /* Il dito si ferma dove vuole, ma non trascina la pagina sotto; e ai bordi
+       le chip sfumano invece di essere tagliate di netto. */
+    overscroll-behavior-x:contain;scroll-snap-type:x proximity;
+    -webkit-mask-image:linear-gradient(90deg,transparent 0,#000 14px,#000 calc(100% - 22px),transparent 100%);
+    mask-image:linear-gradient(90deg,transparent 0,#000 14px,#000 calc(100% - 22px),transparent 100%)}
+  .fh-chips > *{scroll-snap-align:center}
   .fh-chips::-webkit-scrollbar{display:none}
   .fh-chips > *{flex:0 0 auto}
   .fh-chip{display:flex;align-items:center;gap:6px;padding:7px 12px;border-radius:999px;cursor:pointer;
@@ -3986,7 +4042,10 @@ const FH_CSS = `
   .fh-nav{position:fixed;left:0;right:0;bottom:0;z-index:6;
     padding:0 12px calc(12px + env(safe-area-inset-bottom,0px));pointer-events:none}
   .fh-navbar.molte{justify-content:flex-start;overflow-x:auto;scrollbar-width:none;
-    scroll-snap-type:x proximity;max-width:min(760px,96vw)}
+    scroll-snap-type:x proximity;max-width:min(760px,96vw);
+    overscroll-behavior-x:contain;scroll-behavior:smooth;
+    -webkit-mask-image:linear-gradient(90deg,transparent 0,#000 18px,#000 calc(100% - 18px),transparent 100%);
+    mask-image:linear-gradient(90deg,transparent 0,#000 18px,#000 calc(100% - 18px),transparent 100%)}
   .fh-navbar.molte::-webkit-scrollbar{display:none}
   .fh-navbar.molte .fh-navitem{flex:0 0 auto;min-width:66px;scroll-snap-align:center}
   .fh-navbar{display:flex;align-items:flex-end;justify-content:space-around;gap:4px;
