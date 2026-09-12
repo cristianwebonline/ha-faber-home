@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.95.0";
+const FH_VERSION = "0.95.1";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -623,6 +623,7 @@ class FaberHome extends HTMLElement {
           this._pageId = voluta;
           this._renderNav();
           this._renderPage();
+          this._inCima();
         }
       };
       window.addEventListener("hashchange", this._ascoltoHash);
@@ -971,9 +972,22 @@ class FaberHome extends HTMLElement {
     }
     this._renderNav();
     this._renderPage();
-    // Ogni pagina riparte dalla sua cima: ritrovarsi a meta di una pagina
-    // nuova, alla stessa altezza di quella che hai lasciato, disorienta.
-    try { window.scrollTo({ top: 0, behavior: "auto" }); } catch (e) { window.scrollTo(0, 0); }
+    this._inCima();
+  }
+
+  // Ogni pagina riparte dalla sua cima: ritrovarsi a meta di una pagina nuova,
+  // alla stessa altezza di quella che hai lasciato, disorienta. Vale per tutte
+  // le vie: la barra, il foglio delle stanze, un collegamento con #.
+  // Si rifa anche al giro dopo perche la pagina cresce mentre le card entrano.
+  _inCima() {
+    const su = () => {
+      try { window.scrollTo({ top: 0, behavior: "auto" }); } catch (e) { window.scrollTo(0, 0); }
+      const m = this.querySelector("[data-main]");
+      if (m && m.scrollTop) m.scrollTop = 0;
+    };
+    su();
+    requestAnimationFrame(su);
+    setTimeout(su, 120);
   }
 
   // La barra laterale di Home Assistant e una preferenza dell'UTENTE, non
