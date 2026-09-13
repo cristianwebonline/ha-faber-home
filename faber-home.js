@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.99.2";
+const FH_VERSION = "0.99.3";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -401,39 +401,62 @@ class FhSky {
    Tutto si ferma con "riduci movimento" del telefono.
    =========================================================================== */
 const FH_ARTE_CSS = `
-  @keyframes fhVapore{0%{opacity:0;transform:translateY(2px) scaleX(.7)}
-    35%{opacity:.85}100%{opacity:0;transform:translateY(-9px) scaleX(1.25)}}
-  @keyframes fhGoccia{0%{opacity:0;transform:translateY(0)}
-    20%{opacity:.9}100%{opacity:0;transform:translateY(11px)}}
-  @keyframes fhGira{from{transform:rotate(0)}to{transform:rotate(360deg)}}
-  @keyframes fhDondola{0%,100%{transform:rotate(-6deg)}50%{transform:rotate(6deg)}}
-  @keyframes fhSonno{0%{opacity:0;transform:translate(0,0) scale(.6)}
+  @keyframes fhVapore1{0%{opacity:0;transform:translateY(2px) scaleX(.7)}
+    35%{opacity:.85}100%{opacity:0;transform:translateY(-11px) scaleX(1.3)}}
+  @keyframes fhVapore2{0%{opacity:0;transform:translateY(1px) scaleX(.6)}
+    45%{opacity:.9}100%{opacity:0;transform:translateY(-13px) scaleX(1.4)}}
+  @keyframes fhGocciaM{0%{opacity:0;transform:translateY(0)}
+    25%{opacity:.95}85%{opacity:.95;transform:translateY(14px)}100%{opacity:0;transform:translateY(16px)}}
+  @keyframes fhRipple{0%{opacity:0;transform:scaleX(.3);transform-origin:32px 35px}
+    50%{opacity:.85;transform-origin:32px 35px}100%{opacity:0;transform:scaleX(1.4);transform-origin:32px 35px}}
+  @keyframes fhGiraLento{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+  @keyframes fhBolla{0%{opacity:0;transform:translate(0,0) scale(.5)}
+    35%{opacity:.9}100%{opacity:0;transform:translate(-3px,-12px) scale(1.15)}}
+  @keyframes fhBrezza1{0%,100%{transform:rotate(-5deg)}50%{transform:rotate(6deg)}}
+  @keyframes fhBrezza2{0%,100%{transform:rotate(4deg)}50%{transform:rotate(-6deg)}}
+  @keyframes fhLampGlow{0%,100%{opacity:.25;transform:scale(.96)}50%{opacity:.85;transform:scale(1.04)}}
+  @keyframes fhFiamma{0%,100%{transform:scale(1);opacity:.75}
+    35%{transform:scaleY(1.18) scaleX(.88) translateY(-1px);opacity:1}
+    70%{transform:scaleY(.92) scaleX(1.06);opacity:.65}}
+  @keyframes fhFariBeam{0%,100%{opacity:.25}50%{opacity:.9}}
+  @keyframes fhSchermoPulse{0%,100%{opacity:.25}50%{opacity:.85}}
+  @keyframes fhStellaTwinkle{0%,100%{opacity:.25;transform:scale(.75)}50%{opacity:1;transform:scale(1.2)}}
+  @keyframes fhImpulsoFit{0%{opacity:.8;transform:scale(.85)}
+    70%{opacity:.15;transform:scale(1.25)}100%{opacity:0;transform:scale(1.3)}}
+  @keyframes fhConoLuce{0%,100%{opacity:.18}50%{opacity:.65}}
+  @keyframes fhSonnoM{0%{opacity:0;transform:translate(0,0) scale(.6)}
     30%{opacity:.9}100%{opacity:0;transform:translate(5px,-9px) scale(1.1)}}
-  @keyframes fhSchermo{0%,100%{opacity:.25}50%{opacity:.85}}
-  @keyframes fhLampada{0%,100%{opacity:.3}50%{opacity:.75}}
-  @keyframes fhSole{0%,100%{transform:scale(1)}50%{transform:scale(1.12)}}
   .fh-arte svg{display:block;overflow:visible}
   .fh-arte .an{transform-box:fill-box;transform-origin:center}
-  .fh-vapore{animation:fhVapore 2.6s ease-out infinite}
-  .fh-goccia{animation:fhGoccia 1.9s ease-in infinite}
-  .fh-cestello{animation:fhGira 4.2s linear infinite}
-  .fh-foglia{animation:fhDondola 3.4s ease-in-out infinite}
-  .fh-zzz{animation:fhSonno 3.2s ease-out infinite}
-  .fh-schermo{animation:fhSchermo 3s ease-in-out infinite}
-  .fh-luce{animation:fhLampada 3.4s ease-in-out infinite}
-  .fh-sole{animation:fhSole 3.6s ease-in-out infinite}
+  .fh-vapore1{animation:fhVapore1 2.7s ease-out infinite}
+  .fh-vapore2{animation:fhVapore2 3.1s ease-out infinite}
+  .fh-goccia{animation:fhGocciaM 1.8s ease-in infinite}
+  .fh-ripple{animation:fhRipple 1.8s ease-out infinite}
+  .fh-cestello{animation:fhGiraLento 4.5s linear infinite}
+  .fh-bolla{animation:fhBolla 2.4s ease-out infinite}
+  .fh-foglia1{animation:fhBrezza1 3.4s ease-in-out infinite}
+  .fh-foglia2{animation:fhBrezza2 3.8s ease-in-out infinite}
+  .fh-lamp-glow{animation:fhLampGlow 3.2s ease-in-out infinite}
+  .fh-schermo-pulse{animation:fhSchermoPulse 2.8s ease-in-out infinite}
+  .fh-fiamma{animation:fhFiamma 1.8s ease-in-out infinite;transform-origin:24px 33px}
+  .fh-fari-beam{animation:fhFariBeam 2.5s ease-in-out infinite}
+  .fh-cono-luce{animation:fhConoLuce 3s ease-in-out infinite}
+  .fh-impulso{animation:fhImpulsoFit 2.2s cubic-bezier(0,.2,.8,1) infinite;transform-origin:24px 24px}
+  .fh-twinkle{animation:fhStellaTwinkle 2.6s ease-in-out infinite;transform-origin:center}
+  .fh-dondola{animation:fhBrezza1 3.6s ease-in-out infinite}
+  .fh-zzz{animation:fhSonnoM 3.2s ease-out infinite}
   @media (prefers-reduced-motion: reduce){
-    .fh-vapore,.fh-goccia,.fh-cestello,.fh-foglia,.fh-zzz,.fh-schermo,.fh-luce,.fh-sole{animation:none}
+    .fh-vapore1,.fh-vapore2,.fh-goccia,.fh-ripple,.fh-cestello,.fh-bolla,.fh-foglia1,.fh-foglia2,.fh-lamp-glow,.fh-schermo-pulse,.fh-fiamma,.fh-fari-beam,.fh-cono-luce,.fh-impulso,.fh-twinkle,.fh-dondola,.fh-zzz{animation:none}
   }`;
 
 // LE ICONE DELLA FUCINA.
 // Non se ne fa una copia: si legge la stessa raccolta che usa Mini Card
-// (`faber_icone` nelle preferenze del frontend). Un'icona disegnata col
+// (\`faber_icone\` nelle preferenze del frontend). Un'icona disegnata col
 // telefono si ritrova qui, e viceversa.
 const FH_CHIAVE_ICONE = "faber_icone";
 let FH_ICONE_MIE = null;
-async function fhIconeCarica(hass) {
-  if (FH_ICONE_MIE) return FH_ICONE_MIE;
+async function fhIconeCarica(hass, forza) {
+  if (FH_ICONE_MIE && !forza) return FH_ICONE_MIE;
   try {
     const r = await hass.callWS({ type: "frontend/get_user_data", key: FH_CHIAVE_ICONE });
     const v = r && r.value;
@@ -446,101 +469,166 @@ async function fhIconeCarica(hass) {
 }
 
 const FH_SCENE = [
-  ["camera", "Camera"], ["cameretta", "Cameretta (stella)"], ["cameretta2", "Cameretta (palla)"],
-  ["cucina", "Cucina"], ["sala", "Sala"], ["bagno", "Bagno"], ["lavatoio", "Lavatoio"],
-  ["giardino", "Giardino"], ["ufficio", "Ufficio"], ["porta", "Generica"],
+  ["camera", "Camera"],
+  ["cameretta", "Cameretta"],
+  ["sala", "Soggiorno"],
+  ["cucina", "Cucina"],
+  ["bagno", "Bagno"],
+  ["lavatoio", "Lavanderia"],
+  ["ufficio", "Studio / Ufficio"],
+  ["giardino", "Giardino"],
+  ["garage", "Garage / Auto"],
+  ["ingresso", "Ingresso"],
+  ["terrazzo", "Terrazzo / Balcone"],
+  ["taverna", "Taverna / Camino"],
+  ["cantina", "Cantina / Dispensa"],
+  ["palestra", "Palestra"],
+  ["porta", "Casa / Generale"],
 ];
 
-// Dal nome dell'icona si indovina la scena: cosi le stanze che ci sono gia
-// funzionano senza toccare niente. Con `arte:` nella pagina si forza a mano.
+// Dal nome o dall'icona si individua la scena animata della stanza.
+// Con \`arte:\` impostato nella pagina si può forzare qualsiasi scena a mano.
 function fhTipoStanza(pg) {
   if (pg.arte) return pg.arte;
   const i = String(pg.icon || "").toLowerCase();
   const n = String(pg.title || "").toLowerCase();
   const cerca = s => i.includes(s) || n.includes(s);
-  if (cerca("bed") || cerca("camera")) return "camera";
-  if (cerca("silverware") || cerca("cucina") || cerca("countertop")) return "cucina";
-  if (cerca("sofa") || cerca("sala") || cerca("soggiorno")) return "sala";
-  if (cerca("shower") || cerca("toilet") || cerca("bagno")) return "bagno";
-  if (cerca("washing") || cerca("lavatoio") || cerca("bucato")) return "lavatoio";
-  if (cerca("flower") || cerca("giardino") || cerca("tree")) return "giardino";
-  if (cerca("desk") || cerca("ufficio") || cerca("office")) return "ufficio";
+  if (cerca("letto") || cerca("bed") || cerca("camera") || cerca("notte") || cerca("padronale")) return "camera";
+  if (cerca("bambin") || cerca("bimbi") || cerca("ragazz") || cerca("cameretta") || cerca("nursery") || cerca("kid")) return "cameretta";
+  if (cerca("cucin") || cerca("kitchen") || cerca("cottura") || cerca("forno") || cerca("pranzo") || cerca("silverware") || cerca("countertop")) return "cucina";
+  if (cerca("sofa") || cerca("sala") || cerca("soggiorno") || cerca("living") || cerca("salotto") || cerca("tv")) return "sala";
+  if (cerca("shower") || cerca("toilet") || cerca("bagno") || cerca("bath") || cerca("doccia") || cerca("wc")) return "bagno";
+  if (cerca("washing") || cerca("lavatoio") || cerca("bucato") || cerca("laundry") || cerca("lavanderia") || cerca("stiro")) return "lavatoio";
+  if (cerca("desk") || cerca("ufficio") || cerca("office") || cerca("studio") || cerca("pc") || cerca("computer") || cerca("scrivania")) return "ufficio";
+  if (cerca("flower") || cerca("giardino") || cerca("tree") || cerca("garden") || cerca("piant") || cerca("orto") || cerca("cortile")) return "giardino";
+  if (cerca("garage") || cerca("box") || cerca("auto") || cerca("car") || cerca("parcheggio")) return "garage";
+  if (cerca("ingresso") || cerca("corridoio") || cerca("entrata") || cerca("atrio") || cerca("hall") || cerca("disimpegno")) return "ingresso";
+  if (cerca("terrazz") || cerca("balcon") || cerca("veranda") || cerca("patio")) return "terrazzo";
+  if (cerca("taverna") || cerca("camino") || cerca("fuoco") || cerca("rustico")) return "taverna";
+  if (cerca("cantina") || cerca("dispensa") || cerca("wine") || cerca("vini") || cerca("deposito")) return "cantina";
+  if (cerca("palestra") || cerca("gym") || cerca("fitness") || cerca("sport")) return "palestra";
   return "porta";
 }
 
 function fhArteStanza(tipo, s) {
   const w = `width="${s}" height="${s}" viewBox="0 0 48 48" fill="none"
-    stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"`;
+    stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"`;
   const scene = {
     camera: `
-      <path class="fh-zzz" style="animation-delay:0s" d="M30 17h5l-5 5h5" stroke-width="1.7" opacity=".9"/>
-      <path class="fh-zzz" style="animation-delay:1.1s" d="M36 12h3.5l-3.5 3.5h3.5" stroke-width="1.5" opacity=".7"/>
-      <path d="M7 34v-9a3 3 0 0 1 3-3h6a3 3 0 0 1 3 3v3"/>
-      <path d="M19 28h18a4 4 0 0 1 4 4v2"/>
-      <path d="M5 34h38"/><path d="M9 34v3"/><path d="M39 34v3"/>
-      <rect x="9" y="23" width="8" height="5" rx="2.2" fill="currentColor" opacity=".22" stroke="none"/>`,
+      <rect x="7" y="24" width="34" height="12" rx="3" fill="currentColor" opacity=".12" stroke="none"/>
+      <path d="M9 36v-15a3 3 0 0 1 3-3h24a3 3 0 0 1 3 3v15"/>
+      <rect x="12" y="23" width="9" height="5" rx="2" stroke-width="1.6"/>
+      <rect x="27" y="23" width="9" height="5" rx="2" stroke-width="1.6"/>
+      <path d="M7 29h34a2 2 0 0 1 2 2v5H5v-5a2 2 0 0 1 2-2z"/>
+      <path d="M7 36v3M41 36v3"/>
+      <path d="M37 15v-4M34 11h6" stroke-width="1.6"/>
+      <polygon class="fh-lamp-glow an" points="37 11 31 18 43 18" fill="currentColor" opacity=".35" stroke="none"/>
+      <path class="fh-zzz" style="animation-delay:0s" d="M19 14h4l-4 4h4" stroke-width="1.6" opacity=".9"/>
+      <path class="fh-zzz" style="animation-delay:1.3s" d="M23 9h3l-3 3h3" stroke-width="1.4" opacity=".7"/>`,
     cameretta: `
-      <g class="fh-sole an" style="transform-origin:34px 13px">
-        <path d="M34 9l1.4 2.9 3.1.4-2.3 2.2.6 3.1-2.8-1.5-2.8 1.5.6-3.1-2.3-2.2 3.1-.4z"
-          fill="currentColor" stroke="none" opacity=".5"/></g>
-      <path d="M8 34v-8a3 3 0 0 1 3-3h4a3 3 0 0 1 3 3v2"/>
-      <path d="M18 28h14a4 4 0 0 1 4 4v2"/>
-      <path d="M6 34h32"/><path d="M10 34v3"/><path d="M34 34v3"/>
-      <rect x="10" y="24" width="6" height="4" rx="1.8" fill="currentColor" opacity=".22" stroke="none"/>`,
-    cameretta2: `
-      <g class="fh-foglia an" style="transform-origin:34px 14px">
-        <circle cx="34" cy="14" r="4.6"/><path d="M29.6 12.6c2.6 1 6.2 1 8.8 0" stroke-width="1.5"/>
-        <path d="M34 9.4c-1.4 2.6-1.4 6.6 0 9.2" stroke-width="1.5"/></g>
-      <path d="M8 34v-8a3 3 0 0 1 3-3h4a3 3 0 0 1 3 3v2"/>
-      <path d="M18 28h14a4 4 0 0 1 4 4v2"/>
-      <path d="M6 34h32"/><path d="M10 34v3"/><path d="M34 34v3"/>
-      <rect x="10" y="24" width="6" height="4" rx="1.8" fill="currentColor" opacity=".22" stroke="none"/>`,
-    cucina: `
-      <path class="fh-vapore" style="animation-delay:0s" d="M20 17c0-2 2-2 2-4" stroke-width="1.7" opacity=".8"/>
-      <path class="fh-vapore" style="animation-delay:.7s" d="M24 16c0-2 2-2 2-4" stroke-width="1.7" opacity=".8"/>
-      <path class="fh-vapore" style="animation-delay:1.4s" d="M28 17c0-2 2-2 2-4" stroke-width="1.7" opacity=".8"/>
-      <path d="M14 23h20l-1.6 12a3 3 0 0 1-3 2.6h-10.8a3 3 0 0 1-3-2.6z"/>
-      <path d="M12 23h24"/><path d="M34 26h4a2.5 2.5 0 0 1 0 5h-3"/>`,
+      <path d="M8 36v-8a3 3 0 0 1 3-3h5a3 3 0 0 1 3 3v2M19 30h14a3 3 0 0 1 3 3v3"/>
+      <path d="M6 36h34"/><path d="M10 36v3M38 36v3"/>
+      <rect x="10" y="25" width="6" height="4" rx="1.8" fill="currentColor" opacity=".22" stroke="none"/>
+      <path class="fh-dondola an" style="transform-origin:33px 12px" d="M30 8a5.5 5.5 0 1 0 6.5 6.5A4.5 4.5 0 0 1 30 8z" fill="currentColor" opacity=".3"/>
+      <polygon class="fh-twinkle an" points="19,10 20.5,13.5 24,14 21.2,16.5 22,20 19,18.2 16,20 16.8,16.5 14,14 17.5,13.5" fill="currentColor" opacity=".85" stroke="none"/>
+      <circle class="fh-twinkle an" style="animation-delay:1s" cx="37" cy="18" r="1.5" fill="currentColor" stroke="none"/>`,
     sala: `
-      <rect class="fh-schermo" x="30" y="10" width="13" height="9" rx="1.6" fill="currentColor" stroke="none" opacity=".3"/>
-      <rect x="30" y="10" width="13" height="9" rx="1.6"/>
-      <path d="M34.5 22h4"/>
-      <path d="M6 33v-7a3 3 0 0 1 3-3 3 3 0 0 1 3 3v2"/>
-      <path d="M26 33v-7a3 3 0 0 1 3-3 3 3 0 0 1 3 3v7"/>
-      <path d="M12 28h14a2 2 0 0 1 2 2v3H10v-3a2 2 0 0 1 2-2z"/>
-      <path d="M8 33h24"/><path d="M11 33v3"/><path d="M29 33v3"/>`,
+      <rect x="8" y="25" width="32" height="10" rx="3" fill="currentColor" opacity=".12" stroke="none"/>
+      <path d="M8 29v-5a4 4 0 0 1 4-4h24a4 4 0 0 1 4 4v5"/>
+      <path d="M6 25a3 3 0 0 1 3-3v12H7a2 2 0 0 1-2-2v-5a2 2 0 0 1 1-2zm36 0a3 3 0 0 0-3-3v12h2a2 2 0 0 0 2-2v-5a2 2 0 0 0-1-2z"/>
+      <path d="M24 22v12"/><path d="M10 35l-1.5 3M38 35l1.5 3"/>
+      <rect x="15" y="8" width="18" height="11" rx="2" stroke-width="1.8"/>
+      <rect class="fh-schermo-pulse" x="16" y="9" width="16" height="9" rx="1.5" fill="currentColor" opacity=".3" stroke="none"/>
+      <path d="M24 19v2M20 21h8" stroke-width="1.5"/>`,
+    cucina: `
+      <path d="M8 38h32"/><path d="M14 38v2M34 38v2"/>
+      <path d="M13 24h22l-1.8 11.5a3 3 0 0 1-3 2.5H17.8a3 3 0 0 1-3-2.5L13 24z"/>
+      <path d="M14 25h20l-1.6 10a2 2 0 0 1-2 2H17.6a2 2 0 0 1-2-2L14 25z" fill="currentColor" opacity=".15" stroke="none"/>
+      <path d="M13 27H9a2 2 0 0 1 0-4h4M35 27h4a2 2 0 0 0 0-4h-4"/>
+      <path d="M11 24h26"/><path d="M24 21v3"/><circle cx="24" cy="20" r="1.5" fill="currentColor"/>
+      <path class="fh-vapore1" d="M19 18c0-3 2.5-3 2.5-6" stroke-width="1.8" opacity=".85"/>
+      <path class="fh-vapore2" d="M24 17c0-3.5 3-3.5 3-7.5" stroke-width="1.8" opacity=".9"/>
+      <path class="fh-vapore1" style="animation-delay:1.1s" d="M29 18c0-3 2.5-3 2.5-6" stroke-width="1.8" opacity=".85"/>
+      <ellipse class="fh-schermo-pulse" cx="24" cy="38" rx="8" ry="1.5" fill="currentColor" opacity=".35" stroke="none"/>`,
     bagno: `
-      <path d="M24 8v6"/><path d="M16 14h16a1 1 0 0 1 1 1v2H15v-2a1 1 0 0 1 1-1z"/>
-      <circle class="fh-goccia" style="animation-delay:0s" cx="19" cy="21" r="1.5" fill="currentColor" stroke="none"/>
-      <circle class="fh-goccia" style="animation-delay:.6s" cx="24" cy="21" r="1.5" fill="currentColor" stroke="none"/>
-      <circle class="fh-goccia" style="animation-delay:1.2s" cx="29" cy="21" r="1.5" fill="currentColor" stroke="none"/>
-      <path d="M9 32h30v2a5 5 0 0 1-5 5H14a5 5 0 0 1-5-5z"/>
-      <path d="M7 32h34"/>`,
+      <path d="M12 40V12a4 4 0 0 1 4-4h14a3 3 0 0 1 3 3v3"/>
+      <path d="M25 14h16a2 2 0 0 1 2 2v1H23v-1a2 2 0 0 1 2-2z" fill="currentColor" opacity=".25"/>
+      <circle class="fh-goccia" style="animation-delay:0s" cx="27" cy="19" r="1.5" fill="currentColor" stroke="none"/>
+      <circle class="fh-goccia" style="animation-delay:.5s" cx="32" cy="19" r="1.5" fill="currentColor" stroke="none"/>
+      <circle class="fh-goccia" style="animation-delay:1.1s" cx="37" cy="19" r="1.5" fill="currentColor" stroke="none"/>
+      <circle class="fh-goccia" style="animation-delay:.8s" cx="29.5" cy="21" r="1.3" fill="currentColor" stroke="none"/>
+      <circle class="fh-goccia" style="animation-delay:1.4s" cx="34.5" cy="21" r="1.3" fill="currentColor" stroke="none"/>
+      <path d="M9 40h30a3 3 0 0 0 3-3v-5H6v5a3 3 0 0 0 3 3z" fill="currentColor" opacity=".12"/>
+      <ellipse class="fh-ripple" cx="32" cy="35" rx="8" ry="2" fill="none" stroke="currentColor" stroke-width="1.5"/>`,
     lavatoio: `
-      <rect x="11" y="8" width="26" height="32" rx="4"/>
-      <path d="M15 14h8"/><circle cx="32" cy="14" r="1.4" fill="currentColor" stroke="none"/>
-      <circle cx="24" cy="27" r="8.5"/>
-      <g class="fh-cestello an">
-        <circle cx="24" cy="27" r="5" stroke-width="1.7" opacity=".85"/>
-        <path d="M24 22v3" stroke-width="1.7"/><path d="M24 29v3" stroke-width="1.7"/>
-        <path d="M19 27h3" stroke-width="1.7"/><path d="M26 27h3" stroke-width="1.7"/>
-      </g>`,
-    giardino: `
-      <circle class="fh-sole an" cx="37" cy="12" r="4" fill="currentColor" stroke="none" opacity=".45"/>
-      <circle cx="37" cy="12" r="4"/>
-      <path d="M24 40V24"/>
-      <g class="fh-foglia an"><path d="M24 27c-7 0-10-4-10-9 6 0 10 3 10 9z"/></g>
-      <g class="fh-foglia an" style="animation-delay:1.2s"><path d="M24 31c6 0 9-3 9-8-5 0-9 3-9 8z"/></g>
-      <path d="M16 40h16"/>`,
+      <rect x="10" y="8" width="28" height="34" rx="5"/>
+      <rect x="10" y="8" width="28" height="34" rx="5" fill="currentColor" opacity=".1" stroke="none"/>
+      <path d="M14 13h8"/><circle cx="31" cy="13" r="1.8" fill="currentColor" stroke="none"/>
+      <circle cx="24" cy="27" r="9" stroke-width="2"/>
+      <g class="fh-cestello an" style="transform-origin:24px 27px"><circle cx="24" cy="27" r="5.5" stroke-dasharray="3 3" stroke-width="1.6"/><path d="M24 23v8M20 27h8" stroke-width="1.5"/></g>
+      <circle class="fh-bolla" style="animation-delay:0s" cx="33" cy="21" r="1.8" stroke-width="1.3" fill="currentColor" opacity=".25"/>
+      <circle class="fh-bolla" style="animation-delay:1.2s" cx="29" cy="22" r="1.2" stroke-width="1.2" fill="currentColor" opacity=".25"/>`,
     ufficio: `
-      <path class="fh-luce" d="M18 20l-8 12h16z" fill="currentColor" stroke="none" opacity=".35"/>
-      <path d="M14 12h8l4 8h-8z"/><path d="M18 20v4"/>
-      <path d="M7 32h34"/><path d="M11 32v6"/><path d="M37 32v6"/>
-      <rect x="28" y="24" width="11" height="8" rx="1.4"/>`,
+      <path d="M6 34h36"/><path d="M10 34v6M38 34v6"/><rect x="29" y="35" width="9" height="5" rx="1" stroke-width="1.4"/>
+      <rect x="15" y="14" width="18" height="13" rx="2.5"/><path d="M24 27v7M20 34h8"/>
+      <rect class="fh-schermo-pulse" x="16.5" y="15.5" width="15" height="10" rx="1.5" fill="currentColor" opacity=".25" stroke="none"/>
+      <path d="M18 18h6M18 21h10M18 24h7" stroke-width="1.3" opacity=".7"/>
+      <path d="M10 34V24l7-7M17 17l4 2" stroke-width="1.6"/>
+      <polygon class="fh-lamp-glow an" points="20 18 25 25 18 24" fill="currentColor" opacity=".4" stroke="none"/>`,
+    giardino: `
+      <path d="M17 38l2-12h10l2 12a2 2 0 0 1-2 2H19a2 2 0 0 1-2-2z"/><path d="M16 26h16" stroke-width="2.2"/>
+      <path d="M18 38l1.7-11h8.6l1.7 11a1 1 0 0 1-1 1h-10a1 1 0 0 1-1-1z" fill="currentColor" opacity=".14" stroke="none"/>
+      <path d="M24 26V13"/>
+      <g class="fh-foglia1 an" style="transform-origin:24px 22px"><path d="M24 22c-7-1-10-6-10-12 7 1 10 6 10 12z" fill="currentColor" opacity=".25"/><path d="M24 22c-7-1-10-6-10-12 7 1 10 6 10 12z"/><path d="M24 16c-3-1-5-2-7-3" stroke-width="1.4"/></g>
+      <g class="fh-foglia2 an" style="transform-origin:24px 18px"><path d="M24 18c7-1 10-6 10-11-7 1-10 6-10 11z" fill="currentColor" opacity=".25"/><path d="M24 18c7-1 10-6 10-11-7 1-10 6-10 11z"/><path d="M24 13c3-1 5-2 7-3" stroke-width="1.4"/></g>
+      <circle class="fh-lamp-glow an" cx="37" cy="11" r="5" fill="currentColor" opacity=".25" stroke="none"/><circle cx="37" cy="11" r="3.5"/>`,
+    garage: `
+      <path d="M6 40V11a3 3 0 0 1 3-3h30a3 3 0 0 1 3 3v29"/><path d="M6 14h36M6 19h36" stroke-width="1.5" opacity=".4"/>
+      <path d="M12 37l2-8a3 3 0 0 1 3-2h14a3 3 0 0 1 3 2l2 8"/>
+      <rect x="11" y="32" width="26" height="6" rx="3"/><circle cx="16" cy="38" r="2.5"/><circle cx="32" cy="38" r="2.5"/>
+      <polygon class="fh-fari-beam an" points="12 34 4 39 16 39" fill="currentColor" opacity=".35" stroke="none"/>
+      <polygon class="fh-fari-beam an" points="36 34 32 39 44 39" fill="currentColor" opacity=".35" stroke="none"/>
+      <circle cx="14" cy="34" r="1.5" fill="currentColor" stroke="none"/><circle cx="34" cy="34" r="1.5" fill="currentColor" stroke="none"/>`,
+    ingresso: `
+      <rect x="13" y="9" width="22" height="31" rx="2.5"/>
+      <rect x="13" y="9" width="22" height="31" rx="2.5" fill="currentColor" opacity=".1" stroke="none"/>
+      <path d="M19 13h10v10H19z" stroke-width="1.6" opacity=".5"/>
+      <path d="M17 20v9" stroke-width="2.6"/><path d="M8 40h32"/>
+      <polygon class="fh-cono-luce an" points="24 6 11 40 37 40" fill="currentColor" opacity=".2" stroke="none"/>
+      <circle cx="24" cy="7" r="2" fill="currentColor" stroke="none"/>`,
+    terrazzo: `
+      <path d="M6 28h36M6 39h36M11 28v11M19 28v11M27 28v11M35 28v11" stroke-width="1.7"/>
+      <path d="M9 28l5-8h7l3 8"/><path d="M11 32h14"/>
+      <circle class="fh-lamp-glow an" cx="35" cy="12" r="5" fill="currentColor" opacity=".25" stroke="none"/><circle cx="35" cy="12" r="3.5"/>
+      <path class="fh-foglia1 an" d="M18 11c5-2 9 0 12-1" stroke-width="1.5" opacity=".7"/>
+      <path class="fh-foglia2 an" d="M14 15c4-2 8 0 11-1" stroke-width="1.4" opacity=".5"/>`,
+    taverna: `
+      <path d="M9 39V16a3 3 0 0 1 3-3h24a3 3 0 0 1 3 3v23"/><path d="M6 39h36"/><path d="M15 39V25a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14"/>
+      <rect x="8" y="13" width="32" height="4" rx="1.5"/>
+      <path d="M18 36l12-3M18 33l12 3" stroke-width="2"/>
+      <path class="fh-fiamma an" d="M24 22c-3 3-5 5-5 8a5 5 0 0 0 10 0c0-3-2-5-5-8z" fill="currentColor" opacity=".4" stroke="none"/>
+      <path class="fh-fiamma an" style="animation-delay:.4s" d="M24 25c-1.5 2-2.5 3-2.5 5a2.5 2.5 0 0 0 5 0c0-2-1-3-2.5-5z" fill="currentColor" opacity=".75" stroke="none"/>`,
+    cantina: `
+      <path d="M7 39h34M7 16h13" stroke-width="1.8"/>
+      <path d="M12 39V22l2-4v-4h4v4l2 4v17a2 2 0 0 1-2 2H14a2 2 0 0 1-2-2z"/><rect x="12" y="24" width="8" height="12" fill="currentColor" opacity=".15" stroke="none"/>
+      <path d="M14 26h4M14 30h4" stroke-width="1.3"/>
+      <path d="M26 24c0 4 3 6 5 6s5-2 5-6h-10z"/><path d="M31 30v7M28 37h6"/>
+      <path d="M27 26c2 1 6 1 8 0" stroke-width="1.4" opacity=".7"/>
+      <circle class="fh-twinkle an" cx="34" cy="22" r="1.4" fill="currentColor" stroke="none"/>`,
+    palestra: `
+      <path d="M17 24h14" stroke-width="3.5"/>
+      <rect x="13" y="16" width="4" height="16" rx="2"/>
+      <rect x="9" y="19" width="4" height="10" rx="1.5"/>
+      <rect x="31" y="16" width="4" height="16" rx="2"/>
+      <rect x="35" y="19" width="4" height="10" rx="1.5"/>
+      <circle class="fh-impulso an" cx="24" cy="24" r="15" stroke="currentColor" stroke-width="1.5" fill="none" opacity=".3"/>
+      <path class="fh-schermo-pulse" d="M16 38l3-3 2 4 4-7 3 5 4-2" stroke-width="1.7"/>`,
     porta: `
-      <path d="M14 8h20v32H14z"/><path d="M11 40h26"/>
-      <circle class="fh-luce" cx="29" cy="24" r="1.8" fill="currentColor" stroke="none"/>
-      <path d="M20 8v32" opacity=".35"/>`,
+      <path d="M8 22L24 9l16 13"/><rect x="12" y="22" width="24" height="17" rx="1"/>
+      <rect x="20" y="27" width="8" height="12" rx="1"/><circle cx="26" cy="33" r="1" fill="currentColor" stroke="none"/>
+      <rect class="fh-schermo-pulse" x="14" y="25" width="4" height="5" rx="1" fill="currentColor" opacity=".35" stroke="none"/>
+      <rect class="fh-schermo-pulse" x="30" y="25" width="4" height="5" rx="1" fill="currentColor" opacity=".35" stroke="none"/>
+      <path d="M6 39h36"/>`,
   };
   return `<svg ${w}>${scene[tipo] || scene.porta}</svg>`;
 }
@@ -2221,8 +2309,14 @@ class FaberHome extends HTMLElement {
     sheet.appendChild(body);
     if (conPiede) sheet.appendChild(this._sheetFooter(() => scrim));
     scrim.appendChild(sheet);
-    scrim.addEventListener("click", e => { if (e.target === scrim) scrim.remove(); });
-    sheet.querySelector("[data-close]").addEventListener("click", () => scrim.remove());
+    const chiudi = () => {
+      if (scrim.__primaDiChiudere) {
+        try { scrim.__primaDiChiudere(); } catch (e) { console.warn("[faber-home] chiusura:", e); }
+      }
+      scrim.remove();
+    };
+    scrim.addEventListener("click", e => { if (e.target === scrim) chiudi(); });
+    sheet.querySelector("[data-close]").addEventListener("click", chiudi);
     this.querySelector(".fh-app").appendChild(scrim);
     return scrim;
   }
@@ -3274,16 +3368,22 @@ class FaberHome extends HTMLElement {
     const pg = this._cfg.pages[indice];
     const box = document.createElement("div");
     box.innerHTML = `<div class="fh-note">Carico le tue icone...</div>`;
-    this._sheet("Disegno di " + (pg.title || "questa stanza"), box, false);
-    const mie = await fhIconeCarica(this._hass);
+    const scrim = this._sheet("Disegno di " + (pg.title || "questa stanza"), box, false);
+    // Qualunque strada prenda per uscire - la X, il tocco fuori - quello che
+    // ha scelto resta.
+    scrim.__primaDiChiudere = () => {
+      if (this._stanzeMosse) { this._stanzeMosse = false; this._save(true); }
+    };
+    // `true`: si rilegge sempre, cosi un'icona disegnata un minuto fa c'e gia.
+    const mie = await fhIconeCarica(this._hass, true);
     const draw = () => {
       const ora = fhTipoStanza(pg);
       box.innerHTML = `
         <style>${FH_ARTE_CSS}</style>
-        <div class="fh-lab2">Disegni del pannello <small>si muovono da soli</small></div>
+        <div class="fh-lab2">Disegni animati Faber <small>icone d'autore esclusive per Faber Home</small></div>
         <div class="fh-disegni">${FH_SCENE.map(([id, nome]) => `
           <button type="button" class="fh-dis${!pg.icona_svg && ora === id ? " on" : ""}" data-scena="${id}">
-            <span class="fh-arte">${fhArteStanza(id, 40)}</span><span>${fhEsc(nome)}</span>
+            <span class="fh-arte">${fhArteStanza(id, 46)}</span><span>${fhEsc(nome)}</span>
           </button>`).join("")}</div>
 
         <div class="fh-lab2" style="margin-top:16px">Le tue icone <small>quelle della Fucina</small></div>
@@ -3294,20 +3394,24 @@ class FaberHome extends HTMLElement {
           : `<div class="fh-note">La raccolta e vuota. Le icone si disegnano con la <b>Fucina Icone</b> e si salvano
              dall'editor di una Mini Card: da li finiscono nella raccolta e compaiono anche qui.</div>`}
         <button type="button" class="fh-btn primary" data-torna style="width:100%;margin-top:16px">
-          Torna alle stanze</button>`;
+          <ha-icon icon="mdi:check"></ha-icon>${this._stanzeMosse ? "Salva e torna alle stanze" : "Torna alle stanze"}
+        </button>`;
       const tr = box.querySelector("[data-torna]");
-      if (tr) tr.addEventListener("click", () => {
+      if (tr) tr.addEventListener("click", async () => {
+        if (this._stanzeMosse) { this._stanzeMosse = false; await this._save(true); }
         const s = this.querySelector(".fh-scrim"); if (s) s.remove();
         this._modificaStanze = true;
         this._apriStanze(true);
       });
       box.querySelectorAll("[data-scena]").forEach(b => b.addEventListener("click", () => {
+        fhVibra(10);
         pg.arte = b.dataset.scena;
         pg.icona_svg = ""; pg.icona_id = "";
         this._stanzeMosse = true;
         draw();
       }));
       box.querySelectorAll("[data-mia]").forEach(b => b.addEventListener("click", () => {
+        fhVibra(10);
         const ic = mie.find(x => x.id === b.dataset.mia);
         if (!ic) return;
         // Si porta dietro il disegno, non solo il riferimento: resta a posto
@@ -3358,15 +3462,18 @@ class FaberHome extends HTMLElement {
         this._renderNav();
       });
     });
-    this._sheet("Aggiungi una stanza", box, false);
+    const scrim = this._sheet("Aggiungi alle stanze", box, false);
+    return scrim;
   }
 
   // Chiedere un testo senza `prompt`: nella WebView dell'app la finestrella di
   // sistema non compare e il tasto sembra rotto.
   _chiediNome(valore, poi) {
     const box = document.createElement("div");
-    box.innerHTML = `<input class="fh-input" id="fhNome" value="${fhEsc(valore)}" placeholder="Nome della stanza"
-        style="width:100%;box-sizing:border-box">
+    box.innerHTML = `
+      <input type="text" id="fhNome" value="${fhEsc(valore || "")}" placeholder="Nome della stanza"
+        style="width:100%;box-sizing:border-box;padding:12px 14px;border-radius:14px;font:inherit;font-size:15px;font-weight:700;
+        border:1px solid var(--fh-stroke,rgba(255,255,255,.18));background:rgba(255,255,255,.07);color:inherit;outline:none">
       <button type="button" class="fh-btn primary" id="fhNomeOk" style="margin-top:12px;width:100%">Conferma</button>`;
     const scrim = this._sheet(valore ? "Rinomina" : "Nuova stanza", box, false);
     const inp = box.querySelector("#fhNome");
@@ -3406,12 +3513,12 @@ class FaberHome extends HTMLElement {
       <div class="fh-stanzegrid">${stanze.map(({ p, i }, k) => {
       const gr = this._tempDiPagina(p.id);
       const acc = this._contaAccesiPagina(p.id);
-      return `<div class="fh-stanza${acc ? " viva" : ""}${ord ? " ord" : ""}" data-vai="${i}"
+      return `<div class="fh-stanza${acc ? " viva" : ""}${ord ? " ord" : ""}${mod ? " mod-attiva" : ""}" data-vai="${i}"
         style="--ritardo:${(k % 5) * 140}ms">
         <span class="fh-alone"></span>
         <span class="fh-arte${p.icona_svg ? " fucina" : ""}">${p.icona_svg
           ? p.icona_svg
-          : fhArteStanza(fhTipoStanza(p), 46)}</span>
+          : fhArteStanza(fhTipoStanza(p), 48)}</span>
         <span class="fh-stanzanome">${fhEsc(p.title || p.id)}</span>
         <span class="fh-stanzadati">
           ${gr != null ? `<b>${String(gr.toFixed(1)).replace(".", ",")}\u00b0</b>` : ""}
@@ -3422,7 +3529,7 @@ class FaberHome extends HTMLElement {
           <button type="button" data-giu="${k}" ${k === stanze.length - 1 ? "disabled" : ""}>&rarr;</button>
         </span>` : ""}
         ${mod ? `<span class="fh-frecce">
-          <button type="button" data-scena="${i}" title="Cambia disegno"><ha-icon icon="mdi:palette-outline"></ha-icon></button>
+          <button type="button" data-scena="${i}" title="Cambia disegno animato"><ha-icon icon="mdi:palette-outline"></ha-icon></button>
           <button type="button" data-rinomina="${i}" title="Rinomina"><ha-icon icon="mdi:rename-outline"></ha-icon></button>
           <button type="button" class="via" data-togli="${i}" title="Togli dalle stanze">&times;</button>
         </span>` : ""}
@@ -3432,7 +3539,7 @@ class FaberHome extends HTMLElement {
         <ha-icon icon="mdi:plus"></ha-icon><span class="fh-stanzanome">Nuova stanza</span></button>` : ""}
       </div>
       ${ord ? `<div class="fh-note">Le frecce spostano la stanza nell'elenco. Si salva premendo <b>Fatto</b> o chiudendo il foglio.</div>` : ""}
-      ${mod ? `<div class="fh-note">La tavolozza cambia il disegno, la matita il nome, la <b>&times;</b> toglie la stanza dall'elenco (la pagina resta, non si cancella niente). Si salva premendo <b>Fatto</b> o chiudendo il foglio.</div>` : ""}`;
+      ${mod ? `<div class="fh-note">Tocca una stanza o la tavolozza per <b>cambiare disegno animato</b>, la matita per il nome, la <b>&times;</b> per toglierla dall'elenco. Si salva con <b>Fatto</b> o chiudendo il foglio.</div>` : ""}`;
 
     const salvaSeServe = () => {
       if (this._stanzeMosse) { this._stanzeMosse = false; this._save(true); }
@@ -3483,6 +3590,11 @@ class FaberHome extends HTMLElement {
         const scrim = this.querySelector(".fh-scrim");
         if (scrim) scrim.remove();
         this._vaiPagina(i);
+      }));
+    } else if (mod) {
+      box.querySelectorAll(".fh-stanza:not(.aggiungi)").forEach(b => b.addEventListener("click", e => {
+        if (e.target.closest("button") || e.target.closest(".fh-frecce")) return;
+        this._sceltaDisegno(+b.dataset.vai);
       }));
     }
     // Sposta la stanza scambiandola con quella accanto NELL'ELENCO STANZE:
@@ -4466,14 +4578,17 @@ const FH_CSS = `
      temperatura della stanza e quanto c'e di acceso, e l'icona respira. Il
      movimento e sfalsato fra un riquadro e l'altro, cosi sembra vivo e non una
      fila di cose che pulsano insieme. */
-  .fh-stanzegrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(116px,1fr));gap:11px}
+  .fh-stanzegrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:12px}
   .fh-stanza{position:relative;overflow:hidden;display:flex;flex-direction:column;align-items:center;
-    justify-content:center;gap:7px;padding:20px 9px 16px;border-radius:20px;cursor:pointer;font:inherit;
+    justify-content:center;gap:8px;padding:18px 8px 14px;border-radius:22px;cursor:pointer;font:inherit;
     font-size:12.5px;font-weight:800;color:inherit;
     border:1px solid var(--fh-stroke,rgba(255,255,255,.12));background:rgba(255,255,255,.06);
-    transition:transform .1s ease,background .18s ease,border-color .18s ease}
+    backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+    transition:transform .12s ease,background .18s ease,border-color .18s ease,box-shadow .18s ease}
   .fh-app.chiaro .fh-stanza{background:rgba(15,23,42,.05)}
-  .fh-arte{position:relative;opacity:.92;line-height:0;
+  .fh-stanza.mod-attiva{border-style:dashed;border-color:rgba(255,176,32,.5);background:rgba(255,176,32,.04)}
+  .fh-stanza.mod-attiva:hover{border-color:#ffb020;background:rgba(255,176,32,.12)}
+  .fh-arte{position:relative;opacity:.95;line-height:0;display:flex;align-items:center;justify-content:center;
     animation:fh-respira 4.6s ease-in-out infinite;animation-delay:var(--ritardo,0ms)}
   .fh-stanzetop{display:flex;justify-content:flex-end;margin-bottom:10px}
   .fh-ordbtn{display:flex;align-items:center;gap:6px;padding:7px 12px;border-radius:11px;cursor:pointer;
@@ -4494,14 +4609,15 @@ const FH_CSS = `
     margin-bottom:8px}
   .fh-lab2 small{font-size:10px;font-weight:700;letter-spacing:0;text-transform:none;opacity:.85;
     margin-left:6px}
-  .fh-disegni{display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:9px}
-  .fh-dis{display:flex;flex-direction:column;align-items:center;gap:7px;padding:12px 6px;border-radius:15px;
-    cursor:pointer;font:inherit;font-size:10.5px;font-weight:800;color:inherit;text-align:center;
-    border:1px solid var(--fh-stroke,rgba(255,255,255,.12));background:rgba(255,255,255,.05)}
-  .fh-dis:hover{background:rgba(255,176,32,.14)}
-  .fh-dis.on{border-color:#ffb020;background:rgba(255,176,32,.18);color:#ffb020}
+  .fh-disegni{display:grid;grid-template-columns:repeat(auto-fill,minmax(102px,1fr));gap:10px}
+  .fh-dis{display:flex;flex-direction:column;align-items:center;gap:8px;padding:14px 6px 12px;border-radius:18px;
+    cursor:pointer;font:inherit;font-size:11px;font-weight:800;color:inherit;text-align:center;
+    border:1px solid var(--fh-stroke,rgba(255,255,255,.12));background:rgba(255,255,255,.05);
+    transition:transform .15s ease,background .18s ease,border-color .18s ease,box-shadow .18s ease}
+  .fh-dis:hover{transform:translateY(-2px);background:rgba(255,176,32,.14);border-color:rgba(255,176,32,.4)}
+  .fh-dis.on{border-color:#ffb020;background:rgba(255,176,32,.22);color:#ffb020;box-shadow:0 0 18px rgba(255,176,32,.28)}
   .fh-arte.fucina svg{width:46px;height:46px}
-  .fh-dis .fh-arte.fucina svg{width:40px;height:40px}
+  .fh-dis .fh-arte.fucina svg{width:44px;height:44px}
   .fh-stanza.aggiungi{border-style:dashed;opacity:.75}
   .fh-stanza.aggiungi ha-icon{--mdc-icon-size:28px}
   .fh-stanza.aggiungi:hover{opacity:1}
@@ -4519,7 +4635,7 @@ const FH_CSS = `
     opacity:0;transition:opacity .4s ease;pointer-events:none}
   .fh-stanza.viva .fh-alone{opacity:1;animation:fh-pulsa 3.2s ease-in-out infinite;
     animation-delay:var(--ritardo,0ms)}
-  .fh-stanza.viva .fh-arte{color:#ffb020;opacity:1}
+  .fh-stanza.viva .fh-arte{color:#ffb020;opacity:1;filter:drop-shadow(0 0 10px rgba(255,176,32,.45))}
   @keyframes fh-respira{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-4px) scale(1.06)}}
   @keyframes fh-pulsa{0%,100%{opacity:.55}50%{opacity:1}}
   @media (prefers-reduced-motion: reduce){
