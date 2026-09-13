@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.98.1";
+const FH_VERSION = "0.98.2";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -971,8 +971,11 @@ class FaberHome extends HTMLElement {
       try { history.replaceState(history.state, "", "#" + encodeURIComponent(this._pageId)); } catch (e) { /* niente */ }
     }
     this._renderNav();
-    this._renderPage();
-    this._inCima();
+    // Un fotogramma di scarto: il cerchio parte, POI si costruisce la pagina.
+    requestAnimationFrame(() => {
+      this._renderPage();
+      this._inCima();
+    });
   }
 
   // Ogni pagina riparte dalla sua cima: ritrovarsi a meta di una pagina nuova,
@@ -1213,7 +1216,9 @@ class FaberHome extends HTMLElement {
     const max = barra.offsetLeft + barra.clientWidth - 57;
     x = Math.min(Math.max(x, min), Math.max(min, max));
     if (secco) blob.style.transition = "none";
-    blob.style.transform = `translateX(${Math.round(x)}px)`;
+    // translate3d e non translateX: la terza coordinata, anche a zero, dice
+    // al browser di tenere questo pezzo su un piano separato.
+    blob.style.transform = `translate3d(${Math.round(x)}px,0,0)`;
     this._blobX = blob.style.transform;
     if (secco) { void blob.offsetWidth; blob.style.transition = ""; }
   }
@@ -4279,6 +4284,7 @@ const FH_CSS = `
     background:linear-gradient(150deg,#ffc55c,#ffb020 55%,#e6890a);
     box-shadow:0 8px 22px rgba(255,176,32,.42),0 2px 6px rgba(0,0,0,.3);
     border:2px solid var(--fh-panel,rgba(13,20,32,.9));
+    will-change:transform;backface-visibility:hidden;
     transition:transform .49s cubic-bezier(.27,.98,.59,.98),opacity .2s}
   .fh-blob ha-icon{--mdc-icon-size:27px;color:#1c1400}
   .fh-blob.via{opacity:0}
