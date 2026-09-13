@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.97.3";
+const FH_VERSION = "0.98.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -1170,18 +1170,9 @@ class FaberHome extends HTMLElement {
     const ic = blob.querySelector("[data-blobicon]");
     const pg = this._cfg.pages[this._page] || {};
     const icona = pg.icon || "mdi:circle";
-    if (!ic.getAttribute("icon")) {
-      ic.setAttribute("icon", icona);
-    } else if (ic.getAttribute("icon") !== icona) {
-      // Il disegno cambia a meta corsa: cosi il cerchio sembra portarsi dietro
-      // la pagina, invece di cambiare faccia prima ancora di partire.
-      ic.classList.add("cambia");
-      clearTimeout(this._blobT);
-      this._blobT = setTimeout(() => {
-        ic.setAttribute("icon", icona);
-        ic.classList.remove("cambia");
-      }, 170);
-    }
+    // Il disegno cambia nell'istante in cui il cerchio parte: e gia quello
+    // della pagina nuova mentre e ancora sopra la vecchia.
+    if (ic.getAttribute("icon") !== icona) ic.setAttribute("icon", icona);
     const primo = this._navNuova;
     this._muoviBlob(nav, primo);
     this._navNuova = false;
@@ -4261,25 +4252,23 @@ const FH_CSS = `
   .fh-navitem.nascosta::after{content:"";position:absolute;top:6px;right:8px;width:5px;height:5px;
     border-radius:50%;background:var(--fh-muted,#93a1b0)}
   .fh-navitem{position:relative;flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:3px;
-    padding:7px 4px;border:none;background:none;cursor:pointer;font:inherit;color:var(--fh-muted,#93a1b0);transition:color .2s}
-  .fh-navitem ha-icon{--mdc-icon-size:23px;transition:opacity .22s ease}
+    padding:7px 4px;border:none;background:none;cursor:pointer;font:inherit;color:var(--fh-muted,#93a1b0);transition:color .3s}
+  .fh-navitem ha-icon{--mdc-icon-size:23px;transition:opacity .28s ease}
   .fh-navlabel{font-size:10.5px;font-weight:700;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .fh-navitem:hover{color:var(--fh-ink,#eaf1f8)}
   /* Pagina attiva: il cerchio rialzato si sposta qui — è il modo in cui si
      capisce dove si è senza leggere le etichette. */
   .fh-navitem.active{color:var(--fh-ink,#eaf1f8)}
   /* Il cerchio non appartiene a nessuna voce: e uno solo, e scivola.
-     La curva non e lineare - parte deciso, arriva un filo oltre e rientra,
-     come una cosa che ha un peso. */
+     La curva e misurata, non inventata: meta strada nei primi 90 millesimi,
+     poi si posa. Nessun rimbalzo, nessuno scatto in alto: solo orizzontale. */
   .fh-blob{position:absolute;left:0;top:-15px;width:54px;height:54px;border-radius:50%;
     display:flex;align-items:center;justify-content:center;pointer-events:none;z-index:2;
     background:linear-gradient(150deg,#ffc55c,#ffb020 55%,#e6890a);
     box-shadow:0 8px 22px rgba(255,176,32,.42),0 2px 6px rgba(0,0,0,.3);
     border:2px solid var(--fh-panel,rgba(13,20,32,.9));
-    transition:transform .46s cubic-bezier(.22,1.12,.34,1),opacity .2s}
-  .fh-blob ha-icon{--mdc-icon-size:27px;color:#1c1400;
-    transition:opacity .15s ease,transform .15s ease}
-  .fh-blob ha-icon.cambia{opacity:0;transform:scale(.55)}
+    transition:transform .49s cubic-bezier(.27,.98,.59,.98),opacity .2s}
+  .fh-blob ha-icon{--mdc-icon-size:27px;color:#1c1400}
   .fh-blob.via{opacity:0}
   /* Sotto il cerchio l'icona della voce si toglie di mezzo: sfuma mentre il
      cerchio arriva, e ricompare quando se ne va. */
