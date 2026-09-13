@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.99.1";
+const FH_VERSION = "0.99.2";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -1413,16 +1413,6 @@ class FaberHome extends HTMLElement {
     // se non ci stanno la barra scorre invece di schiacciarle in tacche
     // illeggibili.
     this._adattaBarra(nav);
-    // Se la barra scorre, la voce attiva si porta al centro da sola.
-    const barra = nav.querySelector(".fh-navbar.molte");
-    const attiva = barra && barra.querySelector(`[data-page="${this._page}"]`);
-    if (barra && attiva) {
-      // Lo scorrimento lo decido io: l'ascoltatore qui sotto deve stare zitto,
-      // se no scambia questo per un dito e blocca la scivolata del cerchio.
-      this._scorroIo = true;
-      barra.scrollLeft = Math.max(0, attiva.offsetLeft - (barra.clientWidth - attiva.offsetWidth) / 2);
-      requestAnimationFrame(() => { this._scorroIo = false; });
-    }
     this._segnaAttiva(nav);
   }
 
@@ -1482,6 +1472,8 @@ class FaberHome extends HTMLElement {
     // di andare a spasso sullo sfondo.
     const min = barra.offsetLeft + 3;
     const max = barra.offsetLeft + barra.clientWidth - 57;
+    const dentro = x >= min - 1 && x <= max + 1;
+    blob.classList.toggle("lontano", !dentro);
     x = Math.min(Math.max(x, min), Math.max(min, max));
     if (secco) blob.style.transition = "none";
     // translate3d e non translateX: la terza coordinata, anche a zero, dice
@@ -4562,6 +4554,9 @@ const FH_CSS = `
     transition:transform .49s cubic-bezier(.27,.98,.59,.98),opacity .2s}
   .fh-blob ha-icon{--mdc-icon-size:27px;color:#1c1400}
   .fh-blob.via{opacity:0}
+  /* La voce attiva e fuori dalla finestra: il cerchio resta al bordo, ma
+     sbiadito, per non sembrare appoggiato su una voce che non e la sua. */
+  .fh-blob.lontano{opacity:.32}
   /* Sotto il cerchio l'icona della voce si toglie di mezzo: sfuma mentre il
      cerchio arriva, e ricompare quando se ne va. */
   .fh-navitem.active > ha-icon{opacity:0}
