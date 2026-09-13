@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.98.2";
+const FH_VERSION = "0.99.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -545,6 +545,22 @@ function fhArteStanza(tipo, s) {
   return `<svg ${w}>${scene[tipo] || scene.porta}</svg>`;
 }
 
+// I watt si leggono a colpo d'occhio solo se non sono mai piu di quattro
+// cifre: sotto il chilowatt restano watt interi, sopra diventano kW con la
+// virgola. "1450 W" e "1,45 kW" dicono la stessa cosa, ma il secondo si legge.
+function fhNumW(w) {
+  const v = Number(w) || 0;
+  if (Math.abs(v) < 1000) return Math.round(v) + " W";
+  return (v / 1000).toFixed(v < 10000 ? 2 : 1).replace(".", ",") + " kW";
+}
+
+// Confronto fra nomi scritti da persone diverse: "Camera da letto" e
+// "camera_da_letto" sono la stessa stanza.
+function fhNorm(s) {
+  return String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ").trim();
+}
+
 class FaberHome extends HTMLElement {
   setConfig(config) {
     // Home Assistant consegna la configurazione CONGELATA (Object.freeze in
@@ -869,6 +885,250 @@ class FaberHome extends HTMLElement {
       if (!isNaN(v)) return v;
     }
     return null;
+  }
+
+  // =========================================================================
+  // IL CONSUMO DELLA STANZA
+  // Un numero in cima alla stanza che dice quanto sta tirando adesso, e che
+  // cambia colore quando e troppo: e l'unica informazione che vuoi vedere
+  // senza cercarla. Toccandolo si apre la classifica di chi consuma, perche
+  // "1,4 kW" da solo non serve a niente se non sai chi li sta mangiando.
+  //
+  // I sensori NON si sommano da soli: e la lezione della card dei carichi
+  // reali, dove l'individuazione automatica contava due volte lo stesso
+  // apparecchio (una dalla presa, una dal contatore generale). Qui il pannello
+  // PROPONE, e la proposta si vede scritta; la somma vera la decide Cristian.
+  // =========================================================================
+
+  _consumoCfg(pg) {
+    const g = this._cfg.consumo || {};
+    const c = pg.consumo || {};
+    return {
+      attiva: c.attiva === undefined ? !!pg.stanza : !!c.attiva,
+      // null = nessuna scelta fatta: si mostra la proposta, segnalata come tale
+      entita: Array.isArray(c.entita) ? c.entita : null,
+      attenzione: Number(c.attenzione != null ? c.attenzione : (g.attenzione != null ? g.attenzione : 500)),
+      alto: Number(c.alto != null ? c.alto : (g.alto != null ? g.alto : 1500)),
+      titolo: c.titolo || "",
+    };
+  }
+
+  _nomeEnt(e) {
+    const st = this._hass && this._hass.states[e];
+    return st ? (st.attributes.friendly_name || e) : e;
+  }
+
+  // L'area di Home Assistant che porta il nome della stanza. Serve solo per la
+  // proposta: se non c'e, non succede niente di male.
+  _areaDiPagina(pg) {
+    const aree = (this._hass && this._hass.areas) || {};
+    const t = fhNorm(pg.title);
+    if (!t) return null;
+    let esatta = null, simile = null;
+    Object.keys(aree).forEach(id => {
+      const n = fhNorm(aree[id].name);
+      if (!n) return;
+      if (n === t) esatta = id;
+      else if (!simile && (n.includes(t) || t.includes(n))) simile = id;
+    });
+    return esatta || simile;
+  }
+
+  // La proposta: prima i sensori di potenza che le card della stanza gia
+  // nominano (quelli li ha scelti lui, uno per uno), poi quelli dell'area.
+  _proponiConsumo(pg) {
+    const hass = this._hass;
+    if (!hass) return [];
+    const dallePagine = [...new Set(this._entitaDiPagina(pg.id, ["power"]))]
+      .filter(e => e.startsWith("sensor.") && hass.states[e]);
+    const area = this._areaDiPagina(pg);
+    const reg = hass.entities || {}, dev = hass.devices || {};
+    const dallArea = [];
+    if (area) {
+      Object.keys(hass.states).forEach(e => {
+        if (!e.startsWith("sensor.")) return;
+        if (hass.states[e].attributes.device_class !== "power") return;
+        const r = reg[e];
+        if (!r) return;
+        const a = r.area_id || (dev[r.device_id] || {}).area_id;
+        if (a === area) dallArea.push(e);
+      });
+    }
+    return [...new Set([...dallePagine, ...dallArea])];
+  }
+
+  _consumoDati(pg) {
+    const cfg = this._consumoCfg(pg);
+    const lista = cfg.entita || this._proponiConsumo(pg);
+    const hass = this._hass;
+    const voci = [];
+    let tot = 0;
+    lista.forEach(e => {
+      const st = hass && hass.states[e];
+      const n = st ? parseFloat(st.state) : NaN;
+      // Qualche integrazione dichiara i kW: non si sommano numeri di unita
+      // diverse, si porta tutto a watt.
+      const u = String((st && st.attributes.unit_of_measurement) || "").toLowerCase();
+      const w = isNaN(n) ? null : (u === "kw" ? n * 1000 : n);
+      if (w != null) tot += w;
+      voci.push({ id: e, nome: this._nomeEnt(e), w, viva: !!st && w != null });
+    });
+    voci.sort((a, b) => (b.w || 0) - (a.w || 0));
+    const liv = tot >= cfg.alto ? "alto" : tot >= cfg.attenzione ? "medio" : "basso";
+    return { cfg, voci, tot, liv, proposta: !cfg.entita };
+  }
+
+  _fasciaConsumoEl(pg) {
+    const el = document.createElement("button");
+    el.type = "button";
+    el.className = "fh-consumo";
+    el.dataset.consumo = pg.id;
+    el.addEventListener("click", () => this._apriConsumo(pg));
+    this._disegnaConsumo(el, pg);
+    return el;
+  }
+
+  _disegnaConsumo(el, pg) {
+    const d = this._consumoDati(pg);
+    el.classList.remove("basso", "medio", "alto");
+    el.classList.add(d.liv);
+    // La barra si riempie fino alla soglia rossa: oltre resta piena, non c'e
+    // bisogno di sapere di quanto hai sforato per capire che hai sforato.
+    const q = Math.max(0, Math.min(1, d.tot / Math.max(1, d.cfg.alto)));
+    el.style.setProperty("--fh-q", (q * 100).toFixed(1) + "%");
+    const primo = d.voci.find(v => (v.w || 0) > 0);
+    el.innerHTML = `
+      <span class="fh-cfill"></span>
+      <span class="fh-cico"><ha-icon icon="mdi:flash"></ha-icon></span>
+      <span class="fh-ctxt">
+        <b>${fhEsc(fhNumW(d.tot))}</b>
+        <small>${fhEsc(d.cfg.titolo || ("Consumo " + (pg.title || "stanza")))}${primo
+          ? " &middot; " + fhEsc(primo.nome) : ""}</small>
+      </span>
+      <span class="fh-cgo"><ha-icon icon="mdi:chevron-right"></ha-icon></span>`;
+  }
+
+  _aggiornaConsumo() {
+    const el = this.querySelector("[data-consumo]");
+    if (!el) return;
+    const pg = this._cfg.pages.find(x => x.id === el.dataset.consumo);
+    if (pg) this._disegnaConsumo(el, pg);
+    const foglio = this.querySelector("[data-consumolista]");
+    if (foglio && foglio.__ridisegna) foglio.__ridisegna();
+  }
+
+  // La classifica: chi sta mangiando cosa, adesso.
+  _apriConsumo(pg) {
+    fhVibra(8);
+    const box = document.createElement("div");
+    box.dataset.consumolista = "1";
+    const draw = () => {
+      const d = this._consumoDati(pg);
+      const max = Math.max(1, ...d.voci.map(v => v.w || 0));
+      const dice = d.liv === "alto" ? "consumo alto"
+        : d.liv === "medio" ? "sopra il solito" : "tutto tranquillo";
+      box.innerHTML = `
+        <div class="fh-ctot ${d.liv}">
+          <b>${fhEsc(fhNumW(d.tot))}</b><small>${dice}</small>
+        </div>
+        ${d.proposta ? `<div class="fh-note" style="margin-bottom:10px">Questi sensori li ho <b>proposti io</b>,
+          guardando le card della stanza e la sua area. Controllali: se uno misura il totale di casa,
+          qui dentro verrebbe contato due volte. Con <b>Scegli</b> decidi tu.</div>` : ""}
+        <div class="fh-clist">${d.voci.length ? d.voci.map(v => {
+          const w = v.w || 0;
+          const perc = d.tot > 0 && w > 0 ? Math.round(w / d.tot * 100) : 0;
+          return `<div class="fh-crow${w > 0 ? "" : " spento"}">
+            <span class="fh-cn">${fhEsc(v.nome)}</span>
+            <span class="fh-cb"><i style="width:${(w / max * 100).toFixed(1)}%"></i></span>
+            <span class="fh-cw">${fhEsc(v.viva ? fhNumW(w) : "?")}${perc ? ` <em>${perc}%</em>` : ""}</span>
+          </div>`;
+        }).join("") : `<div class="fh-note">Nessun sensore di potenza per questa stanza.
+          Tocca <b>Scegli</b> e aggiungine uno.</div>`}</div>
+        <button type="button" class="fh-btn" data-scegli style="margin-top:14px;width:100%">
+          <ha-icon icon="mdi:tune"></ha-icon>Scegli e personalizza</button>`;
+      box.querySelector("[data-scegli]").addEventListener("click", () => this._modificaConsumo(pg));
+    };
+    box.__ridisegna = draw;
+    draw();
+    this._sheet("Chi consuma in " + (pg.title || "questa stanza"), box, false);
+  }
+
+  // Tutto quello che si puo cambiare: quali sensori, da che soglia cambia
+  // colore, come si chiama, e se la fascia si vede o no.
+  _modificaConsumo(pg) {
+    const c = this._consumoCfg(pg);
+    const stato = {
+      attiva: c.attiva,
+      entita: (c.entita || this._proponiConsumo(pg)).slice(),
+      attenzione: c.attenzione,
+      alto: c.alto,
+      titolo: c.titolo,
+    };
+    const box = document.createElement("div");
+    const draw = () => {
+      box.innerHTML = `
+        <label class="fh-check"><input type="checkbox" data-attiva${stato.attiva ? " checked" : ""}>
+          Mostra la fascia in cima a questa pagina</label>
+
+        <div class="fh-lab2" style="margin-top:16px">Sensori contati <small>la somma e questa</small></div>
+        <div class="fh-tags">${stato.entita.length ? stato.entita.map((e, i) =>
+          `<span class="fh-tag">${fhEsc(this._nomeEnt(e))}<button type="button" data-via="${i}">&times;</button></span>`
+        ).join("") : `<div class="fh-note">Nessuno: la fascia segnerebbe sempre zero.</div>`}</div>
+
+        ${this._entityListHTML("fhCsEnt", "", "sensor.", "Aggiungi un sensore di potenza", "power")}
+        <div class="fh-srow" style="margin-top:8px">
+          <button type="button" class="fh-btn" data-agg><ha-icon icon="mdi:plus"></ha-icon>Aggiungi</button>
+          <button type="button" class="fh-btn" data-prop><ha-icon icon="mdi:auto-fix"></ha-icon>Proponi tu</button>
+        </div>
+
+        <div class="fh-lab2" style="margin-top:18px">Quando cambia colore</div>
+        <div class="fh-sfield"><label class="fh-slab">Ambra sopra (W)</label>
+          <input class="fh-input" type="number" min="0" step="10" data-s1 value="${stato.attenzione}"></div>
+        <div class="fh-sfield" style="margin-top:8px"><label class="fh-slab">Rosso sopra (W)</label>
+          <input class="fh-input" type="number" min="0" step="10" data-s2 value="${stato.alto}"></div>
+        <div class="fh-sfield" style="margin-top:8px"><label class="fh-slab">Titolo <small>(vuoto: lo scrivo io)</small></label>
+          <input class="fh-input" data-tit value="${fhEsc(stato.titolo || "")}" placeholder="Consumo ${fhEsc(pg.title || "stanza")}"></div>
+
+        <button type="button" class="fh-btn primary" data-salva style="margin-top:16px;width:100%">Salva</button>`;
+      this._wireEntityLists(box);
+
+      box.querySelectorAll("[data-via]").forEach(b => b.addEventListener("click", () => {
+        stato.entita.splice(+b.dataset.via, 1);
+        draw();
+      }));
+      const aggiungi = () => {
+        const inp = box.querySelector("#fhCsEnt");
+        const v = (inp.value || "").trim();
+        if (!v || !v.includes(".")) return;
+        if (!stato.entita.includes(v)) stato.entita.push(v);
+        inp.value = "";
+        draw();
+      };
+      box.querySelector("[data-agg]").addEventListener("click", aggiungi);
+      box.querySelector("#fhCsEnt").addEventListener("change", aggiungi);
+      box.querySelector("[data-prop]").addEventListener("click", () => {
+        this._proponiConsumo(pg).forEach(e => { if (!stato.entita.includes(e)) stato.entita.push(e); });
+        draw();
+      });
+      box.querySelector("[data-attiva]").addEventListener("change", e => { stato.attiva = e.target.checked; });
+      box.querySelector("[data-s1]").addEventListener("change", e => { stato.attenzione = Math.max(0, +e.target.value || 0); });
+      box.querySelector("[data-s2]").addEventListener("change", e => { stato.alto = Math.max(1, +e.target.value || 1); });
+      box.querySelector("[data-tit]").addEventListener("change", e => { stato.titolo = e.target.value.trim(); });
+      box.querySelector("[data-salva]").addEventListener("click", async () => {
+        // La soglia rossa sotto quella ambra non vuol dire niente: si
+        // rimettono in ordine invece di salvare una cosa che non funziona.
+        const s1 = Math.min(stato.attenzione, stato.alto);
+        const s2 = Math.max(stato.attenzione, stato.alto);
+        pg.consumo = { attiva: stato.attiva, entita: stato.entita.slice(),
+          attenzione: s1, alto: s2, titolo: stato.titolo };
+        const scrim = this.querySelector(".fh-scrim");
+        if (scrim) scrim.remove();
+        await this._save(true);
+        this._renderPage();
+      });
+    };
+    draw();
+    this._sheet("Consumo di " + (pg.title || "questa pagina"), box, false);
   }
 
   _chipsHTML() { return this._chipsDati().map(d => this._chipHTML(d)).join(""); }
@@ -1343,6 +1603,11 @@ class FaberHome extends HTMLElement {
     main.classList.toggle("editing", !!this._edit);
 
     if (this._edit) main.appendChild(this._editBarEl());
+
+    // La fascia del consumo sta SOPRA le card, non fra le card: e la prima
+    // cosa che si vede entrando nella stanza, e non deve dipendere da come
+    // Cristian ha disposto il resto.
+    if (page && this._consumoCfg(page).attiva) main.appendChild(this._fasciaConsumoEl(page));
 
     if (!page || !page.rows || !page.rows.length) {
       const empty = document.createElement("div");
@@ -3590,6 +3855,7 @@ class FaberHome extends HTMLElement {
       if (app) app.style.background = this._pageBackground();
     }
     this._updateChips();
+    this._aggiornaConsumo();
   }
 
   _wireChips() {
@@ -4321,6 +4587,69 @@ const FH_CSS = `
     background:linear-gradient(135deg,rgba(255,176,32,.42),rgba(255,176,32,.22));
     color:var(--fh-ink,#eaf1f8)}
   .fh-sheet .fh-btn.primary{color:var(--primary-text-color)}
+  /* LA FASCIA DEL CONSUMO.
+     Non e una card: e una riga sola, alta quanto basta, che cambia colore da
+     sola. Il riempimento dietro cresce col consumo, cosi il colpo d'occhio
+     arriva prima ancora di leggere il numero. */
+  .fh-consumo{position:relative;overflow:hidden;display:flex;align-items:center;gap:12px;width:100%;
+    margin:0 0 12px;padding:12px 14px;border-radius:18px;cursor:pointer;font:inherit;text-align:left;
+    color:var(--fh-ink,#eaf1f8);border:1px solid var(--fh-stroke,rgba(255,255,255,.1));
+    background:var(--fh-panel,rgba(30,38,48,.72));
+    backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+    transition:border-color .45s ease,box-shadow .45s ease}
+  .fh-consumo .fh-cfill{position:absolute;inset:0 auto 0 0;width:var(--fh-q,0%);pointer-events:none;
+    transition:width .6s cubic-bezier(.27,.98,.59,.98),background .45s ease}
+  .fh-consumo .fh-cico{position:relative;display:flex;align-items:center;justify-content:center;
+    width:38px;height:38px;flex:0 0 auto;border-radius:12px;
+    background:rgba(255,255,255,.07);transition:background .45s ease,color .45s ease}
+  .fh-consumo .fh-cico ha-icon{--mdc-icon-size:21px}
+  .fh-consumo .fh-ctxt{position:relative;display:flex;flex-direction:column;gap:1px;min-width:0;flex:1}
+  .fh-consumo .fh-ctxt b{font-size:clamp(18px,4.6vw,23px);font-weight:900;letter-spacing:-.01em;line-height:1.1}
+  .fh-consumo .fh-ctxt small{font-size:11px;font-weight:600;color:var(--fh-muted,#93a1b0);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .fh-consumo .fh-cgo{position:relative;opacity:.5}
+  .fh-consumo .fh-cgo ha-icon{--mdc-icon-size:20px}
+  .fh-consumo.basso .fh-cfill{background:linear-gradient(90deg,rgba(52,211,153,.20),rgba(52,211,153,.05))}
+  .fh-consumo.basso .fh-cico{background:rgba(52,211,153,.18);color:#34d399}
+  .fh-consumo.medio{border-color:rgba(255,176,32,.5)}
+  .fh-consumo.medio .fh-cfill{background:linear-gradient(90deg,rgba(255,176,32,.30),rgba(255,176,32,.08))}
+  .fh-consumo.medio .fh-cico{background:rgba(255,176,32,.22);color:#ffb020}
+  /* Sopra la soglia alta il bordo si accende e respira: un colore fermo lo si
+     smette di vedere dopo due minuti, uno che pulsa no. */
+  .fh-consumo.alto{border-color:rgba(255,84,66,.65);box-shadow:0 0 0 1px rgba(255,84,66,.18),0 10px 26px rgba(255,84,66,.16);
+    animation:fhConsumoAllarme 2.6s ease-in-out infinite}
+  .fh-consumo.alto .fh-cfill{background:linear-gradient(90deg,rgba(255,84,66,.34),rgba(255,84,66,.10))}
+  .fh-consumo.alto .fh-cico{background:rgba(255,84,66,.24);color:#ff7a6b}
+  @keyframes fhConsumoAllarme{
+    0%,100%{box-shadow:0 0 0 1px rgba(255,84,66,.18),0 10px 26px rgba(255,84,66,.14)}
+    50%{box-shadow:0 0 0 1px rgba(255,84,66,.40),0 12px 32px rgba(255,84,66,.28)}}
+  @media (prefers-reduced-motion: reduce){ .fh-consumo.alto{animation:none} }
+
+  /* La classifica dentro al foglio */
+  .fh-ctot{display:flex;flex-direction:column;gap:2px;padding:14px 16px;border-radius:16px;margin-bottom:12px;
+    background:rgba(127,127,127,.08);border:1px solid var(--divider-color,rgba(127,127,127,.2))}
+  .fh-ctot b{font-size:30px;font-weight:900;letter-spacing:-.02em;line-height:1}
+  .fh-ctot small{font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;opacity:.7}
+  .fh-ctot.medio{border-color:rgba(255,176,32,.5);background:rgba(255,176,32,.10)}
+  .fh-ctot.medio b{color:#d98b00}
+  .fh-ctot.alto{border-color:rgba(255,84,66,.55);background:rgba(255,84,66,.10)}
+  .fh-ctot.alto b{color:#e03e2d}
+  .fh-clist{display:flex;flex-direction:column;gap:7px}
+  .fh-crow{display:grid;grid-template-columns:minmax(0,1fr) 84px auto;align-items:center;gap:10px;
+    font-size:12.5px;font-weight:700;color:var(--primary-text-color)}
+  .fh-crow.spento{opacity:.42}
+  .fh-cn{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .fh-cb{height:7px;border-radius:99px;background:rgba(127,127,127,.18);overflow:hidden}
+  .fh-cb i{display:block;height:100%;border-radius:99px;
+    background:linear-gradient(90deg,#ffc55c,#ffb020);transition:width .5s ease}
+  .fh-cw{font-variant-numeric:tabular-nums;white-space:nowrap;font-weight:800}
+  .fh-cw em{font-style:normal;font-weight:700;opacity:.55;font-size:11px}
+  .fh-tags{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+  .fh-tag{display:inline-flex;align-items:center;gap:6px;padding:6px 8px 6px 11px;border-radius:999px;
+    font-size:11.5px;font-weight:700;color:var(--primary-text-color);
+    background:rgba(127,127,127,.10);border:1px solid var(--divider-color,rgba(127,127,127,.2))}
+  .fh-tag button{width:18px;height:18px;border-radius:50%;border:none;cursor:pointer;font:inherit;font-size:13px;
+    line-height:1;background:rgba(127,127,127,.20);color:inherit}
   .fh-rowwrap{display:flex;flex-direction:column;gap:8px}
   .fh-tools{display:flex;align-items:center;gap:4px;flex-wrap:wrap;padding:5px 8px;border-radius:12px;
     background:rgba(255,176,32,.10);border:1px dashed rgba(255,176,32,.35)}
