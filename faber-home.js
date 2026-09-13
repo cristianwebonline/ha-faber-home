@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.99.0";
+const FH_VERSION = "0.99.1";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -1371,7 +1371,15 @@ class FaberHome extends HTMLElement {
         b.className = "fh-navitem";
         b.innerHTML = `<ha-icon icon="mdi:floor-plan"></ha-icon><span class="fh-navlabel">Stanze</span>`;
         b.addEventListener("click", () => this._apriStanze());
-        barra0.appendChild(b);
+        // Stanze va SUBITO DOPO le voci fisse, non in fondo. In fondo ci
+        // finiva dietro alle voci della stanza (Telecomando, Clima) e su un
+        // telefono usciva dal bordo: per cambiare stanza bisognava prima
+        // trascinare la barra. E il tasto con cui si gira la casa: deve
+        // stare sempre dove lo trovi senza cercarlo.
+        const fisse = voci.filter(v => !v.pg.nascosta).length;
+        const dopo = barra0.children[fisse];
+        if (dopo) barra0.insertBefore(b, dopo);
+        else barra0.appendChild(b);
       }
       nav.querySelectorAll("[data-page]").forEach(b => b.addEventListener("click", () => {
         const i = parseInt(b.dataset.page, 10);
