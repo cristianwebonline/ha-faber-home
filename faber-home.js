@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.99.8";
+const FH_VERSION = "0.99.9";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -477,7 +477,7 @@ const FH_ARTE_CSS = `
   .fh-vapore2{animation:fhVapore2 3.1s ease-out infinite}
   .fh-goccia{animation:fhGocciaM 1.8s ease-in infinite}
   .fh-ripple{animation:fhRipple 1.8s ease-out infinite}
-  .fh-cestello{animation:fhGiraLento 4.5s linear infinite}
+  .fh-cestello{transform-box:fill-box;transform-origin:center;animation:fhGiraLento 4.5s linear infinite}
   .fh-bolla{animation:fhBolla 2.4s ease-out infinite}
   .fh-foglia1{animation:fhBrezza1 3.4s ease-in-out infinite}
   .fh-foglia2{animation:fhBrezza2 3.8s ease-in-out infinite}
@@ -611,14 +611,16 @@ function fhArteStanza(tipo, s) {
       <path d="M14 13h8"/><circle cx="31" cy="13" r="1.8" fill="currentColor" stroke="none"/>
       <circle cx="24" cy="27" r="9.5" stroke-width="2"/>
       <circle cx="24" cy="27" r="8" stroke-width="0.8" opacity=".35"/>
-      <g class="fh-cestello an" style="transform-origin:24px 27px">
-        <circle cx="24" cy="27" r="7.2" stroke-width="1.2" opacity=".6" fill="currentColor" fill-opacity=".08"/>
-        <circle cx="24" cy="27" r="5.2" fill="none" stroke="currentColor" stroke-dasharray="1.2 2" stroke-width="1" opacity=".55"/>
-        <circle cx="24" cy="27" r="3.4" fill="none" stroke="currentColor" stroke-dasharray="1 1.8" stroke-width="0.8" opacity=".45"/>
-        <rect x="23.2" y="20.6" width="1.6" height="3.8" rx="0.7" fill="currentColor" stroke="none"/>
-        <rect x="23.2" y="20.6" width="1.6" height="3.8" rx="0.7" fill="currentColor" stroke="none" transform="rotate(120 24 27)"/>
-        <rect x="23.2" y="20.6" width="1.6" height="3.8" rx="0.7" fill="currentColor" stroke="none" transform="rotate(240 24 27)"/>
-        <circle cx="24" cy="27" r="1.5" fill="currentColor" stroke="none"/>
+      <g transform="translate(24 27)">
+        <g class="fh-cestello an" style="transform-box:fill-box;transform-origin:center">
+          <circle cx="0" cy="0" r="7.2" stroke-width="1.2" opacity=".6" fill="currentColor" fill-opacity=".08"/>
+          <circle cx="0" cy="0" r="5.2" fill="none" stroke="currentColor" stroke-dasharray="1.2 2" stroke-width="1" opacity=".55"/>
+          <circle cx="0" cy="0" r="3.4" fill="none" stroke="currentColor" stroke-dasharray="1 1.8" stroke-width="0.8" opacity=".45"/>
+          <rect x="-0.8" y="-6.4" width="1.6" height="3.8" rx="0.7" fill="currentColor" stroke="none"/>
+          <rect x="-0.8" y="-6.4" width="1.6" height="3.8" rx="0.7" fill="currentColor" stroke="none" transform="rotate(120)"/>
+          <rect x="-0.8" y="-6.4" width="1.6" height="3.8" rx="0.7" fill="currentColor" stroke="none" transform="rotate(240)"/>
+          <circle cx="0" cy="0" r="1.5" fill="currentColor" stroke="none"/>
+        </g>
       </g>
       <circle class="fh-bolla" style="animation-delay:0s" cx="33" cy="21" r="1.8" stroke-width="1.3" fill="currentColor" opacity=".25"/>
       <circle class="fh-bolla" style="animation-delay:1.2s" cx="29" cy="22" r="1.2" stroke-width="1.2" fill="currentColor" opacity=".25"/>`,
