@@ -1291,18 +1291,33 @@ class FaberHome extends HTMLElement {
       };
       const kws = kwMap[pid] || [pid];
 
+      const isTemp = (k, st) => {
+        if (!st || ["unavailable", "unknown"].includes(st.state)) return false;
+        const attr = st.attributes || {};
+        const dc = attr.device_class || "";
+        const u = attr.unit_of_measurement || "";
+        if (dc === "battery" || k.includes("battery") || k.includes("batteria")) return false;
+        if (k.includes("humidity") || k.includes("umidita")) return false;
+        return dc === "temperature" || ["°C", "°F", "C°"].includes(u);
+      };
+
+      const isHum = (k, st) => {
+        if (!st || ["unavailable", "unknown"].includes(st.state)) return false;
+        const attr = st.attributes || {};
+        const dc = attr.device_class || "";
+        const u = attr.unit_of_measurement || "";
+        if (dc === "battery" || k.includes("battery") || k.includes("batteria")) return false;
+        if (dc === "humidity") return true;
+        return u === "%" && (k.includes("humidity") || k.includes("umidita"));
+      };
+
       // 1. Preferenza ai sensori dedicati clima di casa (sensor.temperatura_<kw>_*)
       for (const kw of kws) {
         for (const k of Object.keys(states)) {
           if (!k.startsWith("sensor.temperatura_" + kw)) continue;
           const st = states[k];
-          const dc = st && st.attributes ? st.attributes.device_class : "";
-          if (!tempEnt && (dc === "temperature" || k.includes("temperatura") || k.includes("temperature"))) {
-            tempEnt = k;
-          }
-          if (!humEnt && (dc === "humidity" || k.includes("umidita") || k.includes("humidity"))) {
-            humEnt = k;
-          }
+          if (!tempEnt && isTemp(k, st)) tempEnt = k;
+          if (!humEnt && isHum(k, st)) humEnt = k;
         }
       }
 
@@ -1324,9 +1339,12 @@ class FaberHome extends HTMLElement {
         const areaId = targetArea ? targetArea.area_id : (pg.area_id || (pid === "sala" ? "soggiorno" : (pid === "bagno_p1" ? "bagno" : pid)));
         if (!tempEnt) {
           const s = this._sensoreArea(areaId, "temperature");
-          if (s && !s.includes("echo_dot") && !s.includes("broadlink")) tempEnt = s;
+          if (s && isTemp(s, states[s]) && !s.includes("echo_dot") && !s.includes("broadlink")) tempEnt = s;
         }
-        if (!humEnt) humEnt = this._sensoreArea(areaId, "humidity");
+        if (!humEnt) {
+          const s = this._sensoreArea(areaId, "humidity");
+          if (s && isHum(s, states[s])) humEnt = s;
+        }
       }
 
       // 3. Fallback per parole chiave
@@ -1334,7 +1352,7 @@ class FaberHome extends HTMLElement {
         for (const kw of kws) {
           const found = Object.keys(states).find(k =>
             k.startsWith("sensor.") &&
-            states[k].attributes && states[k].attributes.device_class === "temperature" &&
+            isTemp(k, states[k]) &&
             k.toLowerCase().includes(kw) &&
             !k.includes("echo_dot") && !k.includes("broadlink") &&
             (pid === "bagno_p1" || !k.includes("bagno_p1"))
@@ -1347,7 +1365,7 @@ class FaberHome extends HTMLElement {
         for (const kw of kws) {
           const found = Object.keys(states).find(k =>
             k.startsWith("sensor.") &&
-            states[k].attributes && states[k].attributes.device_class === "humidity" &&
+            isHum(k, states[k]) &&
             k.toLowerCase().includes(kw) &&
             (pid === "bagno_p1" || !k.includes("bagno_p1"))
           );
