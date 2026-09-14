@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.99.7";
+const FH_VERSION = "0.99.8";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -181,8 +181,11 @@ class FhSky {
   }
   setScene(mode, dark, forza) {
     const f = forza == null ? this.forza : Math.max(0, Math.min(1, forza));
-    const changed = mode !== this.mode || dark !== this.dark || f !== this.forza;
-    this.mode = mode || "stars";
+    let m = mode;
+    if (!dark && (m === "stars" || !m)) m = "motes";
+    if (dark && m === "motes") m = "stars";
+    const changed = m !== this.mode || dark !== this.dark || f !== this.forza;
+    this.mode = m || (dark ? "stars" : "motes");
     this.dark = !!dark;
     this.forza = f == null ? .7 : f;
     if (changed) this.seed();
@@ -241,8 +244,12 @@ class FhSky {
       for (let i = 0, n = this._count(38000); i < n; i++)
         p.push({ x: R() * this.w, y: R() * this.h * .8, r: 60 + R() * 130, vx: (.06 + R() * .12) * (this.mode === "fog" ? .4 : 1), a: .05 + R() * .07 });
     } else if (this.mode === "motes") {
-      for (let i = 0, n = this._count(7000); i < n; i++)
-        p.push({ x: R() * this.w, y: R() * this.h, r: .8 + R() * 1.6, vy: -(.08 + R() * .14), vx: (R() - .5) * .08, a: .15 + R() * .35 });
+      // Di giorno con il sole: particelle di luce/bokeh sfocate ed eleganti (12-24),
+      // non centinaia di minuscoli puntini che sembrano stelle.
+      const f = this.forza == null ? .7 : this.forza;
+      const n = Math.max(10, Math.min(26, Math.round(18 * f)));
+      for (let i = 0; i < n; i++)
+        p.push({ x: R() * this.w, y: R() * this.h, r: 12 + R() * 24, vy: -(.12 + R() * .20), vx: (R() - .5) * .08, ph: R() * 6.28, sp: .35 + R() * .85, a: .07 + R() * .14 });
     } else {
       // Un cielo vero non ha stelle tutte uguali: tante piccole e fioche, e
       // qualcuna grossa e luminosa che si nota. Una su dodici e "brillante" e
@@ -306,9 +313,10 @@ class FhSky {
         d.x += d.vx;
         if (d.x - d.r > this.w) d.x = -d.r;
       } else if (m === "motes") {
-        d.y += d.vy * an; d.x += d.vx * an;
-        if (d.y < -4) { d.y = this.h + 4; d.x = Math.random() * this.w; }
-        if (d.x < 0) d.x += this.w; else if (d.x > this.w) d.x -= this.w;
+        d.y += d.vy * an; d.x += (d.vx + Math.sin(t * d.sp + d.ph) * 0.12) * an;
+        if (d.y < -d.r * 2) { d.y = this.h + d.r * 2; d.x = Math.random() * this.w; }
+        if (d.x < -d.r * 2) d.x += this.w + d.r * 4;
+        else if (d.x > this.w + d.r * 2) d.x -= (this.w + d.r * 4);
       }
     }
     // Il lampo è raro e breve: se comparisse spesso diventerebbe fastidioso su
@@ -353,26 +361,61 @@ class FhSky {
         g.beginPath(); g.arc(d.x, d.y, d.r, 0, 6.283); g.fill();
       }
     } else if (m === "motes") {
-      const c = light ? "255,190,90" : "255,205,120";
+      const f = this.forza == null ? .7 : this.forza;
+      // 1. Bagliore solare radiante in alto a destra
+      const sx = this.w * 0.84;
+      const sy = -this.h * 0.04;
+      const sunR = Math.max(this.w, this.h) * 0.68;
+      const sunGrd = g.createRadialGradient(sx, sy, 0, sx, sy, sunR);
+      const sunCol = light ? "255,195,85" : "255,210,120";
+      sunGrd.addColorStop(0, `rgba(${sunCol},${0.24 * f})`);
+      sunGrd.addColorStop(0.35, `rgba(${sunCol},${0.09 * f})`);
+      sunGrd.addColorStop(0.70, `rgba(${sunCol},${0.025 * f})`);
+      sunGrd.addColorStop(1, `rgba(${sunCol},0)`);
+      g.fillStyle = sunGrd;
+      g.fillRect(0, 0, this.w, this.h);
+
+      // 2. Raggi morbidi del sole che ruotano molto lentamente
+      const rayAngle = (t * 0.028) % (Math.PI * 2);
+      g.save();
+      g.translate(sx, sy);
+      g.rotate(rayAngle);
+      for (let i = 0; i < 6; i++) {
+        g.rotate(Math.PI / 3);
+        const rayGrd = g.createRadialGradient(0, 0, 0, 0, 0, sunR * 0.88);
+        rayGrd.addColorStop(0, `rgba(255,235,160,${0.05 * f})`);
+        rayGrd.addColorStop(0.5, `rgba(255,210,110,${0.02 * f})`);
+        rayGrd.addColorStop(1, `rgba(255,190,80,0)`);
+        g.fillStyle = rayGrd;
+        g.beginPath();
+        g.moveTo(0, 0);
+        g.arc(0, 0, sunR * 0.88, -0.22, 0.22);
+        g.closePath();
+        g.fill();
+      }
+      g.restore();
+
+      // 3. Bokeh caldo sfocato (pulviscolo cinematico nella luce del sole)
       for (const d of this.parts) {
-        g.fillStyle = `rgba(${c},${d.a})`;
-        g.beginPath(); g.arc(d.x, d.y, d.r, 0, 6.283); g.fill();
+        const pulse = 0.8 + 0.2 * Math.sin(t * d.sp + d.ph);
+        const alpha = Math.min(1, d.a * pulse * f);
+        const bGrd = g.createRadialGradient(d.x, d.y, 0, d.x, d.y, d.r);
+        bGrd.addColorStop(0, `rgba(${sunCol},${alpha})`);
+        bGrd.addColorStop(0.5, `rgba(${sunCol},${alpha * 0.4})`);
+        bGrd.addColorStop(1, `rgba(${sunCol},0)`);
+        g.fillStyle = bGrd;
+        g.beginPath();
+        g.arc(d.x, d.y, d.r, 0, 6.283);
+        g.fill();
       }
     } else {
-      const c = light ? "90,120,165" : "255,255,255";
+      // Se NON e buio (dark e falso), non si disegnano MAI stelle di giorno
+      if (!this.dark) return;
+      const c = "255,255,255";
       for (const d of this.parts) {
-        // Da .55-1 a .18-1: prima una stella debole passava da 0,12 a 0,22 di
-        // trasparenza, cioe un decimo di scarto su un puntino di un pixel —
-        // si muoveva per il computer, non per l'occhio. E' lo stesso errore
-        // fatto con le animazioni delle icone: un movimento c'era, ma sotto
-        // la soglia in cui qualcuno lo nota.
-        // A forza piena scintilla da .18 a 1; abbassandola il fondo si alza e
-        // l'oscillazione si stringe, fino a restare quasi ferma.
         const f = this.forza == null ? .7 : this.forza;
         const min = 1 - .82 * f;
         const tw = min + (1 - min) * (.5 + .5 * Math.sin(t * d.sp + d.ph));
-        // L'alone si disegna prima, sotto la stella, e RESPIRA insieme a lei:
-        // e l'alone che fa "luce", il puntino da solo fa "granello".
         if (d.big) {
           const rr = d.r * (5.5 + 2.5 * tw);
           const grd = g.createRadialGradient(d.x, d.y, 0, d.x, d.y, rr);
@@ -674,7 +717,7 @@ class FaberHome extends HTMLElement {
         pageBackground: Object.assign({}, FH_DEFAULTS.appearance.pageBackground, ap.pageBackground || {}),
         weatherAnimation: ap.weatherAnimation !== false,
         cardStyle: ap.cardStyle === "vetro" ? "vetro" : "piene",
-        cardTrasparenza: Math.max(10, Math.min(90,
+        cardTrasparenza: Math.max(10, Math.min(95,
           ap.cardTrasparenza == null ? 40 : parseInt(ap.cardTrasparenza, 10) || 40)),
         cardBlur: Math.max(0, Math.min(30,
           ap.cardBlur == null ? 16 : parseInt(ap.cardBlur, 10) || 16)),
@@ -793,8 +836,12 @@ class FaberHome extends HTMLElement {
     if (!this._cfg.appearance.weatherAnimation) return null;
     const w = this._cfg.header.weather;
     const st = w && this._hass ? this._hass.states[w] : null;
-    if (!st) return this._isDark() ? "stars" : "motes";
-    return FH_SKY_MODES[st.state] || (this._isDark() ? "stars" : "motes");
+    const dark = this._isDark();
+    if (!st) return dark ? "stars" : "motes";
+    const mode = FH_SKY_MODES[st.state] || (dark ? "stars" : "motes");
+    if (!dark && mode === "stars") return "motes";
+    if (dark && mode === "motes") return "stars";
+    return mode;
   }
 
   // Sfondo dietro le card: nessuno, tinta unita o sfumatura. Il guscio
@@ -1822,21 +1869,21 @@ class FaberHome extends HTMLElement {
     if (!app) return;
     const ap = (this._cfg && this._cfg.appearance) || {};
     const isVetro = ap.cardStyle === "vetro";
-    const trasp = Math.max(10, Math.min(90, ap.cardTrasparenza == null ? 40 : parseInt(ap.cardTrasparenza, 10) || 40));
+    const trasp = Math.max(10, Math.min(95, ap.cardTrasparenza == null ? 40 : parseInt(ap.cardTrasparenza, 10) || 40));
     const blurPx = Math.max(0, Math.min(30, ap.cardBlur == null ? 16 : parseInt(ap.cardBlur, 10) || 16));
     const isDark = this._isDark();
 
     if (isVetro) {
       const opacity = 1 - (trasp / 100);
-      const alphaDark = Math.max(0.08, Math.min(0.85, 0.10 + opacity * 0.70));
-      const alphaLight = Math.max(0.12, Math.min(0.90, 0.18 + opacity * 0.70));
+      const alphaDark = Math.max(0.04, Math.min(0.85, 0.04 + opacity * 0.76));
+      const alphaLight = Math.max(0.05, Math.min(0.90, 0.06 + opacity * 0.78));
 
       const cardBg = isDark
         ? `rgba(16, 23, 36, ${alphaDark.toFixed(2)})`
         : `rgba(255, 255, 255, ${alphaLight.toFixed(2)})`;
       const border = isDark
-        ? `rgba(255, 255, 255, ${(0.04 + opacity * 0.08).toFixed(2)})`
-        : `rgba(15, 23, 42, ${(0.05 + opacity * 0.08).toFixed(2)})`;
+        ? `rgba(255, 255, 255, ${(0.03 + opacity * 0.08).toFixed(2)})`
+        : `rgba(15, 23, 42, ${(0.04 + opacity * 0.08).toFixed(2)})`;
 
       app.style.setProperty("--fh-card-bg", cardBg);
       app.style.setProperty("--fh-card-blur", `${blurPx}px`);
@@ -4150,7 +4197,7 @@ class FaberHome extends HTMLElement {
         <div class="fh-srow" style="margin-top:8px">
           <div class="fh-sfield" style="flex:1">
             <label class="fh-slab">Trasparenza card</label>
-            <input class="fh-range" id="stCardTrasp" type="range" min="10" max="90" step="5"
+            <input class="fh-range" id="stCardTrasp" type="range" min="10" max="95" step="5"
               value="${parseInt(ap.cardTrasparenza == null ? 40 : ap.cardTrasparenza, 10)}">
           </div>
           <div class="fh-sfield" style="flex:0 0 62px">
@@ -4643,78 +4690,67 @@ const FH_CSS = `
      ereditava il vetro chiaro e finiva quasi bianco su quasi bianco. Fermando
      la tinta a .fh-main, il foglio la scavalca del tutto e resta con il tema
      vero sotto, com'era pensato fin dall'inizio. */
+  .fh-app.vetro{
+    --ha-card-background:var(--fh-card-bg)!important;
+    --card-background-color:var(--fh-card-bg)!important;
+    --ha-card-border-color:var(--fh-card-border)!important;
+  }
   .fh-app.vetro .fh-main{
-    --ha-card-background:var(--fh-card-bg, rgba(255,255,255,.10));
-    --card-background-color:var(--fh-card-bg, rgba(255,255,255,.10));
-    --ha-card-border-color:var(--fh-card-border, rgba(255,255,255,.16));
-    --ha-card-box-shadow:0 8px 26px rgba(0,0,0,.34);
+    --ha-card-background:var(--fh-card-bg)!important;
+    --card-background-color:var(--fh-card-bg)!important;
+    --ha-card-border-color:var(--fh-card-border)!important;
+    --ha-card-box-shadow:0 8px 26px rgba(0,0,0,.25);
   }
-  .fh-app.vetro .fh-slot ha-card{
-    backdrop-filter:blur(var(--fh-card-blur, 18px)) saturate(1.25);
-    -webkit-backdrop-filter:blur(var(--fh-card-blur, 18px)) saturate(1.25);
+  .fh-app.vetro ha-card,
+  .fh-app.vetro .fh-slot ha-card,
+  .fh-app.vetro .fh-cardwrap ha-card{
+    background:var(--fh-card-bg)!important;
+    background-color:var(--fh-card-bg)!important;
+    backdrop-filter:blur(var(--fh-card-blur, 16px)) saturate(1.25)!important;
+    -webkit-backdrop-filter:blur(var(--fh-card-blur, 16px)) saturate(1.25)!important;
+    border-color:var(--fh-card-border)!important;
   }
-  /* LE CARD DI CASA NOSTRA hanno il colore di fondo scritto dentro di se
-     (--mc-panel, --eca-panel, --csc-panel...), quindi la variabile di Home
-     Assistant qui sopra non le tocca nemmeno: restavano piene mentre le
-     altre diventavano di vetro. E siccome sono proprio quelle che riempiono
-     la pagina, il cielo non si vedeva da nessuna parte — ecco perche le
-     stelle "mancavano" anche dopo averle infittite: c'erano, ma sotto a dei
-     pannelli opachi. Qui si riscrive la LORO variabile, non il loro sfondo:
-     cosi tutto quello che ci e costruito sopra (velature, bordi, sfumature)
-     resta coerente invece di essere schiacciato da un colore piatto. */
-  /* Senza passare da .fh-slot: quel pezzo in mezzo legava la regola alla
-     forma esatta dell'impalcatura, e se la card sta annidata anche solo un
-     gradino piu in la la regola non la trova. Qui basta stare dentro il
-     pannello. L'important non e pigrizia: sto deliberatamente scavalcando lo
-     stile interno di un componente, e voglio che vinca sempre, anche se un
-     domani quella card dichiara il proprio fondo in modo piu forte. */
   .fh-range{width:100%;accent-color:var(--fh-acc,#ffb020);height:26px}
   .fh-rangeval{font-size:13px;font-weight:800;font-variant-numeric:tabular-nums;
     text-align:right;padding-top:4px;color:var(--fh-ink)}
-  /* DI NOTTE il vetro deve SCHIARIRE. Prima era scuro (18,24,34) sopra un
-     cielo gia scuro: due scuri sovrapposti non si distinguono, e il risultato
-     e che il vetro sembrava non esserci affatto. Un vetro smerigliato sopra
-     il buio si vede perche e piu CHIARO di cio che copre. Bianco a bassa
-     trasparenza: le stelle passano, e il testo chiaro delle card resta
-     leggibile perche il fondo complessivo resta scuro. */
-  .fh-app.vetro .mc{--mc-panel:var(--fh-card-bg, rgba(255,255,255,.09))!important}
-  .fh-app.vetro .eca{--eca-panel:var(--fh-card-bg, rgba(255,255,255,.09))!important;--eca-solid:rgba(22,28,38,.92)!important}
-  .fh-app.vetro .csc{--csc-panel:var(--fh-card-bg, rgba(255,255,255,.09))!important}
-  .fh-app.vetro .cbc{--cbc-panel:var(--fh-card-bg, rgba(255,255,255,.09))!important}
-  .fh-app.vetro .cec{--cec-panel:var(--fh-card-bg, rgba(255,255,255,.09))!important}
-  /* La card del METEO resta fuori dal vetro, ed e voluto.
-     Ha gia una veste per ogni tempo — sereno ambra, nuvoloso celeste con le
-     nuvole, pioggia blu, neve quasi bianca — ognuna col suo testo scuro
-     abbinato. Imporle il vetro voleva dire coprirla di bianco e cancellare
-     proprio quella veste: cambiava il tempo e la card restava sempre uguale.
-     Qui il vetro toglieva invece di aggiungere, quindi non si mette. */
+  .fh-app.vetro .mc{--mc-panel:var(--fh-card-bg)!important}
+  .fh-app.vetro .eca{--eca-panel:var(--fh-card-bg)!important;--eca-solid:rgba(22,28,38,.92)!important}
+  .fh-app.vetro .csc{--csc-panel:var(--fh-card-bg)!important}
+  .fh-app.vetro .cbc{--cbc-panel:var(--fh-card-bg)!important}
+  .fh-app.vetro .cec{--cec-panel:var(--fh-card-bg)!important}
   .fh-app.vetro .fc,
   .fh-app.vetro .fk,
   .fh-app.vetro .fp,
-  .fh-app.vetro .pc{background:var(--fh-card-bg, rgba(255,255,255,.09))!important;border-color:var(--fh-card-border, rgba(255,255,255,.10))!important}
-  /* Il vetro ha senso solo se sfoca: senza, e una card sbiadita. */
-  /* IL VETRO VA SUL RIQUADRO, NON SUL CONTENITORE.
-     Sicurezza, Bucato ed Elettrodomestici hanno gia il loro backdrop-filter
-     sul riquadro interno: quello che aggiungevamo qui sul contenitore esterno
-     era ridondante, e faceva un danno. Un elemento con backdrop-filter diventa
-     il riferimento dei position:fixed che contiene, e i fogli a schermo intero
-     di quelle card (le ultime attivita, il dettaglio dell ora) restavano
-     prigionieri dentro i confini della card, sotto la barra in basso, invece
-     di coprire lo schermo. Mini Card lo faceva gia bene: il vetro su .mc-card
-     e i fogli agganciati a .mc. Energia resta qui perche il vetro ce l ha solo
-     da noi; i suoi fogli infatti si agganciano al documento. */
+  .fh-app.vetro .pc,
+  .fh-app.vetro .fm,
   .fh-app.vetro .mc-card,
-  .fh-app.vetro .eca,
-  .fh-app.vetro .csc,
-  .fh-app.vetro .cbc,
-  .fh-app.vetro .cec,
-  .fh-app.vetro .fc,
-  .fh-app.vetro .fk,
-  .fh-app.vetro .fp,
-  .fh-app.vetro .pc{
-    backdrop-filter:blur(var(--fh-card-blur, 18px)) saturate(1.2)!important;
-    -webkit-backdrop-filter:blur(var(--fh-card-blur, 18px)) saturate(1.2)!important;
+  .fh-app.vetro .csc-card,
+  .fh-app.vetro .csc-alarm,
+  .fh-app.vetro .cbc-machine,
+  .fh-app.vetro .cec-machine,
+  .fh-app.vetro .eca-panel,
+  .fh-app.vetro .eca-day{
+    background:var(--fh-card-bg)!important;
+    background-color:var(--fh-card-bg)!important;
+    border-color:var(--fh-card-border)!important;
+    backdrop-filter:blur(var(--fh-card-blur, 16px)) saturate(1.25)!important;
+    -webkit-backdrop-filter:blur(var(--fh-card-blur, 16px)) saturate(1.25)!important;
   }
+  /* La card METEO in modalita vetro: mantiene la tinta del tempo ma diventa
+     semitrasparente e sfocata, lasciando intravedere il cielo animato */
+  .fh-app.vetro .fw{
+    background:linear-gradient(150deg,
+      color-mix(in srgb,var(--fw-a) 25%,var(--fh-card-bg)),
+      color-mix(in srgb,var(--fw-b) 25%,var(--fh-card-bg)))!important;
+    backdrop-filter:blur(var(--fh-card-blur, 16px)) saturate(1.25)!important;
+    -webkit-backdrop-filter:blur(var(--fh-card-blur, 16px)) saturate(1.25)!important;
+    border:1px solid var(--fh-card-border)!important;
+  }
+  .fh-app.vetro.chiaro .fw{color:var(--fh-ink,#12161c)!important}
+  .fh-app.vetro.chiaro .fw-stat,
+  .fh-app.vetro.chiaro .fw-next{background:rgba(15,23,42,.06)!important;color:var(--fh-ink,#12161c)!important}
+  .fh-app.vetro:not(.chiaro) .fw-stat,
+  .fh-app.vetro:not(.chiaro) .fw-next{background:rgba(255,255,255,.07)!important;color:#eaf1f8!important}
   /* Di giorno, chiare. */
   /* DI GIORNO il vetro resta SCURO, ed e voluto. Le card di casa hanno il
      testo chiaro scritto dentro (--csc-ink #eaf1f8 e simili), con decine di
@@ -4746,7 +4782,8 @@ const FH_CSS = `
   .fh-app.vetro.chiaro .fc,
   .fh-app.vetro.chiaro .fk,
   .fh-app.vetro.chiaro .pc,
-  .fh-app.vetro.chiaro .fp{background:var(--fh-card-bg, rgba(255,255,255,.62))!important;color:#12161c!important;
+  .fh-app.vetro.chiaro .fp,
+  .fh-app.vetro.chiaro .fm{background:var(--fh-card-bg)!important;color:#12161c!important;
     border-color:var(--fh-card-border, rgba(15,23,42,.12))!important}
 
   /* I COLORI D'ACCENTO DI GIORNO — la correzione alla radice.
@@ -4927,9 +4964,9 @@ const FH_CSS = `
      di HA, quindi li il vetro chiaro va bene: sono l'unico caso in cui
      schiarire non rompe niente. */
   .fh-app.vetro.chiaro .fh-main{
-    --ha-card-background:var(--fh-card-bg, rgba(255,255,255,.58));
-    --card-background-color:var(--fh-card-bg, rgba(255,255,255,.58));
-    --ha-card-border-color:var(--fh-card-border, rgba(15,23,42,.12));
+    --ha-card-background:var(--fh-card-bg)!important;
+    --card-background-color:var(--fh-card-bg)!important;
+    --ha-card-border-color:var(--fh-card-border, rgba(15,23,42,.12))!important;
   }
   /* Una stanza con l'icona a tutta card fa eccezione: li il disegno E' la
      card, e renderlo trasparente lo trasformerebbe in una macchia sul cielo.
