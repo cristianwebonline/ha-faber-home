@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.99.10";
+const FH_VERSION = "0.99.11";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -5323,7 +5323,7 @@ const FH_CSS = `
   .fh-tool.acceso{border-color:rgba(255,176,32,.5);background:rgba(255,176,32,.16);color:var(--fh-c-soft,#ffe9c2)}
   .fh-span{width:28px;height:28px;border-radius:8px;cursor:pointer;font:inherit;font-size:12px;font-weight:800;
     border:1px solid var(--fh-stroke,rgba(255,255,255,.12));background:transparent;color:var(--fh-muted,#93a1b0)}
-  .fh-span.sel{border-color:rgba(255,176,32,.6);background:rgba(255,176,32,.18);color:var(--fh-c-soft,#ffe9c2)}
+  .fh-span.sel{border-color:#ffb020!important;background:#ffb020!important;color:#12161c!important;font-weight:800!important}
   /* Lo scudo impedisce che, mentre sistemi il layout, un tocco accenda una
      presa o apra un popup. */
   .fh-shield{position:absolute;left:0;right:0;bottom:0;top:34px;border-radius:16px;cursor:default;
@@ -5436,16 +5436,55 @@ const FH_CSS = `
   .fh-slab{font-size:12.5px;font-weight:700;color:var(--primary-text-color)}
   .fh-srow{display:flex;gap:10px}
   .fh-sfield{flex:1;min-width:0;display:flex;flex-direction:column;gap:5px}
-  .fh-check{display:flex;align-items:center;gap:9px;font-size:13px;font-weight:600;
-    color:var(--primary-text-color);cursor:pointer}
-  .fh-check input{width:auto}
-  .fh-seg{display:flex;gap:6px}
-  .fh-segbtn{flex:1;padding:9px 6px;border-radius:11px;cursor:pointer;font:inherit;font-size:12px;font-weight:700;
-    border:1px solid rgba(255,255,255,.12);background:#1f2633;color:var(--secondary-text-color)}
-  .fh-segbtn.sel{border-color:rgba(255,176,32,.6);background:rgba(255,176,32,.16);color:var(--primary-text-color)}
+  .fh-check{display:flex;align-items:center;gap:11px;font-size:13.5px;font-weight:600;
+    color:var(--primary-text-color);cursor:pointer;margin:4px 0}
+  .fh-check input[type="checkbox"]{width:19px;height:19px;accent-color:#ffb020;cursor:pointer;flex:0 0 auto}
+  .fh-sheet .fh-rangeval{color:#ffb020!important;font-weight:800}
+
+  .fh-seg{display:flex;gap:6px;padding:4px;border-radius:14px;
+    background:rgba(0,0,0,.28);border:1px solid rgba(255,255,255,.08)}
+  .fh-segbtn{flex:1;padding:9px 10px;border-radius:10px;cursor:pointer;font:inherit;font-size:12.5px;font-weight:700;
+    border:1px solid transparent;background:transparent;color:#93a1b0;transition:all .18s ease;
+    display:flex;align-items:center;justify-content:center;gap:6px;text-align:center}
+  .fh-segbtn:hover:not(.sel){color:#eaf1f8;background:rgba(255,255,255,.06)}
+  .fh-segbtn.sel{
+    background:#ffb020!important;
+    border-color:#ffb020!important;
+    color:#12161c!important;
+    font-weight:800!important;
+    box-shadow:0 2px 10px rgba(255,176,32,.4)!important;
+  }
+  .fh-segbtn.sel::before{
+    content:"\u2713 ";
+    font-size:12.5px;
+    font-weight:900;
+    line-height:1;
+  }
   .fh-chiprow{display:flex;flex-direction:column;gap:8px;padding:11px;border-radius:14px;
     border:1px solid rgba(255,255,255,.12);background:#1f2633}
   .fh-chiptools{display:flex;gap:6px;justify-content:flex-end}
+
+  .fh-app.chiaro .fh-seg{
+    background:rgba(15,23,42,.06);
+    border-color:rgba(15,23,42,.1);
+  }
+  .fh-app.chiaro .fh-segbtn{
+    color:#5a6878;
+    background:transparent;
+    border-color:transparent;
+  }
+  .fh-app.chiaro .fh-segbtn:hover:not(.sel){
+    color:#0f172a;
+    background:rgba(15,23,42,.05);
+  }
+  .fh-app.chiaro .fh-segbtn.sel{
+    background:#ffb020!important;
+    border-color:#f59e0b!important;
+    color:#12161c!important;
+    font-weight:800!important;
+    box-shadow:0 2px 8px rgba(245,158,11,.32)!important;
+  }
+
   .fh-app.chiaro .fh-sheet .fh-catitem,
   .fh-app.chiaro .fh-sheet .fh-json,
   .fh-app.chiaro .fh-sheet .fh-pagerow,
@@ -5453,7 +5492,6 @@ const FH_CSS = `
   .fh-app.chiaro .fh-sheet .fh-pcrow,
   .fh-app.chiaro .fh-sheet .fh-roomrow,
   .fh-app.chiaro .fh-sheet .fh-dv,
-  .fh-app.chiaro .fh-sheet .fh-segbtn,
   .fh-app.chiaro .fh-sheet .fh-chiprow{
     background:#f4f6f9!important;
     color:#12161c!important;
