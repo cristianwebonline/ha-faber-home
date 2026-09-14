@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.99.13";
+const FH_VERSION = "0.99.14";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -1852,7 +1852,13 @@ class FaberHome extends HTMLElement {
   // popup delle card prigionieri sotto la barra (il difetto della v0.10.1).
   // Si misura la larghezza vera con un osservatore e si ridisegna solo quando
   // si cambia fascia - non a ogni pixel.
-  _fasciaDa(w) { return w < 560 ? "tel" : w < 920 ? "tab" : "desk"; }
+  _fasciaDa(w) {
+    const isTouch = (typeof navigator !== "undefined" && (navigator.maxTouchPoints > 0 || (navigator.userAgent && /tablet|ipad/i.test(navigator.userAgent)))) ||
+                    (typeof window !== "undefined" && ("ontouchstart" in window));
+    if (w < 600) return "tel";
+    if (w < 1180 || (isTouch && w < 1366)) return "tab";
+    return "desk";
+  }
 
   // Finche non si e misurato davvero, si parte dalla finestra: e sempre meglio
   // di un numero inventato.
@@ -1953,6 +1959,7 @@ class FaberHome extends HTMLElement {
         // sembra la stessa: quella di partenza era una supposizione, non una
         // misura, e il numero di colonne poteva gia essere sbagliato.
         if (primaVolta || cambiata) this._renderPage();
+        else this._misuraQuadre();
       });
       this._ro.observe(main);
     }
@@ -1964,16 +1971,17 @@ class FaberHome extends HTMLElement {
   // Quante colonne mostrare in questa riga, adesso. "auto" (0) vuol dire:
   // quante ce ne stanno larghe almeno quanto una card comoda.
   _colonneRiga(row) {
-    const n = (row.cols || []).length || 1;
     const f = this._fasciaOra();
     const scelto = f === "tel" ? row.n_tel : f === "tab" ? row.n_tab : row.n_desk;
-    if (scelto) return Math.max(1, Math.min(n, scelto));
-    const minima = f === "tel" ? 165 : 240;
-    // Se la larghezza vera non si conosce ancora, si chiede alla finestra
-    // invece di inventarne una: prima qui c'era 900, cioe uno schermo grande,
-    // e su un telefono usciva una pagina a tre colonne piu larga dello schermo.
+    if (scelto) return Math.max(1, Math.min(6, scelto));
+    const activeCols = (row.cols || []).filter(c => (c.cards || []).length > 0).length || 1;
+    const totCards = (row.cols || []).reduce((acc, c) => acc + (c.cards || []).length, 0);
+    if (totCards <= 1 || activeCols <= 1) return 1;
     const w = this._larghezza || this.clientWidth || window.innerWidth || 400;
-    return Math.max(1, Math.min(n, Math.floor((w + 14) / (minima + 14))));
+    const minima = f === "tel" ? 165 : f === "tab" ? 200 : 230;
+    const colAuto = Math.max(1, Math.floor((w + 14) / (minima + 14)));
+    const cap = Math.min(6, Math.max(activeCols, totCards));
+    return Math.max(1, Math.min(cap, colAuto));
   }
 
   async _renderPage() {
@@ -2014,22 +2022,19 @@ class FaberHome extends HTMLElement {
       inner.className = "fh-row";
       const n = this._colonneRiga(row);
       inner.style.setProperty("--fh-n", n);
-      // Quando le colonne non ci stanno tutte in riga (tre colonne su un
-      // telefono che ne mostra due), quelle di troppo vanno a capo e il
-      // risultato e un accavallamento: card di altezze diverse, disallineate,
-      // con buchi in mezzo. In quel caso si smonta il raggruppamento in
-      // colonne e le card entrano DIRETTAMENTE nella griglia: cosi quelle
-      // sulla stessa riga combaciano sempre. In modifica no: li servono gli
-      // strumenti di colonna.
-      const piatta = !this._edit && n < (row.cols || []).length;
+      // In visualizzazione normale escludiamo le colonne vuote per non creare buchi
+      const activeCols = (row.cols || []).filter(c => (c.cards || []).length > 0);
+      const colsToRender = this._edit ? (row.cols || []) : activeCols;
+      const totCards = activeCols.reduce((acc, c) => acc + (c.cards || []).length, 0);
+      const isStanza = !!(page && (page.stanza || (page.rows && page.rows.length === 1 && totCards > 2)));
+      // Appiattisce in griglia diretta per allineare perfettamente le card su ogni riga
+      const piatta = !this._edit && (n < colsToRender.length || totCards > n || isStanza);
       inner.classList.toggle("piatta", piatta);
-      (row.cols || []).forEach((col, ci) => {
+      colsToRender.forEach((col, ci) => {
         const colEl = document.createElement("div");
         colEl.className = "fh-col";
-        // Una colonna non puo occupare piu tracce di quante ne esistano: su
-        // telefono con due colonne, una "larga 3" prenderebbe il posto di
-        // colonne che non ci sono e sfonderebbe la griglia.
-        const quante = Math.min(col.span || 1, n);
+        // Se la riga ha solo una colonna attiva, prende tutte le tracce della riga
+        const quante = (!this._edit && activeCols.length <= 1) ? n : Math.min(col.span || 1, n);
         if (!piatta) colEl.style.gridColumn = `span ${quante}`;
         colEl.dataset.col = ci;
         if (this._edit) colEl.appendChild(this._colToolsEl(ri, ci));
@@ -2049,13 +2054,15 @@ class FaberHome extends HTMLElement {
           if (piatta && quante > 1) slot.style.gridColumn = `span ${quante}`;
           const h = this._altezzaCard(cardCfg);
           if (h) { slot.style.setProperty("--fh-h", h + "px"); slot.classList.add("fissa"); }
-          if (cardCfg && cardCfg.fh_forma === "quadra") {
+          const isQuadra = cardCfg && (
+            cardCfg.fh_forma === "quadra" ||
+            cardCfg.forma === "quadrato" ||
+            cardCfg.forma_card === "quadrata" ||
+            cardCfg.taglia === "quadrata"
+          );
+          if (isQuadra) {
             slot.classList.add("quadra");
-            // La misura del quadrato segue la taglia scelta per la card
-            // (oggi solo la persona ce l'ha): "piccola" deve dare un
-            // quadrato piccolo davvero, non un quadrato uguale a tutti con
-            // dentro una foto piu piccola.
-            const cap = FH_QUADRA_CAP[cardCfg.grandezza];
+            const cap = FH_QUADRA_CAP[cardCfg.grandezza] || (this._fasciaOra() !== "tel" ? 240 : null);
             if (cap) slot.style.setProperty("--fh-quadra", cap + "px");
             if (cardCfg.grandezza) slot.dataset.taglia = cardCfg.grandezza;
           }
@@ -5637,6 +5644,35 @@ const FH_CSS = `
     color:#12161c!important;
     border-color:rgba(15,23,42,.12)!important;
   }
+  /* ======================== TABLET SPECIFIC STYLES ======================== */
+  .fh-app.tab .fh-head{
+    padding:16px 22px 8px;
+    max-width:1100px;
+    margin-inline:auto;
+    width:100%;
+    box-sizing:border-box;
+  }
+  .fh-app.tab .fh-main{
+    padding:10px 22px calc(var(--fh-navh,96px) + 20px);
+    max-width:1100px;
+    margin-inline:auto;
+    width:100%;
+    box-sizing:border-box;
+    gap:16px;
+  }
+  .fh-app.tab .fh-clock{font-size:38px}
+  .fh-app.tab .fh-row{gap:16px}
+  .fh-app.tab .fh-col{gap:16px}
+  .fh-app.tab .fh-navbar{
+    max-width:680px;
+    padding:10px 16px;
+    gap:8px;
+  }
+  .fh-app.tab .fh-navitem ha-icon{--mdc-icon-size:25px}
+  .fh-app.tab .fh-navlabel{font-size:11.5px}
+  .fh-app.tab .fh-catlist{grid-template-columns:repeat(auto-fill,minmax(180px,1fr))}
+
+  /* ======================== PHONE SPECIFIC STYLES ======================== */
   .fh-app.tel .fh-head{padding:14px 14px 6px}
   .fh-app.tel .fh-main{padding:6px 12px calc(var(--fh-navh,108px) + 16px)}
   .fh-app.tel .fh-clock{font-size:34px}
