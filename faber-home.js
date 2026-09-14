@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.99.9";
+const FH_VERSION = "0.99.10";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -2250,16 +2250,53 @@ class FaberHome extends HTMLElement {
     el.querySelector('[data-act="menu"]').addEventListener("click", e => {
       e.stopPropagation();
       // Un solo menu aperto alla volta, senno restano appesi in giro.
-      this.querySelectorAll(".fh-menupop").forEach(x => { if (x !== pop) x.hidden = true; });
+      this.querySelectorAll(".fh-menupop").forEach(x => {
+        if (x !== pop) {
+          x.hidden = true;
+          x.style.left = "";
+          x.style.right = "";
+          x.style.transform = "";
+        }
+      });
       pop.hidden = !pop.hidden;
       if (!pop.hidden) {
-        const chiudi = () => { pop.hidden = true; document.removeEventListener("click", chiudi, true); };
+        pop.style.left = "";
+        pop.style.right = "0";
+        pop.style.transform = "";
+
+        // Calcola se il menu sborda a sinistra o a destra dello schermo
+        const rect = pop.getBoundingClientRect();
+        if (rect.left < 10) {
+          // Card nella colonna di sinistra: ancorato a destra sborda a sinistra.
+          // Ancoriamolo a sinistra del tasto menu
+          pop.style.left = "0";
+          pop.style.right = "auto";
+          const r2 = pop.getBoundingClientRect();
+          if (r2.left < 10) {
+            pop.style.transform = `translateX(${Math.ceil(10 - r2.left)}px)`;
+          } else if (r2.right > window.innerWidth - 10) {
+            pop.style.transform = `translateX(-${Math.ceil(r2.right - (window.innerWidth - 10))}px)`;
+          }
+        } else if (rect.right > window.innerWidth - 10) {
+          pop.style.transform = `translateX(-${Math.ceil(rect.right - (window.innerWidth - 10))}px)`;
+        }
+
+        const chiudi = () => {
+          pop.hidden = true;
+          pop.style.left = "";
+          pop.style.right = "";
+          pop.style.transform = "";
+          document.removeEventListener("click", chiudi, true);
+        };
         setTimeout(() => document.addEventListener("click", chiudi, true), 0);
       }
     });
     el.querySelectorAll("[data-forma]").forEach(b => b.addEventListener("click", e => {
       e.stopPropagation();
       pop.hidden = true;
+      pop.style.left = "";
+      pop.style.right = "";
+      pop.style.transform = "";
       this._formaCard(ri, ci, di, b.dataset.forma);
     }));
     this._wireDrag(el.querySelector("[data-grip]"), ri, ci, di);
@@ -2267,7 +2304,12 @@ class FaberHome extends HTMLElement {
     el.querySelectorAll("[data-act]").forEach(b => b.addEventListener("click", () => {
       const a = b.dataset.act;
       if (a === "menu") return;
-      if (pop) pop.hidden = true;
+      if (pop) {
+        pop.hidden = true;
+        pop.style.left = "";
+        pop.style.right = "";
+        pop.style.transform = "";
+      }
       const cards = cols[ci].cards;
       if (a === "cfg") { this._openCardEditor(ri, ci, di); return; }
       if (a === "pop") { this._openPopupEditor(ri, ci, di); return; }
@@ -4651,22 +4693,27 @@ const FH_CSS = `
   /* Fondo scritto qui e non preso dal tema: con il vetro attivo
      --ha-card-background e semitrasparente, e il menu si leggeva sopra la
      card che stava coprendo — le voci si mescolavano al contenuto sotto. */
-  .fh-menupop{position:absolute;right:0;top:34px;z-index:30;min-width:196px;padding:6px;
+  .fh-menupop{position:absolute;right:0;top:34px;z-index:30;min-width:196px;max-width:calc(100vw - 20px);padding:6px;
     border-radius:16px;border:1px solid rgba(255,255,255,.16);
-    background:#171b22;color:#eaf1f8;
+    background:#171b22!important;color:#eaf1f8!important;
     box-shadow:0 18px 44px rgba(0,0,0,.6)}
-  .fh-app.vetro.chiaro .fh-menupop{background:#fbfaf7;color:#12161c;
+  .fh-app.vetro.chiaro .fh-menupop,
+  .fh-app.chiaro .fh-menupop{background:#ffffff!important;color:#12161c!important;
     border-color:rgba(15,23,42,.14);box-shadow:0 18px 44px rgba(15,23,42,.22)}
-  .fh-app.vetro.chiaro .fh-mi{color:#12161c}
-  .fh-app.vetro.chiaro .fh-milab{color:#4b5563}
-  .fh-app.vetro.chiaro .fh-misep{background:rgba(15,23,42,.12)}
+  .fh-app.vetro.chiaro .fh-mi,
+  .fh-app.chiaro .fh-mi{color:#12161c}
+  .fh-app.vetro.chiaro .fh-milab,
+  .fh-app.chiaro .fh-milab{color:#4b5563}
+  .fh-app.vetro.chiaro .fh-misep,
+  .fh-app.chiaro .fh-misep{background:rgba(15,23,42,.12)}
   .fh-mi{display:flex;align-items:center;gap:9px;width:100%;padding:8px 10px;border-radius:9px;
     border:none;background:none;cursor:pointer;font:inherit;font-size:12.5px;font-weight:700;
     text-align:left;color:inherit}
   .fh-mi ha-icon{--mdc-icon-size:16px;flex:0 0 auto;opacity:.75}
   .fh-mi:hover{background:rgba(255,176,32,.14)}
   .fh-mi.rosso{color:#ff8f8f}
-  .fh-app.vetro.chiaro .fh-mi.rosso{color:#b91c1c!important}
+  .fh-app.vetro.chiaro .fh-mi.rosso,
+  .fh-app.chiaro .fh-mi.rosso{color:#b91c1c!important}
   .fh-mi.rosso:hover{background:rgba(255,92,92,.14)}
   .fh-misep{height:1px;margin:4px 6px;background:var(--divider-color,rgba(255,255,255,.1))}
   .fh-milab{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;
@@ -4693,8 +4740,6 @@ const FH_CSS = `
      la tinta a .fh-main, il foglio la scavalca del tutto e resta con il tema
      vero sotto, com'era pensato fin dall'inizio. */
   .fh-app.vetro{
-    --ha-card-background:var(--fh-card-bg)!important;
-    --card-background-color:var(--fh-card-bg)!important;
     --ha-card-border-color:var(--fh-card-border)!important;
   }
   .fh-app.vetro .fh-main{
@@ -5295,40 +5340,61 @@ const FH_CSS = `
   /* Il foglio ospita gli editor veri di Home Assistant, che si colorano con
      le variabili del tema di HA: se gli imponiamo la nostra tavolozza il loro
      testo diventa illeggibile. Quindi qui si usa il tema di Home Assistant. */
+  /* Il foglio delle impostazioni e configurazione: DEVE essere sempre solido
+     e opaco, mai trasparente, altrimenti le scritte si sovrappongono alle
+     card e allo sfondo sottostante risultando illeggibili. */
   .fh-sheet{width:100%;max-width:620px;max-height:86vh;display:flex;flex-direction:column;
-    background:var(--ha-card-background,var(--card-background-color,#1c1f26));
-    color:var(--primary-text-color);
-    border:1px solid var(--divider-color);
-    border-bottom:none;border-radius:24px 24px 0 0;box-shadow:0 -16px 50px rgba(0,0,0,.55)}
+    background:#161c26!important;
+    color:#eaf1f8!important;
+    --ha-card-background:#161c26!important;
+    --card-background-color:#1f2633!important;
+    --primary-text-color:#eaf1f8!important;
+    --secondary-text-color:#93a1b0!important;
+    --divider-color:rgba(255,255,255,.14)!important;
+    border:1px solid rgba(255,255,255,.14);
+    border-bottom:none;border-radius:24px 24px 0 0;box-shadow:0 -16px 50px rgba(0,0,0,.65)}
   .fh-sheethead{display:flex;align-items:center;gap:10px;padding:14px 16px 8px}
-  .fh-sheettitle{flex:1;font-size:16px;font-weight:800;color:var(--primary-text-color)}
+  .fh-sheettitle{flex:1;font-size:16px;font-weight:800;color:#eaf1f8!important}
   .fh-sheetbody{flex:1 1 auto;min-height:0;overflow-y:auto;padding:4px 16px 24px;display:flex;flex-direction:column;gap:10px}
 
   .fh-sheetfoot{flex:0 0 auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap;
     padding:12px 16px calc(14px + env(safe-area-inset-bottom,0px));
-    background:var(--ha-card-background,var(--card-background-color,#1c1f26));
-    border-top:1px solid var(--divider-color)}
+    background:#161c26!important;
+    color:#eaf1f8!important;
+    --ha-card-background:#161c26!important;
+    --card-background-color:#1f2633!important;
+    border-top:1px solid rgba(255,255,255,.14)}
+  .fh-app.chiaro .fh-sheet,
+  .fh-app.chiaro .fh-sheetfoot{
+    background:#ffffff!important;
+    color:#12161c!important;
+    --ha-card-background:#ffffff!important;
+    --card-background-color:#f4f6f9!important;
+    --primary-text-color:#12161c!important;
+    --secondary-text-color:#5a6878!important;
+    --divider-color:rgba(15,23,42,.12)!important;
+    border-color:rgba(15,23,42,.14)!important;
+  }
+  .fh-app.chiaro .fh-sheettitle{color:#12161c!important}
   .fh-footmsg{flex:1;min-width:120px;font-size:11.5px;color:var(--secondary-text-color)}
   .fh-catgroup{font-size:10.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
     color:var(--secondary-text-color);margin-top:8px}
   .fh-catlist{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px}
   .fh-catitem{display:flex;align-items:center;gap:8px;padding:11px;border-radius:14px;cursor:pointer;font:inherit;
-    border:1px solid var(--divider-color);background:var(--card-background-color);
+    border:1px solid rgba(255,255,255,.12);background:#1f2633;
     color:var(--primary-text-color);font-size:12.5px;font-weight:700;text-align:left}
   .fh-catitem ha-icon{--mdc-icon-size:20px;color:var(--fh-c-acc,#ffb020);flex:0 0 auto}
   .fh-catitem:hover{border-color:rgba(255,176,32,.5)}
   .fh-json{width:100%;min-height:120px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;
     line-height:1.45;padding:10px;border-radius:12px;box-sizing:border-box;
-    border:1px solid var(--divider-color);background:var(--card-background-color);color:var(--primary-text-color)}
+    border:1px solid rgba(255,255,255,.12);background:#1f2633;color:var(--primary-text-color)}
   .fh-note{font-size:11.5px;color:var(--secondary-text-color)}
   .fh-pagerow{display:flex;align-items:center;gap:6px;padding:8px;border-radius:12px;
-    border:1px solid var(--divider-color);background:var(--card-background-color)}
+    border:1px solid rgba(255,255,255,.12);background:#1f2633}
   .fh-pagerow ha-icon{--mdc-icon-size:18px;color:var(--fh-c-acc,#ffb020);flex:0 0 auto}
   .fh-input{flex:1;min-width:0;padding:8px 10px;border-radius:9px;font:inherit;font-size:13px;
-    border:1px solid var(--divider-color);background:var(--card-background-color);color:var(--primary-text-color)}
+    border:1px solid rgba(255,255,255,.12);background:#1f2633;color:var(--primary-text-color)}
   .fh-input.small{flex:0 0 110px}
-
-
 
   .fh-cardwrap{position:relative}
   .fh-tap{position:absolute;inset:0;cursor:pointer;border-radius:18px}
@@ -5336,27 +5402,32 @@ const FH_CSS = `
   .fh-popscrim{position:fixed;inset:0;z-index:25;background:rgba(5,8,13,.62);backdrop-filter:blur(7px);
     display:flex;align-items:flex-end;justify-content:center}
   .fh-popup{width:100%;max-width:620px;max-height:88vh;display:flex;flex-direction:column;
-    background:var(--fh-panel,rgba(24,30,40,.97));border:1px solid var(--fh-stroke,rgba(255,255,255,.1));
-    border-bottom:none;border-radius:26px 26px 0 0;box-shadow:0 -18px 54px rgba(0,0,0,.55);
+    background:#161c26!important;color:#eaf1f8!important;
+    border:1px solid rgba(255,255,255,.14)!important;
+    border-bottom:none;border-radius:26px 26px 0 0;box-shadow:0 -18px 54px rgba(0,0,0,.65);
     animation:fhPopUp .22s ease-out}
+  .fh-app.chiaro .fh-popup{
+    background:#ffffff!important;color:#12161c!important;
+    border-color:rgba(15,23,42,.14)!important;
+  }
   @keyframes fhPopUp{from{transform:translateY(20px);opacity:.5}to{transform:translateY(0);opacity:1}}
   .fh-pophead{display:flex;align-items:center;gap:10px;padding:16px 18px 8px}
   .fh-poptitle{flex:1;font-size:17px;font-weight:800;color:var(--fh-ink,#eaf1f8)}
   .fh-popbody{overflow-y:auto;padding:4px 16px 24px;display:flex;flex-direction:column;gap:14px}
   .fh-pcrow{display:flex;align-items:center;gap:6px;padding:9px 11px;border-radius:12px;
-    border:1px solid var(--divider-color);background:var(--card-background-color)}
+    border:1px solid rgba(255,255,255,.12);background:#1f2633}
   .fh-pcname{flex:1;min-width:0;font-size:12.5px;font-weight:700;color:var(--primary-text-color);
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
   .fh-addbar{display:flex;gap:8px;flex-wrap:wrap;margin-top:4px}
   .fh-addbar .fh-addrow{flex:1;min-width:150px;margin-top:0}
   .fh-roomrow{display:flex;align-items:center;gap:11px;padding:11px 13px;border-radius:14px;cursor:pointer;
-    border:1px solid var(--divider-color);background:var(--card-background-color)}
+    border:1px solid rgba(255,255,255,.12);background:#1f2633}
   .fh-roomrow input{width:auto;flex:0 0 auto}
   .fh-roominfo{display:flex;flex-direction:column;gap:2px;min-width:0}
   .fh-dvlist{display:flex;flex-direction:column;gap:6px;max-height:46vh;overflow-y:auto}
   .fh-dv{display:flex;flex-direction:column;gap:2px;padding:11px 13px;border-radius:14px;cursor:pointer;
-    text-align:left;font:inherit;border:1px solid var(--divider-color);background:var(--card-background-color)}
+    text-align:left;font:inherit;border:1px solid rgba(255,255,255,.12);background:#1f2633}
   .fh-dv:hover{border-color:rgba(255,176,32,.55)}
   .fh-dvname{font-size:13.5px;font-weight:700;color:var(--primary-text-color)}
   .fh-dvmeta{font-size:11px;font-weight:600;color:var(--secondary-text-color)}
@@ -5370,11 +5441,24 @@ const FH_CSS = `
   .fh-check input{width:auto}
   .fh-seg{display:flex;gap:6px}
   .fh-segbtn{flex:1;padding:9px 6px;border-radius:11px;cursor:pointer;font:inherit;font-size:12px;font-weight:700;
-    border:1px solid var(--divider-color);background:var(--card-background-color);color:var(--secondary-text-color)}
+    border:1px solid rgba(255,255,255,.12);background:#1f2633;color:var(--secondary-text-color)}
   .fh-segbtn.sel{border-color:rgba(255,176,32,.6);background:rgba(255,176,32,.16);color:var(--primary-text-color)}
   .fh-chiprow{display:flex;flex-direction:column;gap:8px;padding:11px;border-radius:14px;
-    border:1px solid var(--divider-color);background:var(--card-background-color)}
+    border:1px solid rgba(255,255,255,.12);background:#1f2633}
   .fh-chiptools{display:flex;gap:6px;justify-content:flex-end}
+  .fh-app.chiaro .fh-sheet .fh-catitem,
+  .fh-app.chiaro .fh-sheet .fh-json,
+  .fh-app.chiaro .fh-sheet .fh-pagerow,
+  .fh-app.chiaro .fh-sheet .fh-input,
+  .fh-app.chiaro .fh-sheet .fh-pcrow,
+  .fh-app.chiaro .fh-sheet .fh-roomrow,
+  .fh-app.chiaro .fh-sheet .fh-dv,
+  .fh-app.chiaro .fh-sheet .fh-segbtn,
+  .fh-app.chiaro .fh-sheet .fh-chiprow{
+    background:#f4f6f9!important;
+    color:#12161c!important;
+    border-color:rgba(15,23,42,.12)!important;
+  }
   .fh-app.tel .fh-head{padding:14px 14px 6px}
   .fh-app.tel .fh-main{padding:6px 12px calc(var(--fh-navh,108px) + 16px)}
   .fh-app.tel .fh-clock{font-size:34px}
