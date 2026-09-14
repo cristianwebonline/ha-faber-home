@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.99.14";
+const FH_VERSION = "0.99.15";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -707,6 +707,36 @@ function fhNorm(s) {
     .replace(/[^a-z0-9]+/g, " ").trim();
 }
 
+
+const FH_MONITORED_DEVICES = [
+  "sensor.cancelletto_batteria", "sensor.porta_blindata_battery", "switch.power",
+  "alarm_control_panel.ialarm_xr", "lock.porta_blindata", "alarm_control_panel.ezviz_alarm",
+  "light.luce_cucina", "switch.presa_forno", "switch.presa_micronde_1_switch",
+  "switch.macchina_acqua_cucina_outlet", "switch.presa_microonde", "switch.frigo_outlet",
+  "switch.shelly_lavastoviglie", "vacuum.xiaomi_de_1142022616_c102gl",
+  "switch.presa_condizionatore_sala_switch", "climate.split_aria_condizionata",
+  "switch.presa_stufa_a_pellet_sala_switch", "climate.stufa_pellet_sala",
+  "media_player.tv_sala", "switch.presa_tv_sala_presa_1",
+  "switch.corrente_ciabatta_sala_outlet", "switch.stampante_3d_sala_socket_1",
+  "switch.presa_modem_sala_switch", "switch.presa_tablet_homeassistant_switch",
+  "switch.sonoff_10002d8b8f", "media_player.echo_dot_di_cristian",
+  "light.led_scaffale_sala", "switch.lavatrice", "switch.asciugatrice",
+  "switch.presa_dvr_switch", "switch.presa_camera_gaia", "switch.presa_tv_gaia_switch",
+  "media_player.echo_dot_gaia", "switch.ciabatta_gaia_s1", "switch.ciabatta_gaia_s2",
+  "switch.ciabatta_gaia_s3", "switch.ciabatta_gaia_s4", "switch.presa_bagno",
+  "switch.presa_2", "switch.presa_piscina", "switch.luce_bagno_pt",
+  "switch.presa_stufetta", "media_player.cassa_bagno",
+  "switch.presa_condizionatore_gaia_switch", "climate.condizionatore_gaia",
+  "switch.presa_condizionatore_leo_switch", "climate.camera_leo_ac_2",
+  "switch.presa_tv_leo", "switch.presa_digitaleterrestre_leo", "switch.presa_3_leo",
+  "switch.presa_broadlink_leo", "switch.presa_condizionatore_cda_letto_switch",
+  "switch.shelly_como_camera_da_letto", "switch.presa_tv_camera_switch",
+  "switch.1_2", "switch.2_2", "switch.3_2", "switch.4_2", "switch.5_2",
+  "vacuum.d10_plus_gen_2", "switch.sonoff_1000e34157", "switch.sonoff_100077744a",
+  "switch.presa_stampante_3d_ufficio_presa", "switch.presa_vetro_ufficio_presa",
+  "switch.led_ufficio_presa"
+];
+
 class FaberHome extends HTMLElement {
   setConfig(config) {
     // Home Assistant consegna la configurazione CONGELATA (Object.freeze in
@@ -1332,8 +1362,11 @@ class FaberHome extends HTMLElement {
     const attr = d.tipo === "meteo" ? "" :
       d.tipo === "link" ? ` type="button" data-chip-link="${fhEsc(d.target)}"`
       : d.tipo === "pagina" ? ` type="button" data-chip-page="${fhEsc(d.target)}"`
+      : d.tipo === "offline_devs" ? ` type="button" data-chip-offline="true"`
+      : d.tipo === "autoclave" ? ` type="button" data-chip-autoclave="true"`
       : ` type="button" data-chip-entity="${fhEsc(d.target || "")}"`;
-    return `<${tag} class="fh-chip${d.on ? " on" : ""}" data-key="${fhEsc(d.key)}"${attr}>
+    const accClass = d.accent ? " " + d.accent : "";
+    return `<${tag} class="fh-chip${d.on ? " on" : ""}${accClass}" data-key="${fhEsc(d.key)}"${attr}>
       ${d.icon ? `<ha-icon icon="${fhEsc(d.icon)}"></ha-icon>` : ""}
       <span data-eti>${fhEsc(d.label || "")}</span>
       ${d.sotto ? `<small data-sotto>${fhEsc(d.sotto)}</small>` : ""}
@@ -1541,6 +1574,44 @@ class FaberHome extends HTMLElement {
       }
     }
     (h.chips || []).forEach(chip => {
+      if (chip.tipo === "autoclave" || chip.entity === "switch.power") {
+        const sw = hass ? hass.states["switch.power"] : null;
+        const cur = hass ? hass.states["sensor.power_current"] : null;
+        const w = cur ? parseFloat(cur.state) : 0;
+        const isOn = sw && sw.state === "on";
+        const isPompa = isOn && w > 0;
+        out.push({
+          key: "autoclave",
+          tipo: "autoclave",
+          target: "switch.power",
+          icon: isPompa ? "mdi:water-pump" : (isOn ? "mdi:water-pump" : "mdi:water-pump-off"),
+          label: isPompa ? (Math.round(w) + " W") : (isOn ? "Pronta" : "Spenta"),
+          sotto: isPompa ? "Autoclave attiva" : "Autoclave",
+          on: isOn,
+          accent: isPompa ? "warn" : "",
+        });
+        return;
+      }
+      if (chip.tipo === "dispositivi" || chip.tipo === "offline") {
+        const monitorati = FH_MONITORED_DEVICES;
+        const offline = hass ? monitorati.filter(id => {
+          const st = hass.states[id];
+          return st && ["unavailable", "unknown"].includes(st.state);
+        }) : [];
+        const count = offline.length;
+        out.push({
+          key: "offline_devs",
+          tipo: "offline_devs",
+          target: "offline_devs",
+          icon: count > 0 ? "mdi:alert-circle-outline" : "mdi:check-circle-outline",
+          label: count > 0 ? `${count} offline` : "Tutti online",
+          sotto: "Dispositivi",
+          on: count > 0,
+          accent: count > 0 ? "danger" : "",
+          offlineIds: offline,
+        });
+        return;
+      }
       // Una chip puo anche essere una SCORCIATOIA a una pagina invece che un
       // interruttore: tiene a portata una vista (il clima di tutta la casa)
       // senza occupare un posto nella barra in basso.
@@ -2682,6 +2753,9 @@ class FaberHome extends HTMLElement {
         power: "", energy: "", switch: "", temp: "", humidity: "", climate: "", device_id: "", path: "", group: "",
         soglia: 10, soglia_freddo: 18, soglia_caldo: 26, prezzo_kwh: 0.30, storico_giorni: 14 } },
       { g: "Faber", n: "Smart Card (tela)", i: "mdi:palette-swatch-outline", c: { type: "custom:smart-card", name: "Smart Card", canvas: { w: 100, h: 50 }, elements: [] } },
+      { g: "Faber", n: "Cancello (con timer)", i: "mdi:gate", c: { type: "custom:faber-cancello", name: "Cancello" } },
+      { g: "Faber", n: "Automazione Casa", i: "mdi:shield-home", c: { type: "custom:faber-automazione", name: "Automazione Casa" } },
+      { g: "Faber", n: "Lista della Spesa", i: "mdi:cart-outline", c: { type: "custom:faber-spesa", name: "Lista della Spesa" } },
       { g: "Faber", n: "Meteo", i: "mdi:weather-partly-cloudy", c: { type: "custom:faber-weather", entity: "", days: 4 } },
       { g: "Faber", n: "Telecomando", i: "mdi:remote-tv", c: { type: "custom:faber-media", title: "Telecomando",
         selettore: "input_select.remote_type", script_tasto: "script.remote_press_button",
@@ -2734,6 +2808,9 @@ class FaberHome extends HTMLElement {
       { g: "Faber", n: "Sicurezza - solo telecamere", i: "mdi:cctv", c: { type: "custom:centro-sicurezza-card", name: "Telecamere",
         lock: "", door_sensor: "", battery: "", sensors: "", alarm: "", cameras: "", mostra_allarme: false, mostra_porta: false, mostra_telecamere: true } },
       { g: "Home Assistant", n: "Tessera (tile)", i: "mdi:card-outline", c: { type: "tile", entity: "" } },
+      { g: "Faber", n: "Cancello (con timer)", i: "mdi:gate", c: { type: "custom:faber-cancello", name: "Cancello" } },
+      { g: "Faber", n: "Automazione Casa", i: "mdi:shield-home", c: { type: "custom:faber-automazione", name: "Automazione Casa" } },
+      { g: "Faber", n: "Lista della Spesa", i: "mdi:cart-outline", c: { type: "custom:faber-spesa", name: "Lista della Spesa" } },
       { g: "Faber", n: "Meteo", i: "mdi:weather-partly-cloudy", c: { type: "custom:faber-weather", entity: "", days: 4 } },
       { g: "Faber", n: "Telecomando", i: "mdi:remote-tv", c: { type: "custom:faber-media", title: "Telecomando",
         selettore: "input_select.remote_type", script_tasto: "script.remote_press_button",
@@ -4619,7 +4696,64 @@ class FaberHome extends HTMLElement {
     this._aggiornaConsumo();
   }
 
+  _popupOfflineDispositivi() {
+    const hass = this._hass;
+    if (!hass) return;
+    const monitorati = FH_MONITORED_DEVICES;
+    const offline = monitorati.filter(id => {
+      const st = hass.states[id];
+      return st && ["unavailable", "unknown"].includes(st.state);
+    });
+    const box = document.createElement("div");
+    box.className = "fh-offbody";
+    if (!offline.length) {
+      box.innerHTML = `<div class="fh-off-allgood">
+        <ha-icon icon="mdi:check-decagram"></ha-icon>
+        <b>Tutti i dispositivi sono online!</b>
+        <small>Nessun dispositivo tra i ${monitorati.length} monitorati risulta irraggiungibile.</small>
+      </div>`;
+    } else {
+      box.innerHTML = `<div class="fh-off-head">
+        <b>${offline.length} ${offline.length === 1 ? "dispositivo non raggiungibile" : "dispositivi non raggiungibili"}</b>
+        <small>Verifica alimentazione o connessione di rete.</small>
+      </div>
+      <div class="fh-off-list">
+        ${offline.map(id => {
+          const st = hass.states[id];
+          const name = (st && st.attributes && st.attributes.friendly_name) || id;
+          return `<div class="fh-off-item" data-ent="${fhEsc(id)}">
+            <ha-icon icon="mdi:alert-circle-outline"></ha-icon>
+            <div class="fh-off-info">
+              <span class="fh-off-name">${fhEsc(name)}</span>
+              <small class="fh-off-id">${fhEsc(id)}</small>
+            </div>
+            <button type="button" class="fh-off-act">Dettagli</button>
+          </div>`;
+        }).join("")}
+      </div>`;
+      box.querySelectorAll(".fh-off-item").forEach(item => {
+        item.onclick = () => {
+          const ent = item.dataset.ent;
+          this.dispatchEvent(new CustomEvent("hass-more-info", {
+            bubbles: true, composed: true, detail: { entityId: ent }
+          }));
+        };
+      });
+    }
+    this._sheet("Stato Dispositivi", box, false);
+  }
+
   _wireChips() {
+    this.querySelectorAll("[data-chip-offline]").forEach(btn => {
+      btn.onclick = () => this._popupOfflineDispositivi();
+    });
+    this.querySelectorAll("[data-chip-autoclave]").forEach(btn => {
+      btn.onclick = () => {
+        if (!this._hass) return;
+        fhVibra(8);
+        this._hass.callService("switch", "toggle", { entity_id: "switch.power" });
+      };
+    });
     this.querySelectorAll("[data-chip-link]").forEach(btn => {
       btn.onclick = () => {
         const u = btn.dataset.chipLink;
@@ -5644,6 +5778,30 @@ const FH_CSS = `
     color:#12161c!important;
     border-color:rgba(15,23,42,.12)!important;
   }
+  
+  .fh-chip.warn{border-color:rgba(255,176,32,.5);color:#ffb020}
+  .fh-chip.warn ha-icon{color:#ffb020;animation:fhPulse 1.4s infinite ease-in-out}
+  .fh-chip.danger{border-color:rgba(255,84,66,.6);color:#ff5442;background:rgba(255,84,66,.12)!important}
+  .fh-chip.danger ha-icon{color:#ff5442;animation:fhPulse 1.2s infinite ease-in-out}
+  @keyframes fhPulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.05);opacity:.85}}
+  .fh-offbody{display:flex;flex-direction:column;gap:12px;padding:6px 2px}
+  .fh-off-allgood{padding:28px 16px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:8px}
+  .fh-off-allgood ha-icon{--mdc-icon-size:48px;color:#38e08a}
+  .fh-off-allgood b{font-size:16px}
+  .fh-off-allgood small{font-size:12px;opacity:.7}
+  .fh-off-head{display:flex;flex-direction:column;gap:2px}
+  .fh-off-head b{font-size:14px;color:#ff5442}
+  .fh-off-head small{font-size:11.5px;opacity:.7}
+  .fh-off-list{display:flex;flex-direction:column;gap:8px;max-height:50vh;overflow-y:auto}
+  .fh-off-item{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:14px;
+    background:rgba(255,84,66,.1);border:1px solid rgba(255,84,66,.25);cursor:pointer}
+  .fh-off-item ha-icon{--mdc-icon-size:22px;color:#ff5442;flex:0 0 auto}
+  .fh-off-info{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+  .fh-off-name{font-size:13px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .fh-off-id{font-size:10px;opacity:.65;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .fh-off-act{padding:4px 10px;border-radius:8px;border:none;background:rgba(255,255,255,.1);
+    color:inherit;font:inherit;font-size:10.5px;font-weight:700;cursor:pointer}
+
   /* ======================== TABLET SPECIFIC STYLES ======================== */
   .fh-app.tab .fh-head{
     padding:16px 22px 8px;
@@ -10162,6 +10320,562 @@ window.customCards.push({
   type: "faber-media",
   name: "Faber Telecomando",
   description: "Il telecomando di casa: sorgenti, crociera, bilancieri di volume e canali. Manda i comandi agli script che hai gia.",
+  preview: true,
+  documentationURL: "https://github.com/cristianwebonline/ha-faber-home",
+});
+
+
+// ===========================================================================
+// FABER CANCELLO
+// ===========================================================================
+const FGC_CSS = `
+  .fg-card{position:relative;overflow:hidden;border-radius:24px;padding:20px;
+    background:rgba(16,18,24,.82);border:1px solid rgba(255,255,255,.10);
+    backdrop-filter:blur(18px) saturate(140%);-webkit-backdrop-filter:blur(18px) saturate(140%);
+    color:#eaf1f8;box-shadow:0 12px 32px rgba(0,0,0,.3);transition:all .35s ease;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+    display:flex;flex-direction:column;gap:14px;box-sizing:border-box}
+  .fh-app.chiaro .fg-card{background:rgba(255,255,255,.78);border-color:rgba(15,23,42,.1);
+    color:#12161c;box-shadow:0 12px 32px rgba(20,26,40,.12)}
+  .fg-card.moving{border-color:rgba(74,222,128,.6);box-shadow:0 0 24px rgba(74,222,128,.35)}
+  .fg-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
+  .fg-titlebox{display:flex;align-items:center;gap:10px}
+  .fg-icon{width:42px;height:42px;border-radius:12px;background:rgba(255,176,32,.12);
+    color:#ffb020;display:flex;align-items:center;justify-content:center;font-size:22px}
+  .fg-card.moving .fg-icon{background:rgba(74,222,128,.18);color:#4ade80;animation:fgPulse 1.2s infinite ease-in-out}
+  .fg-title{font-size:16px;font-weight:800;letter-spacing:-.01em}
+  .fg-sub{font-size:11px;font-weight:600;opacity:.7;margin-top:2px}
+  .fg-pill{padding:4px 10px;border-radius:999px;font-size:10.5px;font-weight:800;
+    letter-spacing:.04em;text-transform:uppercase;background:rgba(255,255,255,.08);color:inherit}
+  .fg-card.moving .fg-pill{background:#4ade80;color:#0b2b16;animation:fgPulse 1.2s infinite ease-in-out}
+  .fg-body{display:flex;gap:10px}
+  .fg-btn-main{flex:2;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:8px;padding:16px 12px;border-radius:18px;border:none;cursor:pointer;font:inherit;
+    background:linear-gradient(135deg,#ffb020,#e09810);color:#1c1400;font-weight:800;
+    box-shadow:0 8px 20px rgba(255,176,32,.35);transition:all .18s cubic-bezier(.2,.8,.2,1)}
+  .fg-btn-main:active{transform:scale(.96);filter:brightness(.92)}
+  .fg-card.moving .fg-btn-main{background:linear-gradient(135deg,#4ade80,#22c55e);color:#052e16;
+    box-shadow:0 8px 24px rgba(74,222,128,.45)}
+  .fg-btn-main ha-icon{--mdc-icon-size:32px}
+  .fg-btn-main span{font-size:13.5px;font-weight:900;letter-spacing:.02em;text-transform:uppercase}
+  .fg-btn-main small{font-size:10.5px;font-weight:700;opacity:.85}
+  .fg-btn-ped{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:6px;padding:14px 10px;border-radius:18px;border:1px solid rgba(255,255,255,.14);cursor:pointer;
+    font:inherit;background:rgba(255,255,255,.06);color:inherit;font-weight:700;transition:all .18s ease}
+  .fh-app.chiaro .fg-btn-ped{background:rgba(15,23,42,.05);border-color:rgba(15,23,42,.12)}
+  .fg-btn-ped:active{transform:scale(.96);background:rgba(255,176,32,.18)}
+  .fg-btn-ped ha-icon{--mdc-icon-size:24px;color:#ffb020}
+  .fg-btn-ped span{font-size:11.5px;font-weight:800;text-align:center;line-height:1.2}
+  .fg-btn-ped small{font-size:9.5px;opacity:.65}
+  @keyframes fgPulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.03);opacity:.85}}
+`;
+
+class FaberCancello extends HTMLElement {
+  setConfig(config) {
+    this._cfg = Object.assign({
+      name: "Cancello",
+      gate_button: "button.pulsante_cancello",
+      gate_script: "script.apri_cancello_timer",
+      timer: "timer.timer_cancello",
+      pedestrian_button: "button.cancelletto_open_door",
+      pedestrian_battery: "sensor.cancelletto_batteria"
+    }, config || {});
+    this._built = false;
+  }
+  set hass(hass) {
+    this._hass = hass;
+    this._update();
+  }
+  getCardSize() { return 2; }
+  static getStubConfig() { return { type: "custom:faber-cancello", name: "Cancello" }; }
+
+  _update() {
+    if (!this._hass) return;
+    const tEnt = this._cfg.timer;
+    const tState = this._hass.states[tEnt];
+    const isMoving = tState && tState.state === "active";
+    const pBatEnt = this._cfg.pedestrian_battery;
+    const pBatState = pBatEnt && this._hass.states[pBatEnt] ? this._hass.states[pBatEnt].state : null;
+
+    if (!this._built) {
+      this._built = true;
+      this.innerHTML = `
+        <style>${FGC_CSS}</style>
+        <div class="fg-card" data-card>
+          <div class="fg-head">
+            <div class="fg-titlebox">
+              <div class="fg-icon" data-icon><ha-icon icon="mdi:gate"></ha-icon></div>
+              <div>
+                <div class="fg-title">${fhEsc(this._cfg.name || "Cancello")}</div>
+                <div class="fg-sub" data-sub>${isMoving ? "In movimento..." : "Pronto"}</div>
+              </div>
+            </div>
+            <div class="fg-pill" data-pill>${isMoving ? "In Movimento" : "Pronto"}</div>
+          </div>
+          <div class="fg-body">
+            <button type="button" class="fg-btn-main" data-act="main">
+              <ha-icon icon="mdi:gate-open"></ha-icon>
+              <span data-btn-label>${isMoving ? "Cancello in moto" : "Apri Cancello"}</span>
+              <small data-btn-sub>${isMoving ? "Timer attivo" : "Carrabile"}</small>
+            </button>
+            <button type="button" class="fg-btn-ped" data-act="ped">
+              <ha-icon icon="mdi:door-open"></ha-icon>
+              <span>Pedonale</span>
+              <small>${pBatState ? ("🔋 " + pBatState + "%") : "Cancelletto"}</small>
+            </button>
+          </div>
+        </div>`;
+
+      const q = s => this.querySelector(s);
+      const bMain = q('[data-act="main"]');
+      if (bMain) {
+        bMain.onclick = () => {
+          fhVibra(12);
+          if (this._cfg.gate_script && this._hass.states[this._cfg.gate_script]) {
+            this._hass.callService("script", "apri_cancello_timer", {});
+          } else if (this._cfg.gate_button) {
+            this._hass.callService("button", "press", { entity_id: this._cfg.gate_button });
+          }
+        };
+      }
+      const bPed = q('[data-act="ped"]');
+      if (bPed) {
+        bPed.onclick = () => {
+          fhVibra(8);
+          if (this._cfg.pedestrian_button) {
+            this._hass.callService("button", "press", { entity_id: this._cfg.pedestrian_button });
+          }
+        };
+      }
+    }
+
+    const card = this.querySelector("[data-card]");
+    if (card) card.classList.toggle("moving", !!isMoving);
+    const sub = this.querySelector("[data-sub]");
+    if (sub) sub.textContent = isMoving ? "In movimento..." : "Pronto · tocca per azionare";
+    const pill = this.querySelector("[data-pill]");
+    if (pill) pill.textContent = isMoving ? "In Movimento" : "Pronto";
+    const btnLabel = this.querySelector("[data-btn-label]");
+    if (btnLabel) btnLabel.textContent = isMoving ? "Cancello in moto" : "Apri Cancello";
+    const btnSub = this.querySelector("[data-btn-sub]");
+    if (btnSub) btnSub.textContent = isMoving ? "In movimento..." : "Carrabile";
+  }
+}
+customElements.define("faber-cancello", FaberCancello);
+
+// ===========================================================================
+// FABER AUTOMAZIONE (FUORI CASA / IN CASA)
+// ===========================================================================
+const FAA_CSS = `
+  .fa-card{position:relative;overflow:hidden;border-radius:24px;padding:18px 20px;
+    background:rgba(16,18,24,.82);border:1px solid rgba(255,255,255,.10);
+    backdrop-filter:blur(18px) saturate(140%);-webkit-backdrop-filter:blur(18px) saturate(140%);
+    color:#eaf1f8;box-shadow:0 12px 32px rgba(0,0,0,.3);transition:all .35s ease;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+    display:flex;align-items:center;gap:14px;box-sizing:border-box}
+  .fh-app.chiaro .fa-card{background:rgba(255,255,255,.78);border-color:rgba(15,23,42,.1);
+    color:#12161c;box-shadow:0 12px 32px rgba(20,26,40,.12)}
+  .fa-card.attiva{border-color:rgba(74,222,128,.5);box-shadow:0 0 20px rgba(74,222,128,.25)}
+  .fa-card.spenta{opacity:.75;border-color:rgba(255,255,255,.06)}
+  .fa-iconbox{width:52px;height:52px;border-radius:16px;flex:0 0 auto;
+    display:flex;align-items:center;justify-content:center;font-size:28px;
+    background:rgba(255,255,255,.07);color:var(--fh-c-muted,#93a1b0);transition:all .25s ease}
+  .fa-card.attiva .fa-iconbox{background:rgba(74,222,128,.18);color:#4ade80}
+  .fa-card.spenta .fa-iconbox{background:rgba(255,255,255,.04);color:#6b7280}
+  .fa-infobox{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+  .fa-title{font-size:14.5px;font-weight:800;letter-spacing:-.01em;display:flex;align-items:center;gap:6px}
+  .fa-tag{font-size:9.5px;font-weight:900;padding:2px 7px;border-radius:6px;text-transform:uppercase;letter-spacing:.05em}
+  .fa-card.attiva .fa-tag{background:#4ade80;color:#0b2b16}
+  .fa-card.spenta .fa-tag{background:rgba(255,255,255,.1);color:inherit}
+  .fa-status{font-size:13px;font-weight:900;color:#ffb020}
+  .fa-card.attiva .fa-status{color:#4ade80}
+  .fa-card.spenta .fa-status{color:#9ca3af}
+  .fa-sub{font-size:10.5px;font-weight:600;opacity:.7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .fa-toggle{padding:10px 16px;border-radius:14px;border:none;cursor:pointer;font:inherit;
+    font-size:12px;font-weight:800;letter-spacing:.03em;text-transform:uppercase;flex:0 0 auto;
+    transition:all .18s ease;display:flex;align-items:center;gap:6px}
+  .fa-card.attiva .fa-toggle{background:rgba(255,84,66,.18);color:#ff5442;border:1px solid rgba(255,84,66,.4)}
+  .fa-card.attiva .fa-toggle:hover{background:#ff5442;color:#fff}
+  .fa-card.spenta .fa-toggle{background:#ffb020;color:#1c1400}
+  .fa-card.spenta .fa-toggle:hover{filter:brightness(1.1)}
+  .fa-toggle:active{transform:scale(.95)}
+`;
+
+class FaberAutomazione extends HTMLElement {
+  setConfig(config) {
+    this._cfg = Object.assign({
+      name: "Automazione Casa",
+      entity: "automation.fuori_casa_1",
+      family_group: "group.famiglia",
+      wifi_c: "sensor.s25ultra_cristian_wi_fi_connection",
+      wifi_e: "sensor.s22_ultra_eva_wi_fi_connection"
+    }, config || {});
+    this._built = false;
+  }
+  set hass(hass) {
+    this._hass = hass;
+    this._update();
+  }
+  getCardSize() { return 2; }
+  static getStubConfig() { return { type: "custom:faber-automazione", name: "Automazione Casa" }; }
+
+  _update() {
+    if (!this._hass) return;
+    const st = this._hass.states[this._cfg.entity];
+    const isAttiva = st && st.state === "on";
+    const fam = this._hass.states[this._cfg.family_group];
+    const isFamHome = fam ? fam.state === "home" : true;
+    const w1 = this._hass.states[this._cfg.wifi_c] ? this._hass.states[this._cfg.wifi_c].state : "";
+    const w2 = this._hass.states[this._cfg.wifi_e] ? this._hass.states[this._cfg.wifi_e].state : "";
+    const allAway = !isFamHome && w1 !== "gaia" && w2 !== "gaia";
+
+    let icon = isAttiva ? (allAway ? "mdi:shield-lock" : "mdi:shield-home") : "mdi:shield-off-outline";
+    let statusText = isAttiva ? (allAway ? "Tutti Fuori" : "In Casa") : "Disinserita (OFF)";
+    let subText = isAttiva ? (allAway ? "Protezione attiva · Casa vuota" : "Presenza rilevata in casa") : "Automazione spenta · Nessun blocco";
+
+    if (!this._built) {
+      this._built = true;
+      this.innerHTML = `
+        <style>${FAA_CSS}</style>
+        <div class="fa-card" data-card>
+          <div class="fa-iconbox" data-icon><ha-icon icon="${icon}"></ha-icon></div>
+          <div class="fa-infobox">
+            <div class="fa-title">
+              <span>${fhEsc(this._cfg.name || "Automazione Casa")}</span>
+              <span class="fa-tag" data-tag>${isAttiva ? "ATTIVA" : "OFF"}</span>
+            </div>
+            <div class="fa-status" data-status>${statusText}</div>
+            <div class="fa-sub" data-sub>${subText}</div>
+          </div>
+          <button type="button" class="fa-toggle" data-act="toggle">
+            <ha-icon icon="${isAttiva ? "mdi:power" : "mdi:shield-check"}"></ha-icon>
+            <span data-btn>${isAttiva ? "Disinserisci" : "Attiva"}</span>
+          </button>
+        </div>`;
+
+      const btn = this.querySelector('[data-act="toggle"]');
+      if (btn) {
+        btn.onclick = () => {
+          fhVibra(10);
+          const svc = isAttiva ? "turn_off" : "turn_on";
+          this._hass.callService("automation", svc, { entity_id: this._cfg.entity });
+        };
+      }
+    }
+
+    const card = this.querySelector("[data-card]");
+    if (card) {
+      card.classList.toggle("attiva", !!isAttiva);
+      card.classList.toggle("spenta", !isAttiva);
+    }
+    const iconEl = this.querySelector("[data-icon] ha-icon");
+    if (iconEl) iconEl.setAttribute("icon", icon);
+    const tag = this.querySelector("[data-tag]");
+    if (tag) tag.textContent = isAttiva ? "ATTIVA" : "OFF";
+    const stEl = this.querySelector("[data-status]");
+    if (stEl) stEl.textContent = statusText;
+    const subEl = this.querySelector("[data-sub]");
+    if (subEl) subEl.textContent = subText;
+    const btnText = this.querySelector("[data-btn]");
+    if (btnText) btnText.textContent = isAttiva ? "Disinserisci" : "Attiva";
+  }
+}
+customElements.define("faber-automazione", FaberAutomazione);
+
+// ===========================================================================
+// FABER SPESA (CARD SPETTACOLARE LISTA DELLA SPESA)
+// ===========================================================================
+const FSP_CSS = `
+  .fsp-card{position:relative;overflow:hidden;border-radius:24px;padding:20px;
+    background:rgba(16,18,24,.82);border:1px solid rgba(255,255,255,.10);
+    backdrop-filter:blur(18px) saturate(140%);-webkit-backdrop-filter:blur(18px) saturate(140%);
+    color:#eaf1f8;box-shadow:0 12px 32px rgba(0,0,0,.3);transition:all .35s ease;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+    display:flex;flex-direction:column;gap:14px;box-sizing:border-box}
+  .fh-app.chiaro .fsp-card{background:rgba(255,255,255,.78);border-color:rgba(15,23,42,.1);
+    color:#12161c;box-shadow:0 12px 32px rgba(20,26,40,.12)}
+  .fsp-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
+  .fsp-titlebox{display:flex;align-items:center;gap:10px}
+  .fsp-carticon{width:42px;height:42px;border-radius:12px;background:rgba(255,176,32,.14);
+    color:#ffb020;display:flex;align-items:center;justify-content:center;font-size:22px;position:relative}
+  .fsp-title{font-size:16.5px;font-weight:900;letter-spacing:-.01em}
+  .fsp-sub{font-size:11px;font-weight:700;opacity:.65;margin-top:2px}
+  .fsp-badge{padding:4px 10px;border-radius:999px;font-size:11px;font-weight:900;
+    background:#ffb020;color:#1c1400;box-shadow:0 4px 12px rgba(255,176,32,.3)}
+  .fsp-tabs{display:flex;gap:6px;background:rgba(255,255,255,.06);padding:3px;border-radius:12px}
+  .fh-app.chiaro .fsp-tabs{background:rgba(15,23,42,.06)}
+  .fsp-tab{flex:1;padding:6px 10px;border:none;border-radius:9px;background:none;
+    color:inherit;cursor:pointer;font:inherit;font-size:11.5px;font-weight:800;transition:all .15s ease}
+  .fsp-tab.active{background:#ffb020;color:#1c1400;box-shadow:0 2px 8px rgba(255,176,32,.35)}
+  .fsp-addrow{display:flex;gap:8px;align-items:center}
+  .fsp-input{flex:1;min-width:0;padding:12px 14px;border-radius:14px;border:1px solid rgba(255,255,255,.14);
+    background:rgba(255,255,255,.06);color:inherit;font:inherit;font-size:13.5px;font-weight:600;
+    outline:none;transition:border-color .2s,box-shadow .2s}
+  .fh-app.chiaro .fsp-input{background:rgba(15,23,42,.04);border-color:rgba(15,23,42,.12)}
+  .fsp-input:focus{border-color:#ffb020;box-shadow:0 0 0 3px rgba(255,176,32,.25)}
+  .fsp-addbtn{width:44px;height:44px;border-radius:14px;border:none;background:#ffb020;color:#1c1400;
+    display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:22px;flex:0 0 auto;
+    transition:all .15s ease}
+  .fsp-addbtn:hover{filter:brightness(1.1);transform:scale(1.04)}
+  .fsp-addbtn:active{transform:scale(.95)}
+  .fsp-list{display:flex;flex-direction:column;gap:6px;max-height:360px;overflow-y:auto;padding-right:4px}
+  .fsp-list::-webkit-scrollbar{width:4px}
+  .fsp-list::-webkit-scrollbar-thumb{background:rgba(255,255,255,.2);border-radius:4px}
+  .fsp-item{display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:14px;
+    background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.06);transition:all .2s ease}
+  .fh-app.chiaro .fsp-item{background:rgba(15,23,42,.03);border-color:rgba(15,23,42,.06)}
+  .fsp-item:hover{background:rgba(255,255,255,.08)}
+  .fsp-item.done{opacity:.55}
+  .fsp-item.done .fsp-text{text-decoration:line-through}
+  .fsp-check{width:22px;height:22px;border-radius:50%;border:2px solid rgba(255,255,255,.3);
+    background:none;cursor:pointer;display:flex;align-items:center;justify-content:center;
+    padding:0;color:transparent;transition:all .2s cubic-bezier(.2,.8,.2,1);flex:0 0 auto}
+  .fsp-item.done .fsp-check{background:#38e08a;border-color:#38e08a;color:#0b2b16}
+  .fsp-check ha-icon{--mdc-icon-size:14px}
+  .fsp-text{flex:1;min-width:0;font-size:13.5px;font-weight:700;word-break:break-word}
+  .fsp-del{width:28px;height:28px;border-radius:8px;border:none;background:none;
+    color:rgba(255,255,255,.3);cursor:pointer;display:flex;align-items:center;justify-content:center;
+    transition:all .15s ease}
+  .fh-app.chiaro .fsp-del{color:rgba(15,23,42,.3)}
+  .fsp-del:hover{color:#ff5442;background:rgba(255,84,66,.15)}
+  .fsp-empty{padding:26px 14px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:8px;opacity:.65}
+  .fsp-empty ha-icon{--mdc-icon-size:42px;color:#ffb020}
+  .fsp-empty b{font-size:14px}
+  .fsp-empty small{font-size:11.5px}
+  .fsp-clear-btn{align-self:flex-end;padding:7px 12px;border-radius:10px;border:none;cursor:pointer;
+    font:inherit;font-size:11px;font-weight:800;background:rgba(255,84,66,.14);color:#ff5442;
+    transition:all .15s ease}
+  .fsp-clear-btn:hover{background:#ff5442;color:#fff}
+`;
+
+class FaberSpesa extends HTMLElement {
+  setConfig(config) {
+    this._cfg = Object.assign({
+      entity: "todo.shopping_list",
+      name: "Lista della Spesa"
+    }, config || {});
+    this._tab = "da_comprare";
+    this._items = [];
+    this._loaded = false;
+    this._built = false;
+  }
+  set hass(hass) {
+    this._hass = hass;
+    if (!this._loaded) {
+      this._loaded = true;
+      this._loadItems();
+    } else {
+      const st = hass.states[this._cfg.entity];
+      const count = st ? parseInt(st.state, 10) : 0;
+      if (this._lastCount !== count) {
+        this._lastCount = count;
+        this._loadItems();
+      }
+    }
+  }
+  getCardSize() { return 3; }
+  static getStubConfig() { return { type: "custom:faber-spesa", name: "Lista della Spesa" }; }
+
+  async _loadItems() {
+    if (!this._hass) return;
+    try {
+      const res = await this._hass.callWS({
+        type: "todo/item/list",
+        entity_id: this._cfg.entity
+      });
+      this._items = (res && res.items) || [];
+    } catch (e) {
+      try {
+        const res = await this._hass.callWS({
+          type: "call_service",
+          domain: "todo",
+          service: "get_items",
+          service_data: { status: ["needs_action", "completed"] },
+          target: { entity_id: this._cfg.entity },
+          return_response: true
+        });
+        const d = res && res.response && res.response[this._cfg.entity];
+        this._items = (d && d.items) || [];
+      } catch (e2) {
+        this._items = [];
+      }
+    }
+    this._render();
+  }
+
+  _render() {
+    const daComprare = this._items.filter(i => i.status === "needs_action");
+    const completati = this._items.filter(i => i.status === "completed");
+    const activeList = this._tab === "da_comprare" ? daComprare : completati;
+
+    if (!this._built) {
+      this._built = true;
+      this.innerHTML = `<style>${FSP_CSS}</style><div class="fsp-card" data-fsp></div>`;
+    }
+
+    const root = this.querySelector("[data-fsp]");
+    if (!root) return;
+
+    root.innerHTML = `
+      <div class="fsp-head">
+        <div class="fsp-titlebox">
+          <div class="fsp-carticon"><ha-icon icon="mdi:cart-outline"></ha-icon></div>
+          <div>
+            <div class="fsp-title">${fhEsc(this._cfg.name || "Lista della Spesa")}</div>
+            <div class="fsp-sub">${daComprare.length} ${daComprare.length === 1 ? "articolo da acquistare" : "articoli da acquistare"}</div>
+          </div>
+        </div>
+        <div class="fsp-badge">${daComprare.length}</div>
+      </div>
+      <div class="fsp-tabs">
+        <button type="button" class="fsp-tab${this._tab === "da_comprare" ? " active" : ""}" data-tab="da_comprare">
+          Da Comprare (${daComprare.length})
+        </button>
+        <button type="button" class="fsp-tab${this._tab === "completati" ? " active" : ""}" data-tab="completati">
+          Completati (${completati.length})
+        </button>
+      </div>
+      <form class="fsp-addrow" data-form>
+        <input type="text" class="fsp-input" placeholder="Aggiungi alla spesa (es. Latte, Pane)..." data-in required>
+        <button type="submit" class="fsp-addbtn" title="Aggiungi">+</button>
+      </form>
+      ${this._tab === "completati" && completati.length ? `
+        <button type="button" class="fsp-clear-btn" data-act="clear-done">
+          <ha-icon icon="mdi:delete-sweep-outline"></ha-icon> Svuota completati
+        </button>` : ""}
+      <div class="fsp-list">
+        ${!activeList.length ? `
+          <div class="fsp-empty">
+            <ha-icon icon="${this._tab === "da_comprare" ? "mdi:cart-check" : "mdi:check-all"}"></ha-icon>
+            <b>${this._tab === "da_comprare" ? "Carrello vuoto!" : "Nessun completato"}</b>
+            <small>${this._tab === "da_comprare" ? "Tutto comprato o lista vuota." : "Gli articoli completati appariranno qui."}</small>
+          </div>
+        ` : activeList.map(item => `
+          <div class="fsp-item${item.status === "completed" ? " done" : ""}" data-uid="${fhEsc(item.uid)}">
+            <button type="button" class="fsp-check" data-act="check" title="Segna completato">
+              <ha-icon icon="mdi:check"></ha-icon>
+            </button>
+            <div class="fsp-text">${fhEsc(item.summary)}</div>
+            <button type="button" class="fsp-del" data-act="del" title="Elimina">
+              <ha-icon icon="mdi:trash-can-outline"></ha-icon>
+            </button>
+          </div>
+        `).join("")}
+      </div>`;
+
+    root.querySelectorAll("[data-tab]").forEach(b => b.onclick = () => {
+      this._tab = b.dataset.tab;
+      this._render();
+    });
+
+    const form = root.querySelector("[data-form]");
+    if (form) {
+      form.onsubmit = async (e) => {
+        e.preventDefault();
+        const inp = form.querySelector("[data-in]");
+        const val = inp ? inp.value.trim() : "";
+        if (!val || !this._hass) return;
+        inp.value = "";
+        fhVibra(8);
+        const tempUid = "tmp_" + Date.now();
+        this._items.unshift({ uid: tempUid, summary: val, status: "needs_action" });
+        this._render();
+        try {
+          await this._hass.callService("todo", "add_item", {
+            entity_id: this._cfg.entity,
+            item: val
+          });
+        } finally {
+          this._loadItems();
+        }
+      };
+    }
+
+    const clearBtn = root.querySelector('[data-act="clear-done"]');
+    if (clearBtn) {
+      clearBtn.onclick = async () => {
+        if (!this._hass) return;
+        fhVibra(10);
+        const uids = completati.map(i => i.uid);
+        this._items = this._items.filter(i => i.status !== "completed");
+        this._render();
+        for (const u of uids) {
+          try {
+            await this._hass.callService("todo", "remove_item", {
+              entity_id: this._cfg.entity,
+              item: u
+            });
+          } catch (e) {}
+        }
+        this._loadItems();
+      };
+    }
+
+    root.querySelectorAll(".fsp-item").forEach(itemEl => {
+      const uid = itemEl.dataset.uid;
+      const targetItem = this._items.find(i => i.uid === uid);
+      if (!targetItem) return;
+
+      const chk = itemEl.querySelector('[data-act="check"]');
+      if (chk) {
+        chk.onclick = async (e) => {
+          e.stopPropagation();
+          fhVibra(8);
+          const newStatus = targetItem.status === "completed" ? "needs_action" : "completed";
+          targetItem.status = newStatus;
+          this._render();
+          try {
+            await this._hass.callService("todo", "update_item", {
+              entity_id: this._cfg.entity,
+              item: uid,
+              status: newStatus
+            });
+          } finally {
+            this._loadItems();
+          }
+        };
+      }
+
+      const del = itemEl.querySelector('[data-act="del"]');
+      if (del) {
+        del.onclick = async (e) => {
+          e.stopPropagation();
+          fhVibra(8);
+          this._items = this._items.filter(i => i.uid !== uid);
+          this._render();
+          try {
+            await this._hass.callService("todo", "remove_item", {
+              entity_id: this._cfg.entity,
+              item: uid
+            });
+          } finally {
+            this._loadItems();
+          }
+        };
+      }
+    });
+  }
+}
+customElements.define("faber-spesa", FaberSpesa);
+
+window.customCards.push({
+  type: "faber-cancello",
+  name: "Faber Cancello",
+  description: "Comando per cancello carrabile con timer animato e cancelletto pedonale.",
+  preview: true,
+  documentationURL: "https://github.com/cristianwebonline/ha-faber-home",
+});
+window.customCards.push({
+  type: "faber-automazione",
+  name: "Faber Automazione Casa",
+  description: "Controllo automazione In Casa / Fuori Casa con disinserimento rapido a un tocco.",
+  preview: true,
+  documentationURL: "https://github.com/cristianwebonline/ha-faber-home",
+});
+window.customCards.push({
+  type: "faber-spesa",
+  name: "Faber Spesa",
+  description: "Card spettacolare e interattiva per la lista della spesa.",
   preview: true,
   documentationURL: "https://github.com/cristianwebonline/ha-faber-home",
 });
