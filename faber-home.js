@@ -728,6 +728,7 @@ class FaberHome extends HTMLElement {
           this._renderNav();
           this._renderPage();
           this._inCima();
+          this._updateChips();
         }
       };
       window.addEventListener("hashchange", this._ascoltoHash);
@@ -1264,20 +1265,157 @@ class FaberHome extends HTMLElement {
     this._wireChips();
   }
 
+  _climaStanza(pg) {
+    if (!pg || !this._hass) return null;
+    const hass = this._hass;
+    const states = hass.states || {};
+    const isStanza = pg.stanza || pg.temp || pg.humidity || (pg.id && pg.id.startsWith("clima_"));
+    if (!isStanza) return null;
+
+    let tempEnt = pg.temp || pg.temperature || "";
+    let humEnt = pg.humidity || "";
+
+    if (!tempEnt || !humEnt) {
+      const pid = (pg.id || "").toLowerCase().replace(/^clima_/, "");
+      const kwMap = {
+        sala: ["soggiorno", "sala"],
+        camera_da_letto: ["camera_da_letto", "camera_letto"],
+        camera_gaia: ["camera_gaia", "gaia"],
+        camera_leo: ["camera_leo", "leo"],
+        bagno_p1: ["bagno_p1"],
+        bagno_pt: ["bagno_pt"],
+        cucina: ["cucina"],
+        ufficio: ["ufficio"],
+        lavatoio: ["lavatoio"],
+        giardino: ["giardino"],
+      };
+      const kws = kwMap[pid] || [pid];
+
+      // 1. Preferenza ai sensori dedicati clima di casa (sensor.temperatura_<kw>_*)
+      for (const kw of kws) {
+        for (const k of Object.keys(states)) {
+          if (!k.startsWith("sensor.temperatura_" + kw)) continue;
+          const st = states[k];
+          const dc = st && st.attributes ? st.attributes.device_class : "";
+          if (!tempEnt && (dc === "temperature" || k.includes("temperatura") || k.includes("temperature"))) {
+            tempEnt = k;
+          }
+          if (!humEnt && (dc === "humidity" || k.includes("umidita") || k.includes("humidity"))) {
+            humEnt = k;
+          }
+        }
+      }
+
+      // 2. Ricerca per area HA se configurata
+      if (!tempEnt || !humEnt) {
+        const areas = Object.values(hass.areas || {});
+        const pTitle = (pg.title || "").toLowerCase();
+        const targetArea = areas.find(a => {
+          const aId = (a.area_id || "").toLowerCase();
+          const aName = (a.name || "").toLowerCase();
+          return (pg.area_id && a.area_id === pg.area_id) ||
+            aId === pid || aName === pTitle ||
+            (pid === "sala" && (aId === "soggiorno" || aName.includes("soggiorno"))) ||
+            (pid === "camera_da_letto" && (aId.includes("letto") || aName.includes("letto"))) ||
+            (pid === "bagno_p1" && (aId === "bagno" || aId.includes("bagno_p1") || aName.includes("p1"))) ||
+            (aName && pTitle && (aName.includes(pTitle) || pTitle.includes(aName)));
+        });
+
+        const areaId = targetArea ? targetArea.area_id : (pg.area_id || (pid === "sala" ? "soggiorno" : (pid === "bagno_p1" ? "bagno" : pid)));
+        if (!tempEnt) {
+          const s = this._sensoreArea(areaId, "temperature");
+          if (s && !s.includes("echo_dot") && !s.includes("broadlink")) tempEnt = s;
+        }
+        if (!humEnt) humEnt = this._sensoreArea(areaId, "humidity");
+      }
+
+      // 3. Fallback per parole chiave
+      if (!tempEnt) {
+        for (const kw of kws) {
+          const found = Object.keys(states).find(k =>
+            k.startsWith("sensor.") &&
+            states[k].attributes && states[k].attributes.device_class === "temperature" &&
+            k.toLowerCase().includes(kw) &&
+            !k.includes("echo_dot") && !k.includes("broadlink") &&
+            (pid === "bagno_p1" || !k.includes("bagno_p1"))
+          );
+          if (found) { tempEnt = found; break; }
+        }
+      }
+
+      if (!humEnt) {
+        for (const kw of kws) {
+          const found = Object.keys(states).find(k =>
+            k.startsWith("sensor.") &&
+            states[k].attributes && states[k].attributes.device_class === "humidity" &&
+            k.toLowerCase().includes(kw) &&
+            (pid === "bagno_p1" || !k.includes("bagno_p1"))
+          );
+          if (found) { humEnt = found; break; }
+        }
+      }
+    }
+
+    const tState = tempEnt && states[tempEnt] && !["unavailable", "unknown"].includes(states[tempEnt].state) ? states[tempEnt] : null;
+    const hState = humEnt && states[humEnt] && !["unavailable", "unknown"].includes(states[humEnt].state) ? states[humEnt] : null;
+
+    if (!tState && !hState) return null;
+
+    let tVal = null;
+    if (tState) {
+      const num = parseFloat(tState.state);
+      tVal = isNaN(num) ? tState.state : (num % 1 === 0 ? num.toFixed(0) : num.toFixed(1));
+    }
+    let hVal = null;
+    if (hState) {
+      const num = parseFloat(hState.state);
+      hVal = isNaN(num) ? hState.state : Math.round(num);
+    }
+
+    return { tempEnt, humEnt, temp: tVal, humidity: hVal };
+  }
+
   _chipsDati() {
     const hass = this._hass;
-    const h = this._cfg.header;
+    const h = this._cfg.header || {};
     const out = [];
-    const wEnt = h.weather && hass ? hass.states[h.weather] : null;
-    const tEnt = h.temperature && hass ? hass.states[h.temperature] : null;
-    const temp = tEnt ? tEnt.state : (wEnt && wEnt.attributes ? wEnt.attributes.temperature : null);
-    if (temp != null) {
-      out.push({
-        key: "meteo", tipo: "meteo",
-        icon: wEnt ? (FH_WEATHER_ICON[wEnt.state] || "mdi:weather-partly-cloudy") : "mdi:thermometer",
-        label: temp + "\u00b0",
-        sotto: wEnt ? (FH_WEATHER_IT[wEnt.state] || wEnt.state) : "",
-      });
+    const pg = (this._cfg.pages && this._cfg.pages[this._page]) || null;
+
+    const cs = this._climaStanza(pg);
+    if (cs && (cs.temp != null || cs.humidity != null)) {
+      if (cs.temp != null) {
+        out.push({
+          key: "st:temp:" + (pg ? pg.id : "curr"),
+          tipo: "entita",
+          target: cs.tempEnt || "",
+          icon: "mdi:thermometer",
+          label: cs.temp + "\u00b0",
+          sotto: (pg && pg.title) ? pg.title : "Temp",
+          on: true,
+        });
+      }
+      if (cs.humidity != null) {
+        out.push({
+          key: "st:hum:" + (pg ? pg.id : "curr"),
+          tipo: "entita",
+          target: cs.humEnt || "",
+          icon: "mdi:water-percent",
+          label: cs.humidity + "%",
+          sotto: "Umidit\u00e0",
+        });
+      }
+    } else {
+      const wEnt = h.weather && hass ? hass.states[h.weather] : null;
+      const tEnt = h.temperature && hass ? hass.states[h.temperature] : null;
+      const temp = tEnt ? tEnt.state : (wEnt && wEnt.attributes ? wEnt.attributes.temperature : null);
+      if (temp != null) {
+        out.push({
+          key: "meteo", tipo: "meteo",
+          icon: wEnt ? (FH_WEATHER_ICON[wEnt.state] || "mdi:weather-partly-cloudy") : "mdi:thermometer",
+          label: temp + "\u00b0",
+          sotto: wEnt ? (FH_WEATHER_IT[wEnt.state] || wEnt.state) : "",
+        });
+      }
     }
     (h.chips || []).forEach(chip => {
       // Una chip puo anche essere una SCORCIATOIA a una pagina invece che un
@@ -1323,6 +1461,7 @@ class FaberHome extends HTMLElement {
     requestAnimationFrame(() => {
       this._renderPage();
       this._inCima();
+      this._updateChips();
     });
   }
 
@@ -3997,6 +4136,12 @@ class FaberHome extends HTMLElement {
         if (["switch", "light", "fan", "input_boolean", "automation", "lock"].includes(dom)) {
           const svc = dom === "lock" ? (this._hass.states[ent].state === "locked" ? "unlock" : "lock") : "toggle";
           this._hass.callService(dom, svc, { entity_id: ent });
+        } else {
+          this.dispatchEvent(new CustomEvent("hass-more-info", {
+            bubbles: true,
+            composed: true,
+            detail: { entityId: ent },
+          }));
         }
       };
     });
