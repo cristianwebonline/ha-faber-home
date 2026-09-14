@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.99.12";
+const FH_VERSION = "0.99.13";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -2100,7 +2100,11 @@ class FaberHome extends HTMLElement {
     if (!quadre.length) return;
     const applica = () => quadre.forEach(el => {
       const w = Math.round(el.getBoundingClientRect().width);
-      if (w > 0) el.style.setProperty("--fh-q", w + "px");
+      if (w > 0) {
+        el.style.setProperty("--fh-q", w + "px");
+        if (!this._edit) el.style.height = w + "px";
+        else el.style.height = "";
+      }
     });
     applica();
     // E una seconda volta appena il browser ha finito di sistemare tutto:
@@ -4765,29 +4769,44 @@ const FH_CSS = `
      o si adatta, o la card cresce. */
   .fh-slot.fissa{min-height:var(--fh-h,auto)}
   /* Quadrata davvero: alta quanto e larga, su qualunque schermo. */
-  /* Il quadrato e una misura MINIMA, non un vincolo: se il contenuto chiede
-     piu spazio la card si allunga invece di tagliarlo. Su schermo largo lo
-     spazio c'e e resta quadrata; su una colonna da 165px del telefono si
-     allunga quel tanto che basta a far entrare foto, nome, stato e batteria. */
-  .fh-slot.quadra{width:100%;min-height:var(--fh-q,0px);
-    max-width:min(100%,var(--fh-quadra,340px));margin-inline:auto}
+  .fh-slot.quadra{width:100%;aspect-ratio:1 / 1 !important;height:auto;min-height:0;
+    max-width:min(100%,var(--fh-quadra,340px));margin-inline:auto;align-self:start;
+    display:flex;flex-direction:column}
+  .fh-slot.quadra.editing{aspect-ratio:auto !important}
   .fh-slot.quadra>*:not(.fh-tools):not(.fh-shield):not(.fh-ang){
-    display:block;height:auto;min-height:100%}
-  .fh-slot.quadra ha-card{min-height:100%;height:auto;box-sizing:border-box}
-  /* In una card quadrata il contenuto e piu corto del riquadro: senza questo
-     resta appeso in alto e sotto la batteria si apre mezza card vuota.
-     Centrato in verticale il vuoto si divide fra sopra e sotto e non si nota
-     piu; la foto invece cresce con la card, cosi il quadrato si riempie
-     davvero invece di ospitare un francobollo in mezzo al bianco. */
-  .fh-slot.quadra .fp-body{min-height:100%;height:auto;box-sizing:border-box;justify-content:center}
-  .fh-slot.quadra .fp-avatar{width:min(var(--fp-d,108px) * 1.35, 58%)}
-  /* Il blocco del testo nasce con flex:1, cioe "prenditi tutto lo spazio che
-     avanza": in una card alta quanto serve va benissimo, ma in una quadrata
-     si allungava lui e lo spazio libero finiva DENTRO di lui, sotto la
-     batteria. Cosi il centraggio qui sopra non aveva niente da centrare.
-     Nel quadrato il testo torna alto quanto il suo contenuto, e il vuoto
-     torna al corpo della card che lo divide fra sopra e sotto. */
-  .fh-slot.quadra .fp-testo{flex:0 0 auto}
+    display:flex;flex-direction:column;height:100%!important;width:100%!important;
+    min-height:0!important;box-sizing:border-box;overflow:hidden}
+  .fh-slot.quadra ha-card{height:100%!important;width:100%!important;min-height:0!important;
+    aspect-ratio:1 / 1!important;box-sizing:border-box;overflow:hidden}
+  .fh-slot.quadra .fp{aspect-ratio:1 / 1!important;height:100%!important;width:100%!important;
+    box-sizing:border-box!important;display:flex!important;flex-direction:column!important;overflow:hidden!important}
+  .fh-slot.quadra .fp-body{height:100%!important;width:100%!important;min-height:0!important;box-sizing:border-box!important;
+    padding:10px 8px 8px!important;display:flex!important;flex-direction:column!important;align-items:center!important;
+    justify-content:space-evenly!important;text-align:center!important;gap:2px!important;overflow:hidden!important}
+  .fh-slot.quadra .fp-body.fianco{flex-direction:row!important;align-items:center!important;justify-content:center!important;
+    text-align:left!important;gap:8px!important;padding:10px!important}
+  .fh-slot.quadra .fp-avatar{width:clamp(48px,34%,80px)!important;height:auto!important;aspect-ratio:1!important;
+    flex:0 0 auto!important;margin:0 auto!important}
+  .fh-slot.quadra .fp-body.fianco .fp-avatar{width:clamp(46px,34%,72px)!important;margin:0!important}
+  .fh-slot.quadra .fp-testo{flex:0 1 auto!important;min-width:0!important;width:100%!important;display:flex!important;
+    flex-direction:column!important;align-items:center!important;gap:1px!important}
+  .fh-slot.quadra .fp-body.fianco .fp-testo{align-items:flex-start!important}
+  .fh-slot.quadra .fp-nome{font-size:clamp(12.5px,3.6vw,15.5px)!important;font-weight:800!important;line-height:1.15!important;
+    text-align:center!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important;max-width:100%!important}
+  .fh-slot.quadra .fp-body.fianco .fp-nome{text-align:left!important}
+  .fh-slot.quadra .fp-stato{font-size:clamp(9px,2.4vw,10.5px)!important;font-weight:800!important;line-height:1.15!important;
+    text-align:center!important;margin-top:1px!important;letter-spacing:.06em!important}
+  .fh-slot.quadra .fp-body.fianco .fp-stato{text-align:left!important}
+  .fh-slot.quadra .fp-da{font-size:clamp(8.5px,2.2vw,9.5px)!important;font-weight:600!important;line-height:1.15!important;
+    opacity:.6!important;text-align:center!important}
+  .fh-slot.quadra .fp-body.fianco .fp-da{text-align:left!important}
+  .fh-slot.quadra .fp-bat{font-size:clamp(9px,2.4vw,10.5px)!important;font-weight:800!important;margin-top:2px!important;
+    display:flex!important;align-items:center!important;justify-content:center!important;gap:4px!important}
+  .fh-slot.quadra .fp-bguscio{width:26px!important;height:9px!important;padding:1px!important}
+  .fh-slot.quadra .fp-bguscio::after{width:2px!important;height:3px!important;right:-3px!important;top:2px!important}
+  .fh-slot.quadra .fp-righe{margin-top:2px!important;gap:1px!important}
+  .fh-slot.quadra .fp-righe span{font-size:9px!important;gap:3px!important}
+  .fh-slot.quadra .fp-righe ha-icon{--mdc-icon-size:11px!important}
   .fh-slot>.fh-cardwrap{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
   .fh-slot>.fh-cardwrap>*{flex:1 1 auto;min-height:100%;box-sizing:border-box}
   .fh-slot.editing.fissa>.fh-cardwrap{flex:1}
@@ -9163,6 +9182,9 @@ class FaberPersona extends HTMLElement {
 
     this._card.style.backgroundImage = `linear-gradient(165deg, ${tono.c}22, ${tono.c}08)`;
     this._card.style.borderColor = tono.c + "45";
+    const isQuadra = c.fh_forma === "quadra" || !!this.closest(".fh-slot.quadra") || c.forma_card === "quadrata";
+    if (isQuadra) this._card.classList.add("quadra");
+    else this._card.classList.remove("quadra");
 
     const nome = c.name || st.attributes.friendly_name || "Persona";
     const righe = [];
@@ -9300,11 +9322,34 @@ const FP_CSS = `
     border-radius:0 2px 2px 0;background:rgba(255,255,255,.35)}
   .fp-blivello{display:block;height:100%;border-radius:1.5px;background:#38e08a;transition:width .6s ease}
   .fp-bat.bassa .fp-blivello{background:#ff5c5c}
-  .fp-bat.bassa{color:#ff8f8f}
-  /* Niente @container qui: dichiarare un contenitore porta con se
-     contain:layout, che creerebbe un contesto di impilamento e rimetterebbe i
-     popup prigionieri dentro la card. Lo spazio lo gestisce max-width. */
-
+  .fp.quadra{aspect-ratio:1 / 1!important;height:100%!important;width:100%!important;max-height:100%!important;
+    box-sizing:border-box!important;display:flex!important;flex-direction:column!important;overflow:hidden!important}
+  .fp.quadra .fp-body{height:100%!important;width:100%!important;min-height:0!important;box-sizing:border-box!important;
+    padding:10px 8px 8px!important;display:flex!important;flex-direction:column!important;align-items:center!important;
+    justify-content:space-evenly!important;text-align:center!important;gap:2px!important;overflow:hidden!important}
+  .fp.quadra .fp-body.fianco{flex-direction:row!important;align-items:center!important;justify-content:center!important;
+    text-align:left!important;gap:8px!important;padding:10px!important}
+  .fp.quadra .fp-avatar{width:clamp(48px,34%,80px)!important;height:auto!important;aspect-ratio:1!important;flex:0 0 auto!important;margin:0 auto!important}
+  .fp.quadra .fp-body.fianco .fp-avatar{width:clamp(46px,34%,72px)!important;margin:0!important}
+  .fp.quadra .fp-testo{flex:0 1 auto!important;min-width:0!important;width:100%!important;display:flex!important;
+    flex-direction:column!important;align-items:center!important;gap:1px!important}
+  .fp.quadra .fp-body.fianco .fp-testo{align-items:flex-start!important}
+  .fp.quadra .fp-nome{font-size:clamp(12.5px,3.6vw,15.5px)!important;font-weight:800!important;line-height:1.15!important;
+    text-align:center!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important;max-width:100%!important}
+  .fp.quadra .fp-body.fianco .fp-nome{text-align:left!important}
+  .fp.quadra .fp-stato{font-size:clamp(9px,2.4vw,10.5px)!important;font-weight:800!important;line-height:1.15!important;
+    text-align:center!important;margin-top:1px!important;letter-spacing:.06em!important}
+  .fp.quadra .fp-body.fianco .fp-stato{text-align:left!important}
+  .fp.quadra .fp-da{font-size:clamp(8.5px,2.2vw,9.5px)!important;font-weight:600!important;line-height:1.15!important;
+    opacity:.6!important;text-align:center!important}
+  .fp.quadra .fp-body.fianco .fp-da{text-align:left!important}
+  .fp.quadra .fp-bat{font-size:clamp(9px,2.4vw,10.5px)!important;font-weight:800!important;margin-top:2px!important;
+    display:flex!important;align-items:center!important;justify-content:center!important;gap:4px!important}
+  .fp.quadra .fp-bguscio{width:26px!important;height:9px!important;padding:1px!important}
+  .fp.quadra .fp-bguscio::after{width:2px!important;height:3px!important;right:-3px!important;top:2px!important}
+  .fp.quadra .fp-righe{margin-top:2px!important;gap:1px!important}
+  .fp.quadra .fp-righe span{font-size:9px!important;gap:3px!important}
+  .fp.quadra .fp-righe ha-icon{--mdc-icon-size:11px!important}
 `;
 
 customElements.define("faber-persona", FaberPersona);
