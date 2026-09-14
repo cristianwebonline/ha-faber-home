@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.99.11";
+const FH_VERSION = "0.99.12";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -395,18 +395,20 @@ class FhSky {
       }
       g.restore();
 
-      // 3. Bokeh caldo sfocato (pulviscolo cinematico nella luce del sole)
-      for (const d of this.parts) {
-        const pulse = 0.8 + 0.2 * Math.sin(t * d.sp + d.ph);
-        const alpha = Math.min(1, d.a * pulse * f);
-        const bGrd = g.createRadialGradient(d.x, d.y, 0, d.x, d.y, d.r);
-        bGrd.addColorStop(0, `rgba(${sunCol},${alpha})`);
-        bGrd.addColorStop(0.5, `rgba(${sunCol},${alpha * 0.4})`);
-        bGrd.addColorStop(1, `rgba(${sunCol},0)`);
-        g.fillStyle = bGrd;
-        g.beginPath();
-        g.arc(d.x, d.y, d.r, 0, 6.283);
-        g.fill();
+      // 3. Di giorno con il sole il cielo e pulito senza puntini/stelle
+      if (this.dark) {
+        for (const d of this.parts) {
+          const pulse = 0.8 + 0.2 * Math.sin(t * d.sp + d.ph);
+          const alpha = Math.min(1, d.a * pulse * f);
+          const bGrd = g.createRadialGradient(d.x, d.y, 0, d.x, d.y, d.r);
+          bGrd.addColorStop(0, `rgba(${sunCol},${alpha})`);
+          bGrd.addColorStop(0.5, `rgba(${sunCol},${alpha * 0.4})`);
+          bGrd.addColorStop(1, `rgba(${sunCol},0)`);
+          g.fillStyle = bGrd;
+          g.beginPath();
+          g.arc(d.x, d.y, d.r, 0, 6.283);
+          g.fill();
+        }
       }
     } else {
       // Se NON e buio (dark e falso), non si disegnano MAI stelle di giorno
@@ -477,7 +479,7 @@ const FH_ARTE_CSS = `
   .fh-vapore2{animation:fhVapore2 3.1s ease-out infinite}
   .fh-goccia{animation:fhGocciaM 1.8s ease-in infinite}
   .fh-ripple{animation:fhRipple 1.8s ease-out infinite}
-  .fh-cestello{transform-box:fill-box;transform-origin:center;animation:fhGiraLento 4.5s linear infinite}
+  .fh-cestello{transform-box:view-box;transform-origin:24px 27px;animation:fhGiraLento 4.5s linear infinite}
   .fh-bolla{animation:fhBolla 2.4s ease-out infinite}
   .fh-foglia1{animation:fhBrezza1 3.4s ease-in-out infinite}
   .fh-foglia2{animation:fhBrezza2 3.8s ease-in-out infinite}
@@ -611,16 +613,16 @@ function fhArteStanza(tipo, s) {
       <path d="M14 13h8"/><circle cx="31" cy="13" r="1.8" fill="currentColor" stroke="none"/>
       <circle cx="24" cy="27" r="9.5" stroke-width="2"/>
       <circle cx="24" cy="27" r="8" stroke-width="0.8" opacity=".35"/>
-      <g transform="translate(24 27)">
-        <g class="fh-cestello an" style="transform-box:fill-box;transform-origin:center">
-          <circle cx="0" cy="0" r="7.2" stroke-width="1.2" opacity=".6" fill="currentColor" fill-opacity=".08"/>
-          <circle cx="0" cy="0" r="5.2" fill="none" stroke="currentColor" stroke-dasharray="1.2 2" stroke-width="1" opacity=".55"/>
-          <circle cx="0" cy="0" r="3.4" fill="none" stroke="currentColor" stroke-dasharray="1 1.8" stroke-width="0.8" opacity=".45"/>
-          <rect x="-0.8" y="-6.4" width="1.6" height="3.8" rx="0.7" fill="currentColor" stroke="none"/>
-          <rect x="-0.8" y="-6.4" width="1.6" height="3.8" rx="0.7" fill="currentColor" stroke="none" transform="rotate(120)"/>
-          <rect x="-0.8" y="-6.4" width="1.6" height="3.8" rx="0.7" fill="currentColor" stroke="none" transform="rotate(240)"/>
-          <circle cx="0" cy="0" r="1.5" fill="currentColor" stroke="none"/>
+      <g class="fh-cestello" style="transform-box:view-box;transform-origin:24px 27px">
+        <circle cx="24" cy="27" r="6.8" stroke-width="1.2" opacity=".6" fill="currentColor" fill-opacity=".08"/>
+        <circle cx="24" cy="27" r="5" fill="none" stroke="currentColor" stroke-dasharray="1.2 2" stroke-width="1" opacity=".55"/>
+        <circle cx="24" cy="27" r="3.2" fill="none" stroke="currentColor" stroke-dasharray="1 1.8" stroke-width="0.8" opacity=".45"/>
+        <g transform="translate(24 27)">
+          <rect x="-0.8" y="-6.2" width="1.6" height="3.5" rx="0.7" fill="currentColor" stroke="none"/>
+          <rect x="-0.8" y="-6.2" width="1.6" height="3.5" rx="0.7" fill="currentColor" stroke="none" transform="rotate(120)"/>
+          <rect x="-0.8" y="-6.2" width="1.6" height="3.5" rx="0.7" fill="currentColor" stroke="none" transform="rotate(240)"/>
         </g>
+        <circle cx="24" cy="27" r="1.5" fill="currentColor" stroke="none"/>
       </g>
       <circle class="fh-bolla" style="animation-delay:0s" cx="33" cy="21" r="1.8" stroke-width="1.3" fill="currentColor" opacity=".25"/>
       <circle class="fh-bolla" style="animation-delay:1.2s" cx="29" cy="22" r="1.2" stroke-width="1.2" fill="currentColor" opacity=".25"/>`,
@@ -1134,20 +1136,37 @@ class FaberHome extends HTMLElement {
 
   _consumoDati(pg) {
     const cfg = this._consumoCfg(pg);
-    const lista = cfg.entita || this._proponiConsumo(pg);
+    const lista = (cfg.entita || this._proponiConsumo(pg)).slice();
+    const pwrTot = pg.power || pg.consumo_totale;
+    const sommaTutto = pg.consumo_somma_tutto !== undefined ? !!pg.consumo_somma_tutto : !pwrTot;
     const hass = this._hass;
     const voci = [];
     let tot = 0;
-    lista.forEach(e => {
+
+    const getW = (e) => {
       const st = hass && hass.states[e];
       const n = st ? parseFloat(st.state) : NaN;
-      // Qualche integrazione dichiara i kW: non si sommano numeri di unita
-      // diverse, si porta tutto a watt.
-      const u = String((st && st.attributes.unit_of_measurement) || "").toLowerCase();
-      const w = isNaN(n) ? null : (u === "kw" ? n * 1000 : n);
+      const u = String((st && st.attributes && st.attributes.unit_of_measurement) || "").toLowerCase();
+      return isNaN(n) ? null : (u === "kw" ? n * 1000 : n);
+    };
+
+    if (pwrTot) {
+      const st = hass && hass.states[pwrTot];
+      const w = getW(pwrTot);
       if (w != null) tot += w;
+      voci.push({ id: pwrTot, nome: "Totale stanza: " + this._nomeEnt(pwrTot), w, viva: !!st && w != null, isTot: true });
+    }
+
+    lista.forEach(e => {
+      if (e === pwrTot) return;
+      const st = hass && hass.states[e];
+      const w = getW(e);
+      if (sommaTutto) {
+        if (w != null) tot += w;
+      }
       voci.push({ id: e, nome: this._nomeEnt(e), w, viva: !!st && w != null });
     });
+
     voci.sort((a, b) => (b.w || 0) - (a.w || 0));
     const liv = tot >= cfg.alto ? "alto" : tot >= cfg.attenzione ? "medio" : "basso";
     return { cfg, voci, tot, liv, proposta: !cfg.entita };
@@ -2230,6 +2249,7 @@ class FaberHome extends HTMLElement {
     el.innerHTML = `<button type="button" class="fh-grip" data-grip title="Trascina per spostare"><ha-icon icon="mdi:drag"></ha-icon></button>
       ${this._btn("mdi:arrow-left", "Colonna precedente", "left")}
       ${this._btn("mdi:arrow-right", "Colonna successiva", "right")}
+      ${this._btn("mdi:cog-outline", "Configura card", "cfg")}
       <div class="fh-menu">
         ${this._btn("mdi:dots-vertical", "Altro", "menu")}
         <div class="fh-menupop" hidden>
@@ -3643,6 +3663,8 @@ class FaberHome extends HTMLElement {
             <ha-icon icon="${pg.nascosta ? "mdi:eye-off-outline" : "mdi:eye-outline"}"></ha-icon></button>
           <button type="button" class="fh-tool${pg.stanza ? " acceso" : ""}" data-act="stanza"
             title="${pg.stanza ? "Compare nell'elenco Stanze" : "Non e una stanza"}"><ha-icon icon="mdi:door-open"></ha-icon></button>
+          ${pg.stanza ? `<button type="button" class="fh-tool acceso" data-act="sensori"
+            title="Configura sensori temperatura e consumi stanza"><ha-icon icon="mdi:tune-vertical"></ha-icon></button>` : ""}
           <button type="button" class="fh-tool${(pg.barra || []).length ? " acceso" : ""}" data-act="barra"
             title="Cosa aggiungere alla barra quando sei in questa pagina"><ha-icon icon="mdi:dock-bottom"></ha-icon></button>
           <button type="button" class="fh-tool" data-act="up" title="Su"><ha-icon icon="mdi:arrow-up"></ha-icon></button>
@@ -3658,6 +3680,7 @@ class FaberHome extends HTMLElement {
         row.querySelectorAll("[data-act]").forEach(b => b.addEventListener("click", () => {
           const a = b.dataset.act, pages = this._cfg.pages;
           if (a === "stanza") { pages[i].stanza = !pages[i].stanza; }
+          else if (a === "sensori") { this._modificaSensoriStanza(i); return; }
           else if (a === "barra") { this._sceltaBarra(i); return; }
           if (a === "vedi") { pages[i].nascosta = !pages[i].nascosta; }
           else if (a === "up" && i > 0) { const [x] = pages.splice(i, 1); pages.splice(i - 1, 0, x); }
@@ -3816,7 +3839,7 @@ class FaberHome extends HTMLElement {
     // Chi riapre l'elenco dalla barra vuole l'elenco, non l'officina: le
     // modalita si spengono. Le riaperture nostre (torno dalla scelta del
     // disegno, ho appena dato un nome) passano `mantieni` e restano dov'erano.
-    if (!mantieni) { this._ordinaStanze = false; this._modificaStanze = false; }
+    if (!mantieni) { this._ordinaStanze = false; this._modificaStanze = !!this._edit; }
     const draw = () => {
     const stanze = this._cfg.pages.map((p, i) => ({ p, i })).filter(x => x.p.stanza);
     const ord = this._ordinaStanze, mod = this._modificaStanze;
@@ -3833,8 +3856,12 @@ class FaberHome extends HTMLElement {
       const gr = this._tempDiPagina(p.id);
       const watt = this._consumoDiPagina(p);
       const acc = this._contaAccesiPagina(p.id);
+      const haConsumo = (watt > 0) || p.mostra_sempre_consumo || p.power || p.consumo_totale || (p.consumo && p.consumo.entita && p.consumo.entita.length);
       return `<div class="fh-stanza${acc ? " viva" : ""}${ord ? " ord" : ""}${mod ? " mod-attiva" : ""}" data-vai="${i}"
         style="--ritardo:${(k % 5) * 140}ms">
+        <button type="button" class="fh-stanzabtn-cfg" data-sensori="${i}" title="Modifica sensori temperatura e consumi">
+          <ha-icon icon="mdi:tune-vertical"></ha-icon>
+        </button>
         <span class="fh-alone"></span>
         <span class="fh-arte${p.icona_svg ? " fucina" : ""}">${p.icona_svg
           ? p.icona_svg
@@ -3843,7 +3870,7 @@ class FaberHome extends HTMLElement {
         <span class="fh-stanzadati">
           <span class="fh-stanzametriche">
             ${gr != null ? `<b class="fh-stemp" title="Temperatura">${String(gr.toFixed(1)).replace(".", ",")}\u00b0</b>` : ""}
-            ${watt > 0 ? `<b class="fh-swatt" title="Consumo attuale">${fhEsc(fhNumW(watt))}</b>` : ""}
+            ${haConsumo ? `<b class="fh-swatt" title="Consumo attuale">${fhEsc(fhNumW(watt))}</b>` : ""}
           </span>
           ${acc ? `<i>${acc} ${acc === 1 ? "acceso" : "accesi"}</i>` : ""}
         </span>
@@ -3879,7 +3906,8 @@ class FaberHome extends HTMLElement {
     box.querySelectorAll("[data-scena]").forEach(b => b.addEventListener("click", () => {
       this._sceltaDisegno(+b.dataset.scena);
     }));
-    box.querySelectorAll("[data-sensori]").forEach(b => b.addEventListener("click", () => {
+    box.querySelectorAll("[data-sensori]").forEach(b => b.addEventListener("click", e => {
+      e.stopPropagation();
       this._modificaSensoriStanza(+b.dataset.sensori);
     }));
     box.querySelectorAll("[data-rinomina]").forEach(b => b.addEventListener("click", () => {
@@ -3959,14 +3987,25 @@ class FaberHome extends HTMLElement {
     const box = document.createElement("div");
     const hass = this._hass;
 
+    let roomTitle = pg.title || "";
     let curTemp = pg.temp || pg.temperature || "";
     let curHum = pg.humidity || "";
+    let curPowerTot = pg.power || pg.consumo_totale || "";
     const cCfg = this._consumoCfg(pg);
     let consumoAttivo = cCfg.attiva;
     let consumoEntita = (cCfg.entita || this._proponiConsumo(pg)).slice();
+    let sommaDispositivi = pg.consumo_somma_tutto !== undefined ? !!pg.consumo_somma_tutto : !curPowerTot;
+    let mostraSempreConsumo = pg.mostra_sempre_consumo !== undefined ? !!pg.mostra_sempre_consumo : true;
     let consumoAttenzione = cCfg.attenzione;
     let consumoAlto = cCfg.alto;
     let consumoTitolo = cCfg.titolo;
+
+    const getW = (e) => {
+      const st = hass && hass.states[e];
+      const n = st ? parseFloat(st.state) : NaN;
+      const u = String((st && st.attributes && st.attributes.unit_of_measurement) || "").toLowerCase();
+      return isNaN(n) ? 0 : (u === "kw" ? n * 1000 : n);
+    };
 
     const draw = () => {
       const tSt = curTemp && hass && hass.states[curTemp];
@@ -3975,15 +4014,21 @@ class FaberHome extends HTMLElement {
         : (autoT != null ? (String(autoT.toFixed(1)).replace(".", ",") + " \u00b0C (rilevato in automatico)") : "Nessuno rilevato");
 
       let totW = 0;
-      consumoEntita.forEach(e => {
-        const st = hass && hass.states[e];
-        const n = st ? parseFloat(st.state) : NaN;
-        const u = String((st && st.attributes.unit_of_measurement) || "").toLowerCase();
-        const w = isNaN(n) ? 0 : (u === "kw" ? n * 1000 : n);
-        totW += w;
-      });
+      if (curPowerTot) {
+        totW += getW(curPowerTot);
+      }
+      if (!curPowerTot || sommaDispositivi) {
+        consumoEntita.forEach(e => {
+          if (e !== curPowerTot) totW += getW(e);
+        });
+      }
 
       box.innerHTML = `
+        <div class="fh-sgroup">Nome Stanza</div>
+        <div class="fh-srow" style="margin-bottom:14px">
+          <input class="fh-input" id="stEditTitle" value="${fhEsc(roomTitle)}" placeholder="Nome della stanza">
+        </div>
+
         <div class="fh-sgroup">Sensore di Temperatura</div>
         <div class="fh-note">Compare sull'icona della stanza e nella barra in cima. Se vuoto, Faber Home rileva il termometro automaticamente dalle card della stanza.</div>
         <div class="fh-srow" style="align-items:center;margin-bottom:8px">
@@ -4000,27 +4045,48 @@ class FaberHome extends HTMLElement {
         <div class="fh-sgroup" style="margin-top:16px">Sensore di Umidità <small style="font-size:11px;font-weight:normal;opacity:.7">(opzionale)</small></div>
         ${this._entityListHTML("stEditHum", curHum, "sensor.", "Sensore umidità", "humidity")}
 
-        <div class="fh-sgroup" style="margin-top:20px">Sensori dei Consumi (Potenza in Watt)</div>
-        <div class="fh-note">I sensori selezionati vengono sommati in tempo reale per mostrare la potenza istantanea (W/kW) sia sull'icona della stanza sia nella fascia consumi in cima.</div>
-        <div class="fh-srow" style="align-items:center;margin-bottom:8px">
-          <span style="font-size:12px;opacity:.7">Consumo attuale sommato:</span>
-          <span class="fh-valbadge" style="font-weight:900;color:var(--fh-c-warn,#ffb020)">${fhEsc(fhNumW(totW))}</span>
+        <div class="fh-sgroup" style="margin-top:22px">Consumi Stanza (Potenza in Watt / kW)</div>
+        <div class="fh-note">Puoi impostare un sensore di <b>consumo totale stanza</b> (es. pinza contatore o interruttore generale stanza) e/o aggiungere i <b>singoli carichi/dispositivi</b> (prese smart, elettrodomestici, luci).</div>
+
+        <div class="fh-srow" style="align-items:center;margin-bottom:12px;padding:8px 12px;background:rgba(255,176,32,.08);border:1px solid rgba(255,176,32,.25);border-radius:12px">
+          <span style="font-size:12px;font-weight:700">Potenza stanza calcolata adesso:</span>
+          <span class="fh-valbadge" style="font-weight:900;font-size:15px;color:var(--fh-c-warn,#ffb020);margin-left:auto">${fhEsc(fhNumW(totW))}</span>
         </div>
 
-        <div class="fh-lab2">Sensori contati per questa stanza</div>
-        <div class="fh-tags">${consumoEntita.length ? consumoEntita.map((e, idx) =>
-          `<span class="fh-tag">${fhEsc(this._nomeEnt(e))}<button type="button" data-delc="${idx}">&times;</button></span>`
-        ).join("") : `<div class="fh-note">Nessun sensore selezionato: segnerà 0 W.</div>`}</div>
+        <div class="fh-lab2">1. Sensore Consumo Totale Stanza (contatore / pinza dedicato)</div>
+        ${this._entityListHTML("stEditPowerTot", curPowerTot, "sensor.", "Sensore totale stanza (es. sensor.potenza_camera...)", "power")}
+        ${curPowerTot ? `
+          <div class="fh-srow" style="align-items:center;margin-top:4px;margin-bottom:10px">
+            <span style="font-size:11px;opacity:.75">Misura attuale: <b>${fhEsc(fhNumW(getW(curPowerTot)))}</b> (${fhEsc(this._nomeEnt(curPowerTot))})</span>
+            <button type="button" class="fh-btn" id="btnRimuoviPowerTot" style="font-size:10px;padding:2px 6px;margin-left:auto">&times; Togli sensore totale</button>
+          </div>` : `<div style="height:8px"></div>`}
 
-        ${this._entityListHTML("stAddPower", "", "sensor.", "Aggiungi sensore di potenza (W)", "power")}
+        <div class="fh-lab2" style="margin-top:10px">2. Singoli Dispositivi ed Elettrodomestici da conteggiare</div>
+        <div class="fh-tags">${consumoEntita.length ? consumoEntita.map((e, idx) => {
+          const w = getW(e);
+          return `<span class="fh-tag">${fhEsc(this._nomeEnt(e))} <b style="opacity:.8;margin-left:4px">${fhEsc(fhNumW(w))}</b><button type="button" data-delc="${idx}">&times;</button></span>`;
+        }).join("") : `<div class="fh-note">Nessun singolo dispositivo aggiunto.</div>`}</div>
+
+        ${this._entityListHTML("stAddPower", "", "sensor.", "Aggiungi sensore carico (es. presa, elettrodomestico...)", "power")}
         <div class="fh-srow" style="margin-top:8px;gap:6px">
-          <button type="button" class="fh-btn" id="btnAggPower"><ha-icon icon="mdi:plus"></ha-icon>Aggiungi</button>
+          <button type="button" class="fh-btn" id="btnAggPower"><ha-icon icon="mdi:plus"></ha-icon>Aggiungi dispositivo</button>
           <button type="button" class="fh-btn" id="btnPropPower"><ha-icon icon="mdi:auto-fix"></ha-icon>Proponi da card e area</button>
         </div>
 
+        ${curPowerTot && consumoEntita.length ? `
         <label class="fh-check" style="margin-top:14px">
+          <input type="checkbox" id="chkSommaDispositivi"${sommaDispositivi ? " checked" : ""}>
+          Somma i singoli dispositivi al sensore totale (disattiva se il totale sopra include già questi carichi)
+        </label>` : ""}
+
+        <label class="fh-check" style="margin-top:14px">
+          <input type="checkbox" id="chkMostraSempre"${mostraSempreConsumo ? " checked" : ""}>
+          Mostra sempre il valore dei consumi sull'icona della stanza (anche a 0 W)
+        </label>
+
+        <label class="fh-check" style="margin-top:8px">
           <input type="checkbox" id="chkConsAttivo"${consumoAttivo ? " checked" : ""}>
-          Mostra fascia consumi in cima alla stanza
+          Mostra fascia consumi in cima quando sei dentro la stanza
         </label>
 
         <div class="fh-srow" style="margin-top:12px">
@@ -4037,6 +4103,9 @@ class FaberHome extends HTMLElement {
       `;
 
       this._wireEntityLists(box);
+
+      const inpTitle = box.querySelector("#stEditTitle");
+      if (inpTitle) inpTitle.addEventListener("input", e => { roomTitle = e.target.value; });
 
       box.querySelectorAll("[data-delc]").forEach(b => b.addEventListener("click", () => {
         consumoEntita.splice(+b.dataset.delc, 1);
@@ -4071,11 +4140,27 @@ class FaberHome extends HTMLElement {
         draw();
       });
 
+      const btnRimuoviPwr = box.querySelector("#btnRimuoviPowerTot");
+      if (btnRimuoviPwr) btnRimuoviPwr.addEventListener("click", () => {
+        curPowerTot = "";
+        draw();
+      });
+
+      const inpPwrTot = box.querySelector("#stEditPowerTot");
+      if (inpPwrTot) inpPwrTot.addEventListener("change", e => {
+        curPowerTot = e.target.value.trim();
+        draw();
+      });
+
       const inpT = box.querySelector("#stEditTemp");
       if (inpT) inpT.addEventListener("change", e => { curTemp = e.target.value.trim(); });
       const inpH = box.querySelector("#stEditHum");
       if (inpH) inpH.addEventListener("change", e => { curHum = e.target.value.trim(); });
 
+      const chkSomma = box.querySelector("#chkSommaDispositivi");
+      if (chkSomma) chkSomma.addEventListener("change", e => { sommaDispositivi = e.target.checked; draw(); });
+      const chkSempre = box.querySelector("#chkMostraSempre");
+      if (chkSempre) chkSempre.addEventListener("change", e => { mostraSempreConsumo = e.target.checked; });
       const chkAtt = box.querySelector("#chkConsAttivo");
       if (chkAtt) chkAtt.addEventListener("change", e => { consumoAttivo = e.target.checked; });
       const inpAtt = box.querySelector("#inpAttenzione");
@@ -4085,10 +4170,15 @@ class FaberHome extends HTMLElement {
 
       const btnSalva = box.querySelector("#btnSalvaSensori");
       if (btnSalva) btnSalva.addEventListener("click", async () => {
+        if (roomTitle.trim()) pg.title = roomTitle.trim();
         if (curTemp) pg.temp = curTemp;
         else delete pg.temp;
         if (curHum) pg.humidity = curHum;
         else delete pg.humidity;
+        if (curPowerTot) pg.power = curPowerTot;
+        else delete pg.power;
+        pg.mostra_sempre_consumo = !!mostraSempreConsumo;
+        pg.consumo_somma_tutto = !!sommaDispositivi;
 
         const s1 = Math.min(consumoAttenzione, consumoAlto);
         const s2 = Math.max(consumoAttenzione, consumoAlto);
@@ -4104,6 +4194,8 @@ class FaberHome extends HTMLElement {
         await this._save(true);
         const scrim = this.querySelector(".fh-scrim");
         if (scrim) scrim.remove();
+        this._renderNav();
+        this._renderPage();
         this._modificaStanze = true;
         this._apriStanze(true);
       });
@@ -4173,7 +4265,23 @@ class FaberHome extends HTMLElement {
       const tutte = Object.keys(st).filter(e => !prefix || e.startsWith(prefix));
       // Se il campo ha un mestiere (temperatura, potenza...), quelle giuste
       // stanno in cima anche prima di scrivere: e quasi sempre una di loro.
-      const buone = dc ? tutte.filter(e => st[e].attributes.device_class === dc) : [];
+      const buone = dc ? tutte.filter(e => {
+        const a = (st[e] && st[e].attributes) || {};
+        if (a.device_class === dc) return true;
+        if (dc === "power") {
+          const u = String(a.unit_of_measurement || "").toLowerCase();
+          return u === "w" || u === "kw";
+        }
+        if (dc === "temperature") {
+          const u = String(a.unit_of_measurement || "").toLowerCase();
+          return u === "°c" || u === "°f" || u === "c" || u === "f";
+        }
+        if (dc === "humidity") {
+          const u = String(a.unit_of_measurement || "").toLowerCase();
+          return u === "%" && (e.includes("humid") || e.includes("umid"));
+        }
+        return false;
+      }) : [];
       const nome = e => (st[e].attributes.friendly_name || e);
       const riempi = () => {
         const parole = inp.value.toLowerCase().trim().split(/\s+/).filter(Boolean);
@@ -4765,6 +4873,11 @@ const FH_CSS = `
   .fh-app.vetro .csc{--csc-panel:var(--fh-card-bg)!important}
   .fh-app.vetro .cbc{--cbc-panel:var(--fh-card-bg)!important}
   .fh-app.vetro .cec{--cec-panel:var(--fh-card-bg)!important}
+  .fh-app.vetro .sc,
+  .fh-app.vetro .sc-card,
+  .fh-app.vetro .smart-card,
+  .fh-app.vetro .fpc,
+  .fh-app.vetro .fpers,
   .fh-app.vetro .fc,
   .fh-app.vetro .fk,
   .fh-app.vetro .fp,
@@ -5122,6 +5235,14 @@ const FH_CSS = `
   .fh-app.chiaro .fh-stanza{background:rgba(15,23,42,.05)}
   .fh-stanza.mod-attiva{border-style:dashed;border-color:rgba(255,176,32,.5);background:rgba(255,176,32,.04)}
   .fh-stanza.mod-attiva:hover{border-color:#ffb020;background:rgba(255,176,32,.12)}
+  .fh-stanzabtn-cfg{position:absolute;top:6px;right:6px;width:26px;height:26px;border-radius:8px;
+    border:1px solid var(--fh-stroke,rgba(255,255,255,.16));background:rgba(255,255,255,.08);
+    display:flex;align-items:center;justify-content:center;color:inherit;cursor:pointer;
+    opacity:.6;transition:opacity .15s,background .15s,color .15s,transform .12s;z-index:3}
+  .fh-stanzabtn-cfg ha-icon{--mdc-icon-size:15px}
+  .fh-stanzabtn-cfg:hover{opacity:1;background:rgba(255,176,32,.25);color:#ffb020;border-color:#ffb020;transform:scale(1.1)}
+  .fh-app.chiaro .fh-stanzabtn-cfg{background:rgba(0,0,0,.05);border-color:rgba(0,0,0,.12)}
+  .fh-app.chiaro .fh-stanzabtn-cfg:hover{background:rgba(255,176,32,.2);color:#b37000;border-color:#b37000}
   .fh-arte{position:relative;opacity:.95;line-height:0;display:flex;align-items:center;justify-content:center;
     animation:fh-respira 4.6s ease-in-out infinite;animation-delay:var(--ritardo,0ms)}
   .fh-stanzetop{display:flex;justify-content:flex-end;margin-bottom:10px}
