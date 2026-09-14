@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.99.3";
+const FH_VERSION = "0.99.6";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -26,7 +26,9 @@ const FH_DEFAULTS = {
     // "vetro" = le card diventano semitrasparenti e sfocate, cosi il cielo
     // animato dietro (stelle, pioggia, nuvole) si vede attraverso invece di
     // restare nascosto sotto pannelli pieni.
-    cardStyle: "piene",
+    cardStyle: "vetro",
+    cardTrasparenza: 40,
+    cardBlur: 16,
     // Quanto si muove il cielo: 0 = fermo, 100 = pieno. Il valore moltiplica
     // sia il numero di particelle sia quanto scintillano.
     skyIntensity: 70,
@@ -663,6 +665,10 @@ class FaberHome extends HTMLElement {
         pageBackground: Object.assign({}, FH_DEFAULTS.appearance.pageBackground, ap.pageBackground || {}),
         weatherAnimation: ap.weatherAnimation !== false,
         cardStyle: ap.cardStyle === "vetro" ? "vetro" : "piene",
+        cardTrasparenza: Math.max(10, Math.min(90,
+          ap.cardTrasparenza == null ? 40 : parseInt(ap.cardTrasparenza, 10) || 40)),
+        cardBlur: Math.max(0, Math.min(30,
+          ap.cardBlur == null ? 16 : parseInt(ap.cardBlur, 10) || 16)),
         temaFisso: ["giorno", "notte"].includes(ap.temaFisso) ? ap.temaFisso : "auto",
         skyIntensity: Math.max(0, Math.min(100,
           ap.skyIntensity == null ? 70 : parseInt(ap.skyIntensity, 10) || 0)),
@@ -1775,8 +1781,42 @@ class FaberHome extends HTMLElement {
     app.classList.toggle("desk", f === "desk");
     app.classList.toggle("vetro", (this._cfg.appearance || {}).cardStyle === "vetro");
     app.classList.toggle("chiaro", !this._isDark());
+    this._applicaVetroVars();
     this._misuraNav();
     this._misuraQuadre();
+  }
+
+  _applicaVetroVars() {
+    const app = this.querySelector(".fh-app");
+    if (!app) return;
+    const ap = (this._cfg && this._cfg.appearance) || {};
+    const isVetro = ap.cardStyle === "vetro";
+    const trasp = Math.max(10, Math.min(90, ap.cardTrasparenza == null ? 40 : parseInt(ap.cardTrasparenza, 10) || 40));
+    const blurPx = Math.max(0, Math.min(30, ap.cardBlur == null ? 16 : parseInt(ap.cardBlur, 10) || 16));
+    const isDark = this._isDark();
+
+    if (isVetro) {
+      const opacity = 1 - (trasp / 100);
+      const alphaDark = Math.max(0.08, Math.min(0.85, 0.10 + opacity * 0.70));
+      const alphaLight = Math.max(0.12, Math.min(0.90, 0.18 + opacity * 0.70));
+
+      const cardBg = isDark
+        ? `rgba(16, 23, 36, ${alphaDark.toFixed(2)})`
+        : `rgba(255, 255, 255, ${alphaLight.toFixed(2)})`;
+      const border = isDark
+        ? `rgba(255, 255, 255, ${(0.04 + opacity * 0.08).toFixed(2)})`
+        : `rgba(15, 23, 42, ${(0.05 + opacity * 0.08).toFixed(2)})`;
+
+      app.style.setProperty("--fh-card-bg", cardBg);
+      app.style.setProperty("--fh-card-blur", `${blurPx}px`);
+      app.style.setProperty("--fh-card-border", border);
+    } else {
+      const cardBg = isDark ? "#161d27" : "#ffffff";
+      const border = isDark ? "rgba(255, 255, 255, .08)" : "rgba(15, 23, 42, .08)";
+      app.style.setProperty("--fh-card-bg", cardBg);
+      app.style.setProperty("--fh-card-blur", "0px");
+      app.style.setProperty("--fh-card-border", border);
+    }
   }
 
   _fasciaOra() { return this._fascia || this._fasciaDa(this.clientWidth || window.innerWidth || 400); }
@@ -3906,6 +3946,33 @@ class FaberHome extends HTMLElement {
             `<button type="button" class="fh-segbtn${(ap.cardStyle || "piene") === v ? " sel" : ""}" data-cardstyle="${v}">${n}</button>`).join("")}
         </div>
         <div class="fh-note">Col vetro le card diventano semitrasparenti e sfocate: il cielo animato si vede scorrere dietro. Di giorno il vetro si schiarisce da solo, cosi le scritte restano leggibili.</div>
+        ${(ap.cardStyle || "piene") === "vetro" ? `
+        <div class="fh-srow" style="margin-top:8px">
+          <div class="fh-sfield" style="flex:1">
+            <label class="fh-slab">Trasparenza card</label>
+            <input class="fh-range" id="stCardTrasp" type="range" min="10" max="90" step="5"
+              value="${parseInt(ap.cardTrasparenza == null ? 40 : ap.cardTrasparenza, 10)}">
+          </div>
+          <div class="fh-sfield" style="flex:0 0 62px">
+            <label class="fh-slab">&nbsp;</label>
+            <div class="fh-rangeval" id="stCardTraspVal">${parseInt(ap.cardTrasparenza == null ? 40 : ap.cardTrasparenza, 10)}%</div>
+          </div>
+        </div>
+        <div class="fh-note">Più trasparente mostra meglio il cielo e le particelle animate; meno trasparente aumenta la corposità della card.</div>
+
+        <div class="fh-srow" style="margin-top:8px">
+          <div class="fh-sfield" style="flex:1">
+            <label class="fh-slab">Sfocatura vetro (blur)</label>
+            <input class="fh-range" id="stCardBlur" type="range" min="0" max="30" step="2"
+              value="${parseInt(ap.cardBlur == null ? 16 : ap.cardBlur, 10)}">
+          </div>
+          <div class="fh-sfield" style="flex:0 0 62px">
+            <label class="fh-slab">&nbsp;</label>
+            <div class="fh-rangeval" id="stCardBlurVal">${parseInt(ap.cardBlur == null ? 16 : ap.cardBlur, 10)}px</div>
+          </div>
+        </div>
+        <div class="fh-note">Sfoca lo sfondo animato dietro alle card (effetto vetro satinato) per garantire testi nitidi e contrastati.</div>
+        ` : ""}
 
         <label class="fh-slab">Sfondo della pagina</label>
         <div class="fh-seg">
@@ -3995,10 +4062,25 @@ class FaberHome extends HTMLElement {
       }));
       box.querySelectorAll("[data-cardstyle]").forEach(b => b.addEventListener("click", () => {
         ap.cardStyle = b.dataset.cardstyle;
+        this._applicaVetroVars();
         draw();
         this._segnaFascia();   // e' li che si accende o si spegne il vetro
         apply();
       }));
+      const cardTrasp = q("#stCardTrasp");
+      if (cardTrasp) cardTrasp.addEventListener("input", e => {
+        const v = parseInt(e.target.value, 10);
+        ap.cardTrasparenza = v;
+        const et = q("#stCardTraspVal"); if (et) et.textContent = v + "%";
+        this._applicaVetroVars();
+      });
+      const cardBlur = q("#stCardBlur");
+      if (cardBlur) cardBlur.addEventListener("input", e => {
+        const v = parseInt(e.target.value, 10);
+        ap.cardBlur = v;
+        const et = q("#stCardBlurVal"); if (et) et.textContent = v + "px";
+        this._applicaVetroVars();
+      });
       const col = q("#stColor");
       if (col) col.addEventListener("input", e => { ap.pageBackground.color = e.target.value; apply(); });
       q("#stWeather").addEventListener("change", e => { h.weather = e.target.value.trim(); apply(); });
@@ -4362,14 +4444,14 @@ const FH_CSS = `
      la tinta a .fh-main, il foglio la scavalca del tutto e resta con il tema
      vero sotto, com'era pensato fin dall'inizio. */
   .fh-app.vetro .fh-main{
-    --ha-card-background:rgba(255,255,255,.10);
-    --card-background-color:rgba(255,255,255,.10);
-    --ha-card-border-color:rgba(255,255,255,.16);
+    --ha-card-background:var(--fh-card-bg, rgba(255,255,255,.10));
+    --card-background-color:var(--fh-card-bg, rgba(255,255,255,.10));
+    --ha-card-border-color:var(--fh-card-border, rgba(255,255,255,.16));
     --ha-card-box-shadow:0 8px 26px rgba(0,0,0,.34);
   }
   .fh-app.vetro .fh-slot ha-card{
-    backdrop-filter:blur(20px) saturate(1.25);
-    -webkit-backdrop-filter:blur(20px) saturate(1.25);
+    backdrop-filter:blur(var(--fh-card-blur, 18px)) saturate(1.25);
+    -webkit-backdrop-filter:blur(var(--fh-card-blur, 18px)) saturate(1.25);
   }
   /* LE CARD DI CASA NOSTRA hanno il colore di fondo scritto dentro di se
      (--mc-panel, --eca-panel, --csc-panel...), quindi la variabile di Home
@@ -4395,11 +4477,11 @@ const FH_CSS = `
      il buio si vede perche e piu CHIARO di cio che copre. Bianco a bassa
      trasparenza: le stelle passano, e il testo chiaro delle card resta
      leggibile perche il fondo complessivo resta scuro. */
-  .fh-app.vetro .mc{--mc-panel:rgba(255,255,255,.09)!important}
-  .fh-app.vetro .eca{--eca-panel:rgba(255,255,255,.09)!important;--eca-solid:rgba(22,28,38,.92)!important}
-  .fh-app.vetro .csc{--csc-panel:rgba(255,255,255,.09)!important}
-  .fh-app.vetro .cbc{--cbc-panel:rgba(255,255,255,.09)!important}
-  .fh-app.vetro .cec{--cec-panel:rgba(255,255,255,.09)!important}
+  .fh-app.vetro .mc{--mc-panel:var(--fh-card-bg, rgba(255,255,255,.09))!important}
+  .fh-app.vetro .eca{--eca-panel:var(--fh-card-bg, rgba(255,255,255,.09))!important;--eca-solid:rgba(22,28,38,.92)!important}
+  .fh-app.vetro .csc{--csc-panel:var(--fh-card-bg, rgba(255,255,255,.09))!important}
+  .fh-app.vetro .cbc{--cbc-panel:var(--fh-card-bg, rgba(255,255,255,.09))!important}
+  .fh-app.vetro .cec{--cec-panel:var(--fh-card-bg, rgba(255,255,255,.09))!important}
   /* La card del METEO resta fuori dal vetro, ed e voluto.
      Ha gia una veste per ogni tempo — sereno ambra, nuvoloso celeste con le
      nuvole, pioggia blu, neve quasi bianca — ognuna col suo testo scuro
@@ -4408,7 +4490,8 @@ const FH_CSS = `
      Qui il vetro toglieva invece di aggiungere, quindi non si mette. */
   .fh-app.vetro .fc,
   .fh-app.vetro .fk,
-  .fh-app.vetro .fp{background:rgba(255,255,255,.09)!important}
+  .fh-app.vetro .fp,
+  .fh-app.vetro .pc{background:var(--fh-card-bg, rgba(255,255,255,.09))!important;border-color:var(--fh-card-border, rgba(255,255,255,.10))!important}
   /* Il vetro ha senso solo se sfoca: senza, e una card sbiadita. */
   /* IL VETRO VA SUL RIQUADRO, NON SUL CONTENITORE.
      Sicurezza, Bucato ed Elettrodomestici hanno gia il loro backdrop-filter
@@ -4422,11 +4505,15 @@ const FH_CSS = `
      da noi; i suoi fogli infatti si agganciano al documento. */
   .fh-app.vetro .mc-card,
   .fh-app.vetro .eca,
+  .fh-app.vetro .csc,
+  .fh-app.vetro .cbc,
+  .fh-app.vetro .cec,
   .fh-app.vetro .fc,
   .fh-app.vetro .fk,
-  .fh-app.vetro .fp{
-    backdrop-filter:blur(18px) saturate(1.2)!important;
-    -webkit-backdrop-filter:blur(18px) saturate(1.2)!important;
+  .fh-app.vetro .fp,
+  .fh-app.vetro .pc{
+    backdrop-filter:blur(var(--fh-card-blur, 18px)) saturate(1.2)!important;
+    -webkit-backdrop-filter:blur(var(--fh-card-blur, 18px)) saturate(1.2)!important;
   }
   /* Di giorno, chiare. */
   /* DI GIORNO il vetro resta SCURO, ed e voluto. Le card di casa hanno il
@@ -4437,11 +4524,11 @@ const FH_CSS = `
      rifare sei card e dimenticarne comunque qualcuno; un vetro scuro sopra
      un cielo chiaro invece si legge benissimo, si vede che e vetro, e non
      rompe niente. E' la stessa scelta di un paio di occhiali da sole. */
-  .fh-app.vetro.chiaro .mc{--mc-panel:rgba(255,255,255,.62)!important;--mc-ink:#12161c!important;--mc-muted:#4b5563!important}
-  .fh-app.vetro.chiaro .eca{--eca-panel:rgba(255,255,255,.62)!important;--eca-ink:#12161c!important;--eca-muted:#4b5563!important;--eca-faint:#64748b!important}
-  .fh-app.vetro.chiaro .csc{--csc-panel:rgba(255,255,255,.62)!important;--csc-ink:#12161c!important;--csc-muted:#4b5563!important}
-  .fh-app.vetro.chiaro .cbc{--cbc-panel:rgba(255,255,255,.62)!important;--cbc-ink:#12161c!important;--cbc-muted:#4b5563!important}
-  .fh-app.vetro.chiaro .cec{--cec-panel:rgba(255,255,255,.62)!important;--cec-ink:#12161c!important;--cec-muted:#4b5563!important}
+  .fh-app.vetro.chiaro .mc{--mc-panel:var(--fh-card-bg, rgba(255,255,255,.62))!important;--mc-ink:#12161c!important;--mc-muted:#4b5563!important}
+  .fh-app.vetro.chiaro .eca{--eca-panel:var(--fh-card-bg, rgba(255,255,255,.62))!important;--eca-ink:#12161c!important;--eca-muted:#4b5563!important;--eca-faint:#64748b!important}
+  .fh-app.vetro.chiaro .csc{--csc-panel:var(--fh-card-bg, rgba(255,255,255,.62))!important;--csc-ink:#12161c!important;--csc-muted:#4b5563!important}
+  .fh-app.vetro.chiaro .cbc{--cbc-panel:var(--fh-card-bg, rgba(255,255,255,.62))!important;--cbc-ink:#12161c!important;--cbc-muted:#4b5563!important}
+  .fh-app.vetro.chiaro .cec{--cec-panel:var(--fh-card-bg, rgba(255,255,255,.62))!important;--cec-ink:#12161c!important;--cec-muted:#4b5563!important}
   /* I COLORI DELLE CARD DI HOME ASSISTANT OSPITATE QUI DENTRO.
      Una card di HA (intestazioni, entities, tile, mushroom...) non legge i
      nostri colori: legge le variabili del TEMA DI HOME ASSISTANT, che qui e
@@ -4459,8 +4546,8 @@ const FH_CSS = `
   .fh-app.vetro.chiaro .fc,
   .fh-app.vetro.chiaro .fk,
   .fh-app.vetro.chiaro .pc,
-  .fh-app.vetro.chiaro .fp{background:rgba(255,255,255,.62)!important;color:#12161c!important;
-    border-color:rgba(15,23,42,.12)!important}
+  .fh-app.vetro.chiaro .fp{background:var(--fh-card-bg, rgba(255,255,255,.62))!important;color:#12161c!important;
+    border-color:var(--fh-card-border, rgba(15,23,42,.12))!important}
 
   /* I COLORI D'ACCENTO DI GIORNO — la correzione alla radice.
      Sopra si schiariva il vetro e si girava l'inchiostro principale, ma ogni
@@ -4640,9 +4727,9 @@ const FH_CSS = `
      di HA, quindi li il vetro chiaro va bene: sono l'unico caso in cui
      schiarire non rompe niente. */
   .fh-app.vetro.chiaro .fh-main{
-    --ha-card-background:rgba(255,255,255,.58);
-    --card-background-color:rgba(255,255,255,.58);
-    --ha-card-border-color:rgba(15,23,42,.12);
+    --ha-card-background:var(--fh-card-bg, rgba(255,255,255,.58));
+    --card-background-color:var(--fh-card-bg, rgba(255,255,255,.58));
+    --ha-card-border-color:var(--fh-card-border, rgba(15,23,42,.12));
   }
   /* Una stanza con l'icona a tutta card fa eccezione: li il disegno E' la
      card, e renderlo trasparente lo trasformerebbe in una macchia sul cielo.
