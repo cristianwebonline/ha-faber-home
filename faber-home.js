@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.99.6";
+const FH_VERSION = "0.99.7";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -566,8 +566,17 @@ function fhArteStanza(tipo, s) {
       <rect x="10" y="8" width="28" height="34" rx="5"/>
       <rect x="10" y="8" width="28" height="34" rx="5" fill="currentColor" opacity=".1" stroke="none"/>
       <path d="M14 13h8"/><circle cx="31" cy="13" r="1.8" fill="currentColor" stroke="none"/>
-      <circle cx="24" cy="27" r="9" stroke-width="2"/>
-      <g class="fh-cestello an" style="transform-origin:24px 27px"><circle cx="24" cy="27" r="5.5" stroke-dasharray="3 3" stroke-width="1.6"/><path d="M24 23v8M20 27h8" stroke-width="1.5"/></g>
+      <circle cx="24" cy="27" r="9.5" stroke-width="2"/>
+      <circle cx="24" cy="27" r="8" stroke-width="0.8" opacity=".35"/>
+      <g class="fh-cestello an" style="transform-origin:24px 27px">
+        <circle cx="24" cy="27" r="7.2" stroke-width="1.2" opacity=".6" fill="currentColor" fill-opacity=".08"/>
+        <circle cx="24" cy="27" r="5.2" fill="none" stroke="currentColor" stroke-dasharray="1.2 2" stroke-width="1" opacity=".55"/>
+        <circle cx="24" cy="27" r="3.4" fill="none" stroke="currentColor" stroke-dasharray="1 1.8" stroke-width="0.8" opacity=".45"/>
+        <rect x="23.2" y="20.6" width="1.6" height="3.8" rx="0.7" fill="currentColor" stroke="none"/>
+        <rect x="23.2" y="20.6" width="1.6" height="3.8" rx="0.7" fill="currentColor" stroke="none" transform="rotate(120 24 27)"/>
+        <rect x="23.2" y="20.6" width="1.6" height="3.8" rx="0.7" fill="currentColor" stroke="none" transform="rotate(240 24 27)"/>
+        <circle cx="24" cy="27" r="1.5" fill="currentColor" stroke="none"/>
+      </g>
       <circle class="fh-bolla" style="animation-delay:0s" cx="33" cy="21" r="1.8" stroke-width="1.3" fill="currentColor" opacity=".25"/>
       <circle class="fh-bolla" style="animation-delay:1.2s" cx="29" cy="22" r="1.2" stroke-width="1.2" fill="currentColor" opacity=".25"/>`,
     ufficio: `
@@ -968,18 +977,40 @@ class FaberHome extends HTMLElement {
     });
     return n;
   }
-  // Il termometro della stanza: il primo sensore di temperatura che le sue card
-  // nominano. Nessuna configurazione in piu da tenere allineata.
+  // Il termometro della stanza: prima il sensore configurato a mano (pg.temp),
+  // poi quello rilevato dal clima di stanza, poi dalle sue card escludendo le batterie.
   _tempDiPagina(id) {
     const hass = this._hass;
     if (!hass) return null;
+    const pg = (this._cfg && this._cfg.pages || []).find(p => p.id === id);
+    if (pg && (pg.temp || pg.temperature)) {
+      const ent = pg.temp || pg.temperature;
+      const st = hass.states[ent];
+      const v = st ? parseFloat(st.state) : NaN;
+      if (!isNaN(v)) return v;
+    }
+    if (pg) {
+      const cs = this._climaStanza(pg);
+      if (cs && cs.temp != null) {
+        const v = parseFloat(cs.temp);
+        if (!isNaN(v)) return v;
+      }
+    }
     const ent = this._entitaDiPagina(id, ["temp"]);
     for (const e of [...new Set(ent)]) {
       const st = hass.states[e];
+      const dc = st && st.attributes && st.attributes.device_class;
+      if (dc === "battery" || e.includes("battery") || e.includes("batteria")) continue;
       const v = st ? parseFloat(st.state) : NaN;
       if (!isNaN(v)) return v;
     }
     return null;
+  }
+
+  _consumoDiPagina(pg) {
+    if (!pg) return 0;
+    const d = this._consumoDati(pg);
+    return (d && d.tot > 0) ? d.tot : 0;
   }
 
   // =========================================================================
@@ -3709,6 +3740,7 @@ class FaberHome extends HTMLElement {
       </div>
       <div class="fh-stanzegrid">${stanze.map(({ p, i }, k) => {
       const gr = this._tempDiPagina(p.id);
+      const watt = this._consumoDiPagina(p);
       const acc = this._contaAccesiPagina(p.id);
       return `<div class="fh-stanza${acc ? " viva" : ""}${ord ? " ord" : ""}${mod ? " mod-attiva" : ""}" data-vai="${i}"
         style="--ritardo:${(k % 5) * 140}ms">
@@ -3718,7 +3750,10 @@ class FaberHome extends HTMLElement {
           : fhArteStanza(fhTipoStanza(p), 48)}</span>
         <span class="fh-stanzanome">${fhEsc(p.title || p.id)}</span>
         <span class="fh-stanzadati">
-          ${gr != null ? `<b>${String(gr.toFixed(1)).replace(".", ",")}\u00b0</b>` : ""}
+          <span class="fh-stanzametriche">
+            ${gr != null ? `<b class="fh-stemp" title="Temperatura">${String(gr.toFixed(1)).replace(".", ",")}\u00b0</b>` : ""}
+            ${watt > 0 ? `<b class="fh-swatt" title="Consumo attuale">${fhEsc(fhNumW(watt))}</b>` : ""}
+          </span>
           ${acc ? `<i>${acc} ${acc === 1 ? "acceso" : "accesi"}</i>` : ""}
         </span>
         ${ord ? `<span class="fh-frecce">
@@ -3727,7 +3762,8 @@ class FaberHome extends HTMLElement {
         </span>` : ""}
         ${mod ? `<span class="fh-frecce">
           <button type="button" data-scena="${i}" title="Cambia disegno animato"><ha-icon icon="mdi:palette-outline"></ha-icon></button>
-          <button type="button" data-rinomina="${i}" title="Rinomina"><ha-icon icon="mdi:rename-outline"></ha-icon></button>
+          <button type="button" data-sensori="${i}" title="Modifica sensori temperatura e consumi"><ha-icon icon="mdi:tune"></ha-icon></button>
+          <button type="button" data-rinomina="${i}" title="Rinomina stanza"><ha-icon icon="mdi:rename-outline"></ha-icon></button>
           <button type="button" class="via" data-togli="${i}" title="Togli dalle stanze">&times;</button>
         </span>` : ""}
       </div>`;
@@ -3736,7 +3772,7 @@ class FaberHome extends HTMLElement {
         <ha-icon icon="mdi:plus"></ha-icon><span class="fh-stanzanome">Nuova stanza</span></button>` : ""}
       </div>
       ${ord ? `<div class="fh-note">Le frecce spostano la stanza nell'elenco. Si salva premendo <b>Fatto</b> o chiudendo il foglio.</div>` : ""}
-      ${mod ? `<div class="fh-note">Tocca una stanza o la tavolozza per <b>cambiare disegno animato</b>, la matita per il nome, la <b>&times;</b> per toglierla dall'elenco. Si salva con <b>Fatto</b> o chiudendo il foglio.</div>` : ""}`;
+      ${mod ? `<div class="fh-note">Tocca una stanza o l'icona <b>regola (<ha-icon icon="mdi:tune"></ha-icon>)</b> per <b>modificare o aggiungere i sensori di temperatura e dei consumi</b>, la tavolozza per il disegno animato, la matita per il nome, la <b>&times;</b> per toglierla dall'elenco. Si salva con <b>Fatto</b> o chiudendo il foglio.</div>` : ""}`;
 
     const salvaSeServe = () => {
       if (this._stanzeMosse) { this._stanzeMosse = false; this._save(true); }
@@ -3751,6 +3787,9 @@ class FaberHome extends HTMLElement {
       b.addEventListener("click", e => e.stopPropagation()));
     box.querySelectorAll("[data-scena]").forEach(b => b.addEventListener("click", () => {
       this._sceltaDisegno(+b.dataset.scena);
+    }));
+    box.querySelectorAll("[data-sensori]").forEach(b => b.addEventListener("click", () => {
+      this._modificaSensoriStanza(+b.dataset.sensori);
     }));
     box.querySelectorAll("[data-rinomina]").forEach(b => b.addEventListener("click", () => {
       const pg = this._cfg.pages[+b.dataset.rinomina];
@@ -3791,7 +3830,7 @@ class FaberHome extends HTMLElement {
     } else if (mod) {
       box.querySelectorAll(".fh-stanza:not(.aggiungi)").forEach(b => b.addEventListener("click", e => {
         if (e.target.closest("button") || e.target.closest(".fh-frecce")) return;
-        this._sceltaDisegno(+b.dataset.vai);
+        this._modificaSensoriStanza(+b.dataset.vai);
       }));
     }
     // Sposta la stanza scambiandola con quella accanto NELL'ELENCO STANZE:
@@ -3820,6 +3859,167 @@ class FaberHome extends HTMLElement {
       }
     });
     chiusura.observe(this.querySelector(".fh-app"), { childList: true });
+  }
+
+  // Modifica sensore temperatura e consumi della stanza
+  _modificaSensoriStanza(indice) {
+    const pg = this._cfg.pages[indice];
+    if (!pg) return;
+    const box = document.createElement("div");
+    const hass = this._hass;
+
+    let curTemp = pg.temp || pg.temperature || "";
+    let curHum = pg.humidity || "";
+    const cCfg = this._consumoCfg(pg);
+    let consumoAttivo = cCfg.attiva;
+    let consumoEntita = (cCfg.entita || this._proponiConsumo(pg)).slice();
+    let consumoAttenzione = cCfg.attenzione;
+    let consumoAlto = cCfg.alto;
+    let consumoTitolo = cCfg.titolo;
+
+    const draw = () => {
+      const tSt = curTemp && hass && hass.states[curTemp];
+      const autoT = this._tempDiPagina(pg.id);
+      const tVal = tSt ? (tSt.state + " \u00b0C (" + (tSt.attributes.friendly_name || curTemp) + ")")
+        : (autoT != null ? (String(autoT.toFixed(1)).replace(".", ",") + " \u00b0C (rilevato in automatico)") : "Nessuno rilevato");
+
+      let totW = 0;
+      consumoEntita.forEach(e => {
+        const st = hass && hass.states[e];
+        const n = st ? parseFloat(st.state) : NaN;
+        const u = String((st && st.attributes.unit_of_measurement) || "").toLowerCase();
+        const w = isNaN(n) ? 0 : (u === "kw" ? n * 1000 : n);
+        totW += w;
+      });
+
+      box.innerHTML = `
+        <div class="fh-sgroup">Sensore di Temperatura</div>
+        <div class="fh-note">Compare sull'icona della stanza e nella barra in cima. Se vuoto, Faber Home rileva il termometro automaticamente dalle card della stanza.</div>
+        <div class="fh-srow" style="align-items:center;margin-bottom:8px">
+          <span style="font-size:12px;opacity:.7">Attuale:</span>
+          <span class="fh-valbadge" style="font-weight:800;color:var(--fh-ink)">${fhEsc(String(tVal))}</span>
+        </div>
+        ${this._entityListHTML("stEditTemp", curTemp, "sensor.", "Sensore temperatura (es. sensor.temperatura_...)", "temperature")}
+        <div class="fh-srow" style="margin-top:6px;gap:6px">
+          <button type="button" class="fh-btn" id="btnSvuotaTemp" style="font-size:11px;padding:4px 8px">
+            <ha-icon icon="mdi:auto-fix"></ha-icon>Usa rilevamento automatico
+          </button>
+        </div>
+
+        <div class="fh-sgroup" style="margin-top:16px">Sensore di Umidità <small style="font-size:11px;font-weight:normal;opacity:.7">(opzionale)</small></div>
+        ${this._entityListHTML("stEditHum", curHum, "sensor.", "Sensore umidità", "humidity")}
+
+        <div class="fh-sgroup" style="margin-top:20px">Sensori dei Consumi (Potenza in Watt)</div>
+        <div class="fh-note">I sensori selezionati vengono sommati in tempo reale per mostrare la potenza istantanea (W/kW) sia sull'icona della stanza sia nella fascia consumi in cima.</div>
+        <div class="fh-srow" style="align-items:center;margin-bottom:8px">
+          <span style="font-size:12px;opacity:.7">Consumo attuale sommato:</span>
+          <span class="fh-valbadge" style="font-weight:900;color:var(--fh-c-warn,#ffb020)">${fhEsc(fhNumW(totW))}</span>
+        </div>
+
+        <div class="fh-lab2">Sensori contati per questa stanza</div>
+        <div class="fh-tags">${consumoEntita.length ? consumoEntita.map((e, idx) =>
+          `<span class="fh-tag">${fhEsc(this._nomeEnt(e))}<button type="button" data-delc="${idx}">&times;</button></span>`
+        ).join("") : `<div class="fh-note">Nessun sensore selezionato: segnerà 0 W.</div>`}</div>
+
+        ${this._entityListHTML("stAddPower", "", "sensor.", "Aggiungi sensore di potenza (W)", "power")}
+        <div class="fh-srow" style="margin-top:8px;gap:6px">
+          <button type="button" class="fh-btn" id="btnAggPower"><ha-icon icon="mdi:plus"></ha-icon>Aggiungi</button>
+          <button type="button" class="fh-btn" id="btnPropPower"><ha-icon icon="mdi:auto-fix"></ha-icon>Proponi da card e area</button>
+        </div>
+
+        <label class="fh-check" style="margin-top:14px">
+          <input type="checkbox" id="chkConsAttivo"${consumoAttivo ? " checked" : ""}>
+          Mostra fascia consumi in cima alla stanza
+        </label>
+
+        <div class="fh-srow" style="margin-top:12px">
+          <div class="fh-sfield" style="flex:1"><label class="fh-slab">Ambra sopra (W)</label>
+            <input class="fh-input" type="number" id="inpAttenzione" min="0" step="10" value="${consumoAttenzione}"></div>
+          <div class="fh-sfield" style="flex:1"><label class="fh-slab">Rosso sopra (W)</label>
+            <input class="fh-input" type="number" id="inpAlto" min="0" step="10" value="${consumoAlto}"></div>
+        </div>
+
+        <div style="height:18px"></div>
+        <button type="button" class="fh-btn primary" id="btnSalvaSensori" style="width:100%">
+          <ha-icon icon="mdi:check"></ha-icon>Salva sensori stanza
+        </button>
+      `;
+
+      this._wireEntityLists(box);
+
+      box.querySelectorAll("[data-delc]").forEach(b => b.addEventListener("click", () => {
+        consumoEntita.splice(+b.dataset.delc, 1);
+        draw();
+      }));
+
+      const aggPwr = () => {
+        const inp = box.querySelector("#stAddPower");
+        const v = (inp && inp.value || "").trim();
+        if (!v || !v.includes(".")) return;
+        if (!consumoEntita.includes(v)) consumoEntita.push(v);
+        draw();
+      };
+      const btnAgg = box.querySelector("#btnAggPower");
+      if (btnAgg) btnAgg.addEventListener("click", aggPwr);
+      const inpPwr = box.querySelector("#stAddPower");
+      if (inpPwr) inpPwr.addEventListener("change", aggPwr);
+
+      const btnProp = box.querySelector("#btnPropPower");
+      if (btnProp) btnProp.addEventListener("click", () => {
+        this._proponiConsumo(pg).forEach(e => {
+          if (!consumoEntita.includes(e)) consumoEntita.push(e);
+        });
+        draw();
+      });
+
+      const btnSvuota = box.querySelector("#btnSvuotaTemp");
+      if (btnSvuota) btnSvuota.addEventListener("click", () => {
+        curTemp = "";
+        const inpT = box.querySelector("#stEditTemp");
+        if (inpT) inpT.value = "";
+        draw();
+      });
+
+      const inpT = box.querySelector("#stEditTemp");
+      if (inpT) inpT.addEventListener("change", e => { curTemp = e.target.value.trim(); });
+      const inpH = box.querySelector("#stEditHum");
+      if (inpH) inpH.addEventListener("change", e => { curHum = e.target.value.trim(); });
+
+      const chkAtt = box.querySelector("#chkConsAttivo");
+      if (chkAtt) chkAtt.addEventListener("change", e => { consumoAttivo = e.target.checked; });
+      const inpAtt = box.querySelector("#inpAttenzione");
+      if (inpAtt) inpAtt.addEventListener("change", e => { consumoAttenzione = Math.max(0, +e.target.value || 0); });
+      const inpAlt = box.querySelector("#inpAlto");
+      if (inpAlt) inpAlt.addEventListener("change", e => { consumoAlto = Math.max(1, +e.target.value || 1); });
+
+      const btnSalva = box.querySelector("#btnSalvaSensori");
+      if (btnSalva) btnSalva.addEventListener("click", async () => {
+        if (curTemp) pg.temp = curTemp;
+        else delete pg.temp;
+        if (curHum) pg.humidity = curHum;
+        else delete pg.humidity;
+
+        const s1 = Math.min(consumoAttenzione, consumoAlto);
+        const s2 = Math.max(consumoAttenzione, consumoAlto);
+        pg.consumo = {
+          attiva: consumoAttivo,
+          entita: consumoEntita.slice(),
+          attenzione: s1,
+          alto: s2,
+          titolo: consumoTitolo || ""
+        };
+
+        this._stanzeMosse = true;
+        await this._save(true);
+        const scrim = this.querySelector(".fh-scrim");
+        if (scrim) scrim.remove();
+        this._modificaStanze = true;
+        this._apriStanze(true);
+      });
+    };
+
+    draw();
+    this._sheet("Sensori: " + (pg.title || "stanza"), box, false);
   }
 
   // Quali pagine aggiungere alla barra quando si e dentro QUESTA pagina.
@@ -4847,11 +5047,12 @@ const FH_CSS = `
   .fh-ordbtn ha-icon{--mdc-icon-size:16px}
   .fh-ordbtn.on{background:#ffb020;border-color:#ffb020;color:#1c1400}
   .fh-stanza.ord{cursor:default}
-  .fh-frecce{display:flex;gap:6px;margin-top:8px}
-  .fh-frecce button{width:30px;height:26px;border-radius:8px;cursor:pointer;font:inherit;font-size:13px;
-    color:inherit;border:1px solid var(--fh-stroke,rgba(255,255,255,.18));background:rgba(255,255,255,.08)}
+  .fh-frecce{display:flex;flex-wrap:wrap;justify-content:center;gap:4px;margin-top:6px}
+  .fh-frecce button{width:28px;height:25px;border-radius:8px;cursor:pointer;font:inherit;font-size:12px;
+    color:inherit;border:1px solid var(--fh-stroke,rgba(255,255,255,.18));background:rgba(255,255,255,.08);
+    display:flex;align-items:center;justify-content:center}
   .fh-frecce button:disabled{opacity:.3;cursor:not-allowed}
-  .fh-frecce button ha-icon{--mdc-icon-size:15px}
+  .fh-frecce button ha-icon{--mdc-icon-size:14px}
   .fh-frecce button.via{color:#ff8f80}
   .fh-frecce button.chiede{width:auto;padding:0 8px;font-size:11px;font-weight:800;color:#ff5442;
     border-color:rgba(255,84,66,.5)}
@@ -4875,9 +5076,13 @@ const FH_CSS = `
   .fh-stanza:active{transform:scale(.95)}
   .fh-stanza:hover{background:rgba(255,176,32,.14);border-color:rgba(255,176,32,.4)}
   .fh-stanzanome{line-height:1.2;text-align:center}
-  .fh-stanzadati{display:flex;flex-direction:column;align-items:center;gap:1px;line-height:1.15}
-  .fh-stanzadati b{font-size:14px;font-weight:900;font-variant-numeric:tabular-nums}
+  .fh-stanzadati{display:flex;flex-direction:column;align-items:center;gap:2px;line-height:1.15}
+  .fh-stanzadati b{font-size:13.5px;font-weight:900;font-variant-numeric:tabular-nums}
   .fh-stanzadati i{font-style:normal;font-size:9.5px;font-weight:800;letter-spacing:.03em;opacity:.62}
+  .fh-stanzametriche{display:flex;align-items:center;justify-content:center;gap:5px;flex-wrap:wrap;line-height:1.2}
+  .fh-stanzametriche .fh-stemp{font-size:13px;font-weight:900}
+  .fh-stanzametriche .fh-swatt{font-size:10.5px;font-weight:800;color:var(--fh-c-warn,#ffb020);background:rgba(255,176,32,.14);padding:1px 5px;border-radius:5px}
+  .fh-valbadge{display:inline-block;padding:3px 9px;border-radius:7px;background:rgba(255,255,255,.08);font-size:12.5px}
   /* L'alone si accende solo dove c'e qualcosa acceso: in un colpo d'occhio si
      vede dove sta consumando la casa. */
   .fh-alone{position:absolute;top:-30%;left:50%;width:120%;aspect-ratio:1/1;transform:translateX(-50%);
