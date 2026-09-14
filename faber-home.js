@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.99.15";
+const FH_VERSION = "0.99.16";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -1363,6 +1363,7 @@ class FaberHome extends HTMLElement {
       d.tipo === "link" ? ` type="button" data-chip-link="${fhEsc(d.target)}"`
       : d.tipo === "pagina" ? ` type="button" data-chip-page="${fhEsc(d.target)}"`
       : d.tipo === "offline_devs" ? ` type="button" data-chip-offline="true"`
+      : d.tipo === "spesa" ? ` type="button" data-chip-spesa="true"`
       : d.tipo === "autoclave" ? ` type="button" data-chip-autoclave="true"`
       : ` type="button" data-chip-entity="${fhEsc(d.target || "")}"`;
     const accClass = d.accent ? " " + d.accent : "";
@@ -1574,6 +1575,21 @@ class FaberHome extends HTMLElement {
       }
     }
     (h.chips || []).forEach(chip => {
+      if (chip.tipo === "spesa" || chip.entity === "todo.shopping_list") {
+        const st = hass ? hass.states["todo.shopping_list"] : null;
+        const cnt = st ? (parseInt(st.state, 10) || 0) : 0;
+        out.push({
+          key: "spesa",
+          tipo: "spesa",
+          target: "todo.shopping_list",
+          icon: "mdi:cart-outline",
+          label: cnt > 0 ? `${cnt} spesa` : "Spesa",
+          sotto: cnt > 0 ? "da comprare" : "fatta",
+          on: cnt > 0,
+          accent: cnt > 0 ? "warn" : "",
+        });
+        return;
+      }
       if (chip.tipo === "autoclave" || chip.entity === "switch.power") {
         const sw = hass ? hass.states["switch.power"] : null;
         const cur = hass ? hass.states["sensor.power_current"] : null;
@@ -4747,6 +4763,12 @@ class FaberHome extends HTMLElement {
     this.querySelectorAll("[data-chip-offline]").forEach(btn => {
       btn.onclick = () => this._popupOfflineDispositivi();
     });
+    this.querySelectorAll("[data-chip-spesa]").forEach(btn => {
+      btn.onclick = () => {
+        fhVibra(8);
+        if (window.fhOpenSpesaModal) window.fhOpenSpesaModal(this._hass, "todo.shopping_list");
+      };
+    });
     this.querySelectorAll("[data-chip-autoclave]").forEach(btn => {
       btn.onclick = () => {
         if (!this._hass) return;
@@ -5802,33 +5824,98 @@ const FH_CSS = `
   .fh-off-act{padding:4px 10px;border-radius:8px;border:none;background:rgba(255,255,255,.1);
     color:inherit;font:inherit;font-size:10.5px;font-weight:700;cursor:pointer}
 
+  
   /* ======================== TABLET SPECIFIC STYLES ======================== */
   .fh-app.tab .fh-head{
-    padding:16px 22px 8px;
-    max-width:1100px;
+    padding:14px 20px 6px;
+    max-width:980px;
     margin-inline:auto;
     width:100%;
     box-sizing:border-box;
   }
   .fh-app.tab .fh-main{
-    padding:10px 22px calc(var(--fh-navh,96px) + 20px);
-    max-width:1100px;
+    padding:8px 20px calc(var(--fh-navh,96px) + 16px);
+    max-width:980px;
     margin-inline:auto;
     width:100%;
     box-sizing:border-box;
-    gap:16px;
+    gap:12px;
   }
-  .fh-app.tab .fh-clock{font-size:38px}
-  .fh-app.tab .fh-row{gap:16px}
-  .fh-app.tab .fh-col{gap:16px}
+  .fh-app.tab .fh-clock{font-size:36px}
+  .fh-app.tab .fh-row{gap:12px}
+  .fh-app.tab .fh-col{gap:12px;min-width:0}
   .fh-app.tab .fh-navbar{
-    max-width:680px;
-    padding:10px 16px;
-    gap:8px;
+    max-width:640px;
+    padding:8px 14px;
+    gap:6px;
   }
-  .fh-app.tab .fh-navitem ha-icon{--mdc-icon-size:25px}
-  .fh-app.tab .fh-navlabel{font-size:11.5px}
-  .fh-app.tab .fh-catlist{grid-template-columns:repeat(auto-fill,minmax(180px,1fr))}
+  .fh-app.tab custom:faber-persona,
+  .fh-app.tab .fp-wrap{
+    max-width:140px;
+    max-height:140px;
+    margin-inline:auto;
+  }
+  .fh-app.tab .fg-card,
+  .fh-app.tab .fsp-tile{
+    max-width:100%;
+  }
+  .fh-app.tab .fh-row.piatta{
+    grid-template-columns:repeat(auto-fill,minmax(140px,1fr))!important;
+    gap:10px;
+  }
+  .fh-app.tab .fh-slot{
+    max-width:190px;
+  }
+
+  /* Animated icon support for Faber Home */
+  .mc-card.on .mc-glow,
+  .mc-card.lavora .mc-glow,
+  .mc-card[data-on="1"] .mc-glow{
+    opacity:1!important;
+    animation:mc-pulse 2.6s ease-in-out infinite!important;
+  }
+  .mc-card.on .mc-screen,
+  .mc-card.lavora .mc-screen{
+    opacity:1!important;
+    animation:mc-schermo 3.6s ease-in-out infinite!important;
+  }
+  .mc-card.on .mc-bolt,
+  .mc-card.lavora .mc-bolt{
+    opacity:1!important;
+    filter:drop-shadow(0 0 5px #ffb020)!important;
+    animation:mc-pulse-fast 1.6s ease-in-out infinite!important;
+  }
+  .mc-card.on .mc-bulb2,
+  .mc-card.lavora .mc-bulb2{
+    animation:mc-lampada 3.4s ease-in-out infinite!important;
+  }
+  .mc-card.on .mc-heat,
+  .mc-card.lavora .mc-heat{
+    opacity:1!important;
+    filter:drop-shadow(0 0 6px #ff6a3d)!important;
+    animation:mc-pulse-fast 1.6s ease-in-out infinite!important;
+  }
+  .mc-card.on .mc-steam,
+  .mc-card.lavora .mc-steam{
+    opacity:1!important;
+    animation:mc-steam-rise 2.4s ease-in-out infinite!important;
+  }
+  .mc-card.on .mc-water,
+  .mc-card.lavora .mc-water{
+    opacity:.85!important;
+    animation:mc-water-fall 1s linear infinite!important;
+  }
+  .mc-card.on .mc-fan-blades,
+  .mc-card.lavora .mc-fan-blades{
+    animation:mc-fan-spin 1.1s linear infinite!important;
+  }
+  @keyframes mc-pulse{0%,100%{opacity:.6}50%{opacity:1}}
+  @keyframes mc-pulse-fast{0%,100%{opacity:.4}50%{opacity:1}}
+  @keyframes mc-schermo{0%,100%{opacity:1}50%{opacity:.82}}
+  @keyframes mc-lampada{0%,100%{opacity:.7}50%{opacity:1}}
+  @keyframes mc-fan-spin{to{transform:rotate(360deg)}}
+  @keyframes mc-steam-rise{0%{opacity:0;transform:translateY(18%)}40%{opacity:.9}100%{opacity:0;transform:translateY(-24%)}}
+  @keyframes mc-water-fall{0%{opacity:0;transform:translateY(-35%)}50%{opacity:.95}100%{opacity:0;transform:translateY(35%)}}
 
   /* ======================== PHONE SPECIFIC STYLES ======================== */
   .fh-app.tel .fh-head{padding:14px 14px 6px}
@@ -10326,48 +10413,39 @@ window.customCards.push({
 
 
 // ===========================================================================
-// FABER CANCELLO
+// FABER CANCELLO (COMPATTO CON ANIMAZIONE TIMER)
 // ===========================================================================
 const FGC_CSS = `
-  .fg-card{position:relative;overflow:hidden;border-radius:24px;padding:20px;
+  .fg-card{position:relative;overflow:hidden;border-radius:20px;padding:12px 16px;
     background:rgba(16,18,24,.82);border:1px solid rgba(255,255,255,.10);
     backdrop-filter:blur(18px) saturate(140%);-webkit-backdrop-filter:blur(18px) saturate(140%);
-    color:#eaf1f8;box-shadow:0 12px 32px rgba(0,0,0,.3);transition:all .35s ease;
+    color:#eaf1f8;box-shadow:0 8px 24px rgba(0,0,0,.25);transition:all .3s ease;
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
-    display:flex;flex-direction:column;gap:14px;box-sizing:border-box}
+    display:flex;align-items:center;justify-content:space-between;gap:12px;box-sizing:border-box;min-height:72px}
   .fh-app.chiaro .fg-card{background:rgba(255,255,255,.78);border-color:rgba(15,23,42,.1);
-    color:#12161c;box-shadow:0 12px 32px rgba(20,26,40,.12)}
-  .fg-card.moving{border-color:rgba(74,222,128,.6);box-shadow:0 0 24px rgba(74,222,128,.35)}
-  .fg-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
-  .fg-titlebox{display:flex;align-items:center;gap:10px}
-  .fg-icon{width:42px;height:42px;border-radius:12px;background:rgba(255,176,32,.12);
-    color:#ffb020;display:flex;align-items:center;justify-content:center;font-size:22px}
+    color:#12161c;box-shadow:0 8px 24px rgba(20,26,40,.1)}
+  .fg-card.moving{border-color:rgba(74,222,128,.6);box-shadow:0 0 20px rgba(74,222,128,.35)}
+  .fg-info{display:flex;align-items:center;gap:10px;min-width:0;flex:1}
+  .fg-icon{width:40px;height:40px;border-radius:12px;background:rgba(255,176,32,.14);
+    color:#ffb020;display:flex;align-items:center;justify-content:center;font-size:22px;flex:0 0 auto}
   .fg-card.moving .fg-icon{background:rgba(74,222,128,.18);color:#4ade80;animation:fgPulse 1.2s infinite ease-in-out}
-  .fg-title{font-size:16px;font-weight:800;letter-spacing:-.01em}
-  .fg-sub{font-size:11px;font-weight:600;opacity:.7;margin-top:2px}
-  .fg-pill{padding:4px 10px;border-radius:999px;font-size:10.5px;font-weight:800;
-    letter-spacing:.04em;text-transform:uppercase;background:rgba(255,255,255,.08);color:inherit}
-  .fg-card.moving .fg-pill{background:#4ade80;color:#0b2b16;animation:fgPulse 1.2s infinite ease-in-out}
-  .fg-body{display:flex;gap:10px}
-  .fg-btn-main{flex:2;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
-    gap:8px;padding:16px 12px;border-radius:18px;border:none;cursor:pointer;font:inherit;
-    background:linear-gradient(135deg,#ffb020,#e09810);color:#1c1400;font-weight:800;
-    box-shadow:0 8px 20px rgba(255,176,32,.35);transition:all .18s cubic-bezier(.2,.8,.2,1)}
-  .fg-btn-main:active{transform:scale(.96);filter:brightness(.92)}
+  .fg-text{display:flex;flex-direction:column;gap:1px;min-width:0}
+  .fg-title{font-size:14.5px;font-weight:850;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .fg-sub{font-size:10.5px;font-weight:600;opacity:.7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .fg-actions{display:flex;align-items:center;gap:8px;flex:0 0 auto}
+  .fg-btn-main{display:flex;align-items:center;gap:6px;padding:10px 14px;border-radius:14px;
+    border:none;cursor:pointer;font:inherit;font-size:12px;font-weight:850;letter-spacing:.02em;
+    background:linear-gradient(135deg,#ffb020,#e09810);color:#1c1400;box-shadow:0 4px 14px rgba(255,176,32,.3);
+    transition:all .18s ease}
   .fg-card.moving .fg-btn-main{background:linear-gradient(135deg,#4ade80,#22c55e);color:#052e16;
-    box-shadow:0 8px 24px rgba(74,222,128,.45)}
-  .fg-btn-main ha-icon{--mdc-icon-size:32px}
-  .fg-btn-main span{font-size:13.5px;font-weight:900;letter-spacing:.02em;text-transform:uppercase}
-  .fg-btn-main small{font-size:10.5px;font-weight:700;opacity:.85}
-  .fg-btn-ped{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
-    gap:6px;padding:14px 10px;border-radius:18px;border:1px solid rgba(255,255,255,.14);cursor:pointer;
-    font:inherit;background:rgba(255,255,255,.06);color:inherit;font-weight:700;transition:all .18s ease}
+    box-shadow:0 4px 14px rgba(74,222,128,.4);animation:fgPulse 1.2s infinite ease-in-out}
+  .fg-btn-main ha-icon{--mdc-icon-size:20px}
+  .fg-btn-ped{display:flex;align-items:center;gap:5px;padding:9px 11px;border-radius:14px;
+    border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:inherit;
+    font:inherit;font-size:11.5px;font-weight:800;cursor:pointer;transition:all .18s ease}
   .fh-app.chiaro .fg-btn-ped{background:rgba(15,23,42,.05);border-color:rgba(15,23,42,.12)}
-  .fg-btn-ped:active{transform:scale(.96);background:rgba(255,176,32,.18)}
-  .fg-btn-ped ha-icon{--mdc-icon-size:24px;color:#ffb020}
-  .fg-btn-ped span{font-size:11.5px;font-weight:800;text-align:center;line-height:1.2}
-  .fg-btn-ped small{font-size:9.5px;opacity:.65}
-  @keyframes fgPulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.03);opacity:.85}}
+  .fg-btn-ped ha-icon{--mdc-icon-size:18px;color:#ffb020}
+  @keyframes fgPulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.03);opacity:.88}}
 `;
 
 class FaberCancello extends HTMLElement {
@@ -10386,7 +10464,7 @@ class FaberCancello extends HTMLElement {
     this._hass = hass;
     this._update();
   }
-  getCardSize() { return 2; }
+  getCardSize() { return 1; }
   static getStubConfig() { return { type: "custom:faber-cancello", name: "Cancello" }; }
 
   _update() {
@@ -10402,26 +10480,21 @@ class FaberCancello extends HTMLElement {
       this.innerHTML = `
         <style>${FGC_CSS}</style>
         <div class="fg-card" data-card>
-          <div class="fg-head">
-            <div class="fg-titlebox">
-              <div class="fg-icon" data-icon><ha-icon icon="mdi:gate"></ha-icon></div>
-              <div>
-                <div class="fg-title">${fhEsc(this._cfg.name || "Cancello")}</div>
-                <div class="fg-sub" data-sub>${isMoving ? "In movimento..." : "Pronto"}</div>
-              </div>
+          <div class="fg-info">
+            <div class="fg-icon" data-icon><ha-icon icon="mdi:gate"></ha-icon></div>
+            <div class="fg-text">
+              <div class="fg-title">${fhEsc(this._cfg.name || "Cancello")}</div>
+              <div class="fg-sub" data-sub>${isMoving ? "In movimento..." : "Pronto · tocca per aprire"}</div>
             </div>
-            <div class="fg-pill" data-pill>${isMoving ? "In Movimento" : "Pronto"}</div>
           </div>
-          <div class="fg-body">
+          <div class="fg-actions">
             <button type="button" class="fg-btn-main" data-act="main">
               <ha-icon icon="mdi:gate-open"></ha-icon>
-              <span data-btn-label>${isMoving ? "Cancello in moto" : "Apri Cancello"}</span>
-              <small data-btn-sub>${isMoving ? "Timer attivo" : "Carrabile"}</small>
+              <span data-btn-label>${isMoving ? "In moto" : "Apri"}</span>
             </button>
-            <button type="button" class="fg-btn-ped" data-act="ped">
+            <button type="button" class="fg-btn-ped" data-act="ped" title="Cancelletto pedonale">
               <ha-icon icon="mdi:door-open"></ha-icon>
-              <span>Pedonale</span>
-              <small>${pBatState ? ("🔋 " + pBatState + "%") : "Cancelletto"}</small>
+              <span>${pBatState ? (pBatState + "%") : "Pedonale"}</span>
             </button>
           </div>
         </div>`;
@@ -10452,160 +10525,42 @@ class FaberCancello extends HTMLElement {
     const card = this.querySelector("[data-card]");
     if (card) card.classList.toggle("moving", !!isMoving);
     const sub = this.querySelector("[data-sub]");
-    if (sub) sub.textContent = isMoving ? "In movimento..." : "Pronto · tocca per azionare";
-    const pill = this.querySelector("[data-pill]");
-    if (pill) pill.textContent = isMoving ? "In Movimento" : "Pronto";
+    if (sub) sub.textContent = isMoving ? "In movimento..." : "Pronto · tocca per aprire";
     const btnLabel = this.querySelector("[data-btn-label]");
-    if (btnLabel) btnLabel.textContent = isMoving ? "Cancello in moto" : "Apri Cancello";
-    const btnSub = this.querySelector("[data-btn-sub]");
-    if (btnSub) btnSub.textContent = isMoving ? "In movimento..." : "Carrabile";
+    if (btnLabel) btnLabel.textContent = isMoving ? "In moto" : "Apri";
   }
 }
 customElements.define("faber-cancello", FaberCancello);
 
 // ===========================================================================
-// FABER AUTOMAZIONE (FUORI CASA / IN CASA)
-// ===========================================================================
-const FAA_CSS = `
-  .fa-card{position:relative;overflow:hidden;border-radius:24px;padding:18px 20px;
-    background:rgba(16,18,24,.82);border:1px solid rgba(255,255,255,.10);
-    backdrop-filter:blur(18px) saturate(140%);-webkit-backdrop-filter:blur(18px) saturate(140%);
-    color:#eaf1f8;box-shadow:0 12px 32px rgba(0,0,0,.3);transition:all .35s ease;
-    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
-    display:flex;align-items:center;gap:14px;box-sizing:border-box}
-  .fh-app.chiaro .fa-card{background:rgba(255,255,255,.78);border-color:rgba(15,23,42,.1);
-    color:#12161c;box-shadow:0 12px 32px rgba(20,26,40,.12)}
-  .fa-card.attiva{border-color:rgba(74,222,128,.5);box-shadow:0 0 20px rgba(74,222,128,.25)}
-  .fa-card.spenta{opacity:.75;border-color:rgba(255,255,255,.06)}
-  .fa-iconbox{width:52px;height:52px;border-radius:16px;flex:0 0 auto;
-    display:flex;align-items:center;justify-content:center;font-size:28px;
-    background:rgba(255,255,255,.07);color:var(--fh-c-muted,#93a1b0);transition:all .25s ease}
-  .fa-card.attiva .fa-iconbox{background:rgba(74,222,128,.18);color:#4ade80}
-  .fa-card.spenta .fa-iconbox{background:rgba(255,255,255,.04);color:#6b7280}
-  .fa-infobox{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
-  .fa-title{font-size:14.5px;font-weight:800;letter-spacing:-.01em;display:flex;align-items:center;gap:6px}
-  .fa-tag{font-size:9.5px;font-weight:900;padding:2px 7px;border-radius:6px;text-transform:uppercase;letter-spacing:.05em}
-  .fa-card.attiva .fa-tag{background:#4ade80;color:#0b2b16}
-  .fa-card.spenta .fa-tag{background:rgba(255,255,255,.1);color:inherit}
-  .fa-status{font-size:13px;font-weight:900;color:#ffb020}
-  .fa-card.attiva .fa-status{color:#4ade80}
-  .fa-card.spenta .fa-status{color:#9ca3af}
-  .fa-sub{font-size:10.5px;font-weight:600;opacity:.7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .fa-toggle{padding:10px 16px;border-radius:14px;border:none;cursor:pointer;font:inherit;
-    font-size:12px;font-weight:800;letter-spacing:.03em;text-transform:uppercase;flex:0 0 auto;
-    transition:all .18s ease;display:flex;align-items:center;gap:6px}
-  .fa-card.attiva .fa-toggle{background:rgba(255,84,66,.18);color:#ff5442;border:1px solid rgba(255,84,66,.4)}
-  .fa-card.attiva .fa-toggle:hover{background:#ff5442;color:#fff}
-  .fa-card.spenta .fa-toggle{background:#ffb020;color:#1c1400}
-  .fa-card.spenta .fa-toggle:hover{filter:brightness(1.1)}
-  .fa-toggle:active{transform:scale(.95)}
-`;
-
-class FaberAutomazione extends HTMLElement {
-  setConfig(config) {
-    this._cfg = Object.assign({
-      name: "Automazione Casa",
-      entity: "automation.fuori_casa_1",
-      family_group: "group.famiglia",
-      wifi_c: "sensor.s25ultra_cristian_wi_fi_connection",
-      wifi_e: "sensor.s22_ultra_eva_wi_fi_connection"
-    }, config || {});
-    this._built = false;
-  }
-  set hass(hass) {
-    this._hass = hass;
-    this._update();
-  }
-  getCardSize() { return 2; }
-  static getStubConfig() { return { type: "custom:faber-automazione", name: "Automazione Casa" }; }
-
-  _update() {
-    if (!this._hass) return;
-    const st = this._hass.states[this._cfg.entity];
-    const isAttiva = st && st.state === "on";
-    const fam = this._hass.states[this._cfg.family_group];
-    const isFamHome = fam ? fam.state === "home" : true;
-    const w1 = this._hass.states[this._cfg.wifi_c] ? this._hass.states[this._cfg.wifi_c].state : "";
-    const w2 = this._hass.states[this._cfg.wifi_e] ? this._hass.states[this._cfg.wifi_e].state : "";
-    const allAway = !isFamHome && w1 !== "gaia" && w2 !== "gaia";
-
-    let icon = isAttiva ? (allAway ? "mdi:shield-lock" : "mdi:shield-home") : "mdi:shield-off-outline";
-    let statusText = isAttiva ? (allAway ? "Tutti Fuori" : "In Casa") : "Disinserita (OFF)";
-    let subText = isAttiva ? (allAway ? "Protezione attiva · Casa vuota" : "Presenza rilevata in casa") : "Automazione spenta · Nessun blocco";
-
-    if (!this._built) {
-      this._built = true;
-      this.innerHTML = `
-        <style>${FAA_CSS}</style>
-        <div class="fa-card" data-card>
-          <div class="fa-iconbox" data-icon><ha-icon icon="${icon}"></ha-icon></div>
-          <div class="fa-infobox">
-            <div class="fa-title">
-              <span>${fhEsc(this._cfg.name || "Automazione Casa")}</span>
-              <span class="fa-tag" data-tag>${isAttiva ? "ATTIVA" : "OFF"}</span>
-            </div>
-            <div class="fa-status" data-status>${statusText}</div>
-            <div class="fa-sub" data-sub>${subText}</div>
-          </div>
-          <button type="button" class="fa-toggle" data-act="toggle">
-            <ha-icon icon="${isAttiva ? "mdi:power" : "mdi:shield-check"}"></ha-icon>
-            <span data-btn>${isAttiva ? "Disinserisci" : "Attiva"}</span>
-          </button>
-        </div>`;
-
-      const btn = this.querySelector('[data-act="toggle"]');
-      if (btn) {
-        btn.onclick = () => {
-          fhVibra(10);
-          const svc = isAttiva ? "turn_off" : "turn_on";
-          this._hass.callService("automation", svc, { entity_id: this._cfg.entity });
-        };
-      }
-    }
-
-    const card = this.querySelector("[data-card]");
-    if (card) {
-      card.classList.toggle("attiva", !!isAttiva);
-      card.classList.toggle("spenta", !isAttiva);
-    }
-    const iconEl = this.querySelector("[data-icon] ha-icon");
-    if (iconEl) iconEl.setAttribute("icon", icon);
-    const tag = this.querySelector("[data-tag]");
-    if (tag) tag.textContent = isAttiva ? "ATTIVA" : "OFF";
-    const stEl = this.querySelector("[data-status]");
-    if (stEl) stEl.textContent = statusText;
-    const subEl = this.querySelector("[data-sub]");
-    if (subEl) subEl.textContent = subText;
-    const btnText = this.querySelector("[data-btn]");
-    if (btnText) btnText.textContent = isAttiva ? "Disinserisci" : "Attiva";
-  }
-}
-customElements.define("faber-automazione", FaberAutomazione);
-
-// ===========================================================================
-// FABER SPESA (CARD SPETTACOLARE LISTA DELLA SPESA)
+// FABER SPESA: MINI APP POPUP & COMPACT TILE
 // ===========================================================================
 const FSP_CSS = `
-  .fsp-card{position:relative;overflow:hidden;border-radius:24px;padding:20px;
-    background:rgba(16,18,24,.82);border:1px solid rgba(255,255,255,.10);
-    backdrop-filter:blur(18px) saturate(140%);-webkit-backdrop-filter:blur(18px) saturate(140%);
-    color:#eaf1f8;box-shadow:0 12px 32px rgba(0,0,0,.3);transition:all .35s ease;
-    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
-    display:flex;flex-direction:column;gap:14px;box-sizing:border-box}
-  .fh-app.chiaro .fsp-card{background:rgba(255,255,255,.78);border-color:rgba(15,23,42,.1);
-    color:#12161c;box-shadow:0 12px 32px rgba(20,26,40,.12)}
-  .fsp-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
-  .fsp-titlebox{display:flex;align-items:center;gap:10px}
-  .fsp-carticon{width:42px;height:42px;border-radius:12px;background:rgba(255,176,32,.14);
-    color:#ffb020;display:flex;align-items:center;justify-content:center;font-size:22px;position:relative}
-  .fsp-title{font-size:16.5px;font-weight:900;letter-spacing:-.01em}
-  .fsp-sub{font-size:11px;font-weight:700;opacity:.65;margin-top:2px}
-  .fsp-badge{padding:4px 10px;border-radius:999px;font-size:11px;font-weight:900;
-    background:#ffb020;color:#1c1400;box-shadow:0 4px 12px rgba(255,176,32,.3)}
+  .fsp-scrim{position:fixed;inset:0;background:rgba(0,0,0,.68);backdrop-filter:blur(12px);
+    -webkit-backdrop-filter:blur(12px);z-index:999999;display:flex;align-items:center;justify-content:center;
+    padding:16px;box-sizing:border-box;animation:fspFadeIn .2s ease}
+  .fsp-modal{width:100%;max-width:480px;max-height:86vh;overflow:hidden;border-radius:24px;
+    background:rgba(18,22,30,.94);border:1px solid rgba(255,255,255,.14);
+    box-shadow:0 24px 64px rgba(0,0,0,.6);color:#eaf1f8;display:flex;flex-direction:column;
+    gap:14px;padding:20px;box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}
+  .fh-app.chiaro .fsp-modal{background:rgba(255,255,255,.95);border-color:rgba(15,23,42,.12);
+    color:#12161c;box-shadow:0 24px 64px rgba(20,26,40,.2)}
+  .fsp-modal-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
+  .fsp-modal-titlebox{display:flex;align-items:center;gap:10px}
+  .fsp-modal-icon{width:42px;height:42px;border-radius:12px;background:rgba(255,176,32,.16);
+    color:#ffb020;display:flex;align-items:center;justify-content:center;font-size:22px}
+  .fsp-modal-title{font-size:17px;font-weight:900;letter-spacing:-.01em}
+  .fsp-modal-sub{font-size:11px;font-weight:600;opacity:.65;margin-top:2px}
+  .fsp-modal-actions{display:flex;align-items:center;gap:8px}
+  .fsp-modal-badge{padding:4px 10px;border-radius:999px;font-size:11px;font-weight:900;background:#ffb020;color:#1c1400}
+  .fsp-modal-close{width:32px;height:32px;border-radius:50%;border:none;background:rgba(255,255,255,.1);
+    color:inherit;cursor:pointer;font-size:14px;font-weight:700;display:flex;align-items:center;justify-content:center;
+    transition:background .15s}
+  .fsp-modal-close:hover{background:rgba(255,84,66,.2);color:#ff5442}
   .fsp-tabs{display:flex;gap:6px;background:rgba(255,255,255,.06);padding:3px;border-radius:12px}
   .fh-app.chiaro .fsp-tabs{background:rgba(15,23,42,.06)}
-  .fsp-tab{flex:1;padding:6px 10px;border:none;border-radius:9px;background:none;
-    color:inherit;cursor:pointer;font:inherit;font-size:11.5px;font-weight:800;transition:all .15s ease}
+  .fsp-tab{flex:1;padding:7px 10px;border:none;border-radius:9px;background:none;
+    color:inherit;cursor:pointer;font:inherit;font-size:12px;font-weight:800;transition:all .15s ease}
   .fsp-tab.active{background:#ffb020;color:#1c1400;box-shadow:0 2px 8px rgba(255,176,32,.35)}
   .fsp-addrow{display:flex;gap:8px;align-items:center}
   .fsp-input{flex:1;min-width:0;padding:12px 14px;border-radius:14px;border:1px solid rgba(255,255,255,.14);
@@ -10618,7 +10573,7 @@ const FSP_CSS = `
     transition:all .15s ease}
   .fsp-addbtn:hover{filter:brightness(1.1);transform:scale(1.04)}
   .fsp-addbtn:active{transform:scale(.95)}
-  .fsp-list{display:flex;flex-direction:column;gap:6px;max-height:360px;overflow-y:auto;padding-right:4px}
+  .fsp-list{display:flex;flex-direction:column;gap:6px;max-height:380px;overflow-y:auto;padding-right:4px}
   .fsp-list::-webkit-scrollbar{width:4px}
   .fsp-list::-webkit-scrollbar-thumb{background:rgba(255,255,255,.2);border-radius:4px}
   .fsp-item{display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:14px;
@@ -10646,7 +10601,215 @@ const FSP_CSS = `
     font:inherit;font-size:11px;font-weight:800;background:rgba(255,84,66,.14);color:#ff5442;
     transition:all .15s ease}
   .fsp-clear-btn:hover{background:#ff5442;color:#fff}
+
+  /* Compact Tile Card */
+  .fsp-tile{position:relative;overflow:hidden;border-radius:20px;padding:12px 16px;
+    background:rgba(16,18,24,.82);border:1px solid rgba(255,255,255,.10);
+    backdrop-filter:blur(18px) saturate(140%);-webkit-backdrop-filter:blur(18px) saturate(140%);
+    color:#eaf1f8;box-shadow:0 8px 24px rgba(0,0,0,.25);transition:all .25s ease;
+    cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:12px;
+    box-sizing:border-box;min-height:72px}
+  .fh-app.chiaro .fsp-tile{background:rgba(255,255,255,.78);border-color:rgba(15,23,42,.1);
+    color:#12161c;box-shadow:0 8px 24px rgba(20,26,40,.1)}
+  .fsp-tile:active{transform:scale(.98)}
+  .fsp-tile-left{display:flex;align-items:center;gap:10px;min-width:0;flex:1}
+  .fsp-tile-icon{width:40px;height:40px;border-radius:12px;background:rgba(255,176,32,.14);
+    color:#ffb020;display:flex;align-items:center;justify-content:center;font-size:22px;flex:0 0 auto}
+  .fsp-tile-text{display:flex;flex-direction:column;gap:1px;min-width:0}
+  .fsp-tile-title{font-size:14.5px;font-weight:850;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .fsp-tile-sub{font-size:10.5px;font-weight:600;opacity:.7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .fsp-tile-right{display:flex;align-items:center;gap:8px;flex:0 0 auto}
+  .fsp-tile-badge{padding:4px 10px;border-radius:999px;font-size:11px;font-weight:900;background:#ffb020;color:#1c1400}
+  .fsp-tile-arr{color:rgba(255,255,255,.35);--mdc-icon-size:20px}
+  .fh-app.chiaro .fsp-tile-arr{color:rgba(15,23,42,.35)}
+  @keyframes fspFadeIn{from{opacity:0;transform:scale(.97)}to{opacity:1;transform:scale(1)}}
 `;
+
+window.fhOpenSpesaModal = async function(hass, entityId = "todo.shopping_list") {
+  if (!hass) return;
+  const existing = document.querySelector(".fsp-scrim");
+  if (existing) existing.remove();
+
+  let activeTab = "da_comprare";
+  let items = [];
+
+  const scrim = document.createElement("div");
+  scrim.className = "fsp-scrim";
+  scrim.innerHTML = `
+    <style>${FSP_CSS}</style>
+    <div class="fsp-modal">
+      <div class="fsp-modal-head">
+        <div class="fsp-modal-titlebox">
+          <div class="fsp-modal-icon"><ha-icon icon="mdi:cart-outline"></ha-icon></div>
+          <div>
+            <div class="fsp-modal-title">Lista della Spesa</div>
+            <div class="fsp-modal-sub" id="fspSub">Caricamento...</div>
+          </div>
+        </div>
+        <div class="fsp-modal-actions">
+          <div class="fsp-modal-badge" id="fspBadge">0</div>
+          <button type="button" class="fsp-modal-close" id="fspClose" title="Chiudi">✕</button>
+        </div>
+      </div>
+      <div class="fsp-tabs">
+        <button type="button" class="fsp-tab active" data-tab="da_comprare" id="fspTabNeeds">Da Comprare (0)</button>
+        <button type="button" class="fsp-tab" data-tab="completati" id="fspTabDone">Completati (0)</button>
+      </div>
+      <form class="fsp-addrow" id="fspForm">
+        <input type="text" class="fsp-input" placeholder="Aggiungi alla spesa (es. Latte, Pasta)..." id="fspInput" required autocomplete="off">
+        <button type="submit" class="fsp-addbtn" title="Aggiungi">+</button>
+      </form>
+      <div id="fspClearWrap" style="display:none;align-self:flex-end;">
+        <button type="button" class="fsp-clear-btn" id="fspClearDone">
+          <ha-icon icon="mdi:delete-sweep-outline"></ha-icon> Svuota completati
+        </button>
+      </div>
+      <div class="fsp-list" id="fspList"></div>
+    </div>
+  `;
+
+  document.body.appendChild(scrim);
+
+  const fetchItems = async () => {
+    try {
+      const res = await hass.callWS({ type: "todo/item/list", entity_id: entityId });
+      items = (res && res.items) || [];
+    } catch (e) {
+      try {
+        const res = await hass.callWS({
+          type: "call_service", domain: "todo", service: "get_items",
+          service_data: { status: ["needs_action", "completed"] },
+          target: { entity_id: entityId }, return_response: true
+        });
+        const d = res && res.response && res.response[entityId];
+        items = (d && d.items) || [];
+      } catch (e2) {
+        items = [];
+      }
+    }
+    renderModal();
+  };
+
+  const renderModal = () => {
+    const daComprare = items.filter(i => i.status === "needs_action");
+    const completati = items.filter(i => i.status === "completed");
+    const activeList = activeTab === "da_comprare" ? daComprare : completati;
+
+    const sub = scrim.querySelector("#fspSub");
+    if (sub) sub.textContent = `${daComprare.length} ${daComprare.length === 1 ? "articolo da acquistare" : "articoli da acquistare"}`;
+    const badge = scrim.querySelector("#fspBadge");
+    if (badge) badge.textContent = daComprare.length;
+    const tabNeeds = scrim.querySelector("#fspTabNeeds");
+    if (tabNeeds) {
+      tabNeeds.textContent = `Da Comprare (${daComprare.length})`;
+      tabNeeds.classList.toggle("active", activeTab === "da_comprare");
+    }
+    const tabDone = scrim.querySelector("#fspTabDone");
+    if (tabDone) {
+      tabDone.textContent = `Completati (${completati.length})`;
+      tabDone.classList.toggle("active", activeTab === "completati");
+    }
+    const clearWrap = scrim.querySelector("#fspClearWrap");
+    if (clearWrap) clearWrap.style.display = (activeTab === "completati" && completati.length) ? "block" : "none";
+
+    const listEl = scrim.querySelector("#fspList");
+    if (!listEl) return;
+
+    if (!activeList.length) {
+      listEl.innerHTML = `
+        <div class="fsp-empty">
+          <ha-icon icon="${activeTab === "da_comprare" ? "mdi:cart-check" : "mdi:check-all"}"></ha-icon>
+          <b>${activeTab === "da_comprare" ? "Carrello vuoto!" : "Nessun completato"}</b>
+          <small>${activeTab === "da_comprare" ? "Tutto comprato o lista vuota." : "Gli articoli completati appariranno qui."}</small>
+        </div>`;
+    } else {
+      listEl.innerHTML = activeList.map(item => `
+        <div class="fsp-item${item.status === "completed" ? " done" : ""}" data-uid="${fhEsc(item.uid)}">
+          <button type="button" class="fsp-check" data-act="check" title="Segna completato">
+            <ha-icon icon="mdi:check"></ha-icon>
+          </button>
+          <div class="fsp-text">${fhEsc(item.summary)}</div>
+          <button type="button" class="fsp-del" data-act="del" title="Elimina">
+            <ha-icon icon="mdi:trash-can-outline"></ha-icon>
+          </button>
+        </div>
+      `).join("");
+    }
+
+    listEl.querySelectorAll(".fsp-item").forEach(el => {
+      const uid = el.dataset.uid;
+      const target = items.find(i => i.uid === uid);
+      if (!target) return;
+      const chk = el.querySelector('[data-act="check"]');
+      if (chk) {
+        chk.onclick = async (e) => {
+          e.stopPropagation();
+          fhVibra(8);
+          const newStatus = target.status === "completed" ? "needs_action" : "completed";
+          target.status = newStatus;
+          renderModal();
+          try {
+            await hass.callService("todo", "update_item", { entity_id: entityId, item: uid, status: newStatus });
+          } finally { fetchItems(); }
+        };
+      }
+      const del = el.querySelector('[data-act="del"]');
+      if (del) {
+        del.onclick = async (e) => {
+          e.stopPropagation();
+          fhVibra(8);
+          items = items.filter(i => i.uid !== uid);
+          renderModal();
+          try {
+            await hass.callService("todo", "remove_item", { entity_id: entityId, item: uid });
+          } finally { fetchItems(); }
+        };
+      }
+    });
+  };
+
+  scrim.querySelector("#fspClose").onclick = () => scrim.remove();
+  scrim.onclick = (e) => { if (e.target === scrim) scrim.remove(); };
+
+  scrim.querySelectorAll(".fsp-tab").forEach(b => b.onclick = () => {
+    activeTab = b.dataset.tab;
+    renderModal();
+  });
+
+  const form = scrim.querySelector("#fspForm");
+  if (form) {
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      const inp = scrim.querySelector("#fspInput");
+      const val = inp ? inp.value.trim() : "";
+      if (!val) return;
+      inp.value = "";
+      fhVibra(8);
+      const tmp = { uid: "tmp_" + Date.now(), summary: val, status: "needs_action" };
+      items.unshift(tmp);
+      renderModal();
+      try {
+        await hass.callService("todo", "add_item", { entity_id: entityId, item: val });
+      } finally { fetchItems(); }
+    };
+  }
+
+  const clearBtn = scrim.querySelector("#fspClearDone");
+  if (clearBtn) {
+    clearBtn.onclick = async () => {
+      fhVibra(10);
+      const toRemove = items.filter(i => i.status === "completed").map(i => i.uid);
+      items = items.filter(i => i.status !== "completed");
+      renderModal();
+      for (const u of toRemove) {
+        try { await hass.callService("todo", "remove_item", { entity_id: entityId, item: u }); } catch (err) {}
+      }
+      fetchItems();
+    };
+  }
+
+  fetchItems();
+};
 
 class FaberSpesa extends HTMLElement {
   setConfig(config) {
@@ -10654,228 +10817,74 @@ class FaberSpesa extends HTMLElement {
       entity: "todo.shopping_list",
       name: "Lista della Spesa"
     }, config || {});
-    this._tab = "da_comprare";
-    this._items = [];
-    this._loaded = false;
     this._built = false;
   }
   set hass(hass) {
     this._hass = hass;
-    if (!this._loaded) {
-      this._loaded = true;
-      this._loadItems();
-    } else {
-      const st = hass.states[this._cfg.entity];
-      const count = st ? parseInt(st.state, 10) : 0;
-      if (this._lastCount !== count) {
-        this._lastCount = count;
-        this._loadItems();
-      }
-    }
+    this._update();
   }
-  getCardSize() { return 3; }
+  getCardSize() { return 1; }
   static getStubConfig() { return { type: "custom:faber-spesa", name: "Lista della Spesa" }; }
 
-  async _loadItems() {
+  _update() {
     if (!this._hass) return;
-    try {
-      const res = await this._hass.callWS({
-        type: "todo/item/list",
-        entity_id: this._cfg.entity
-      });
-      this._items = (res && res.items) || [];
-    } catch (e) {
-      try {
-        const res = await this._hass.callWS({
-          type: "call_service",
-          domain: "todo",
-          service: "get_items",
-          service_data: { status: ["needs_action", "completed"] },
-          target: { entity_id: this._cfg.entity },
-          return_response: true
-        });
-        const d = res && res.response && res.response[this._cfg.entity];
-        this._items = (d && d.items) || [];
-      } catch (e2) {
-        this._items = [];
-      }
-    }
-    this._render();
-  }
-
-  _render() {
-    const daComprare = this._items.filter(i => i.status === "needs_action");
-    const completati = this._items.filter(i => i.status === "completed");
-    const activeList = this._tab === "da_comprare" ? daComprare : completati;
+    const st = this._hass.states[this._cfg.entity];
+    const count = st ? (parseInt(st.state, 10) || 0) : 0;
 
     if (!this._built) {
       this._built = true;
-      this.innerHTML = `<style>${FSP_CSS}</style><div class="fsp-card" data-fsp></div>`;
-    }
-
-    const root = this.querySelector("[data-fsp]");
-    if (!root) return;
-
-    root.innerHTML = `
-      <div class="fsp-head">
-        <div class="fsp-titlebox">
-          <div class="fsp-carticon"><ha-icon icon="mdi:cart-outline"></ha-icon></div>
-          <div>
-            <div class="fsp-title">${fhEsc(this._cfg.name || "Lista della Spesa")}</div>
-            <div class="fsp-sub">${daComprare.length} ${daComprare.length === 1 ? "articolo da acquistare" : "articoli da acquistare"}</div>
+      this.innerHTML = `
+        <style>${FSP_CSS}</style>
+        <div class="fsp-tile" data-card>
+          <div class="fsp-tile-left">
+            <div class="fsp-tile-icon"><ha-icon icon="mdi:cart-outline"></ha-icon></div>
+            <div class="fsp-tile-text">
+              <div class="fsp-tile-title">${fhEsc(this._cfg.name || "Lista della Spesa")}</div>
+              <div class="fsp-tile-sub" data-sub>${count > 0 ? (`${count} ${count === 1 ? "articolo da acquistare" : "articoli da acquistare"}`) : "Tutto completato · tocca per aprire"}</div>
+            </div>
           </div>
-        </div>
-        <div class="fsp-badge">${daComprare.length}</div>
-      </div>
-      <div class="fsp-tabs">
-        <button type="button" class="fsp-tab${this._tab === "da_comprare" ? " active" : ""}" data-tab="da_comprare">
-          Da Comprare (${daComprare.length})
-        </button>
-        <button type="button" class="fsp-tab${this._tab === "completati" ? " active" : ""}" data-tab="completati">
-          Completati (${completati.length})
-        </button>
-      </div>
-      <form class="fsp-addrow" data-form>
-        <input type="text" class="fsp-input" placeholder="Aggiungi alla spesa (es. Latte, Pane)..." data-in required>
-        <button type="submit" class="fsp-addbtn" title="Aggiungi">+</button>
-      </form>
-      ${this._tab === "completati" && completati.length ? `
-        <button type="button" class="fsp-clear-btn" data-act="clear-done">
-          <ha-icon icon="mdi:delete-sweep-outline"></ha-icon> Svuota completati
-        </button>` : ""}
-      <div class="fsp-list">
-        ${!activeList.length ? `
-          <div class="fsp-empty">
-            <ha-icon icon="${this._tab === "da_comprare" ? "mdi:cart-check" : "mdi:check-all"}"></ha-icon>
-            <b>${this._tab === "da_comprare" ? "Carrello vuoto!" : "Nessun completato"}</b>
-            <small>${this._tab === "da_comprare" ? "Tutto comprato o lista vuota." : "Gli articoli completati appariranno qui."}</small>
+          <div class="fsp-tile-right">
+            <div class="fsp-tile-badge" data-badge>${count}</div>
+            <ha-icon icon="mdi:chevron-right" class="fsp-tile-arr"></ha-icon>
           </div>
-        ` : activeList.map(item => `
-          <div class="fsp-item${item.status === "completed" ? " done" : ""}" data-uid="${fhEsc(item.uid)}">
-            <button type="button" class="fsp-check" data-act="check" title="Segna completato">
-              <ha-icon icon="mdi:check"></ha-icon>
-            </button>
-            <div class="fsp-text">${fhEsc(item.summary)}</div>
-            <button type="button" class="fsp-del" data-act="del" title="Elimina">
-              <ha-icon icon="mdi:trash-can-outline"></ha-icon>
-            </button>
-          </div>
-        `).join("")}
-      </div>`;
+        </div>`;
 
-    root.querySelectorAll("[data-tab]").forEach(b => b.onclick = () => {
-      this._tab = b.dataset.tab;
-      this._render();
-    });
-
-    const form = root.querySelector("[data-form]");
-    if (form) {
-      form.onsubmit = async (e) => {
-        e.preventDefault();
-        const inp = form.querySelector("[data-in]");
-        const val = inp ? inp.value.trim() : "";
-        if (!val || !this._hass) return;
-        inp.value = "";
-        fhVibra(8);
-        const tempUid = "tmp_" + Date.now();
-        this._items.unshift({ uid: tempUid, summary: val, status: "needs_action" });
-        this._render();
-        try {
-          await this._hass.callService("todo", "add_item", {
-            entity_id: this._cfg.entity,
-            item: val
-          });
-        } finally {
-          this._loadItems();
-        }
-      };
-    }
-
-    const clearBtn = root.querySelector('[data-act="clear-done"]');
-    if (clearBtn) {
-      clearBtn.onclick = async () => {
-        if (!this._hass) return;
-        fhVibra(10);
-        const uids = completati.map(i => i.uid);
-        this._items = this._items.filter(i => i.status !== "completed");
-        this._render();
-        for (const u of uids) {
-          try {
-            await this._hass.callService("todo", "remove_item", {
-              entity_id: this._cfg.entity,
-              item: u
-            });
-          } catch (e) {}
-        }
-        this._loadItems();
-      };
-    }
-
-    root.querySelectorAll(".fsp-item").forEach(itemEl => {
-      const uid = itemEl.dataset.uid;
-      const targetItem = this._items.find(i => i.uid === uid);
-      if (!targetItem) return;
-
-      const chk = itemEl.querySelector('[data-act="check"]');
-      if (chk) {
-        chk.onclick = async (e) => {
-          e.stopPropagation();
+      const c = this.querySelector("[data-card]");
+      if (c) {
+        c.onclick = () => {
           fhVibra(8);
-          const newStatus = targetItem.status === "completed" ? "needs_action" : "completed";
-          targetItem.status = newStatus;
-          this._render();
-          try {
-            await this._hass.callService("todo", "update_item", {
-              entity_id: this._cfg.entity,
-              item: uid,
-              status: newStatus
-            });
-          } finally {
-            this._loadItems();
+          if (window.fhOpenSpesaModal) {
+            window.fhOpenSpesaModal(this._hass, this._cfg.entity);
           }
         };
       }
+    }
 
-      const del = itemEl.querySelector('[data-act="del"]');
-      if (del) {
-        del.onclick = async (e) => {
-          e.stopPropagation();
-          fhVibra(8);
-          this._items = this._items.filter(i => i.uid !== uid);
-          this._render();
-          try {
-            await this._hass.callService("todo", "remove_item", {
-              entity_id: this._cfg.entity,
-              item: uid
-            });
-          } finally {
-            this._loadItems();
-          }
-        };
-      }
-    });
+    const sub = this.querySelector("[data-sub]");
+    if (sub) sub.textContent = count > 0 ? `${count} ${count === 1 ? "articolo da acquistare" : "articoli da acquistare"}` : "Tutto completato · tocca per aprire";
+    const badge = this.querySelector("[data-badge]");
+    if (badge) badge.textContent = count;
   }
 }
 customElements.define("faber-spesa", FaberSpesa);
 
-window.customCards.push({
-  type: "faber-cancello",
-  name: "Faber Cancello",
-  description: "Comando per cancello carrabile con timer animato e cancelletto pedonale.",
-  preview: true,
-  documentationURL: "https://github.com/cristianwebonline/ha-faber-home",
-});
-window.customCards.push({
-  type: "faber-automazione",
-  name: "Faber Automazione Casa",
-  description: "Controllo automazione In Casa / Fuori Casa con disinserimento rapido a un tocco.",
-  preview: true,
-  documentationURL: "https://github.com/cristianwebonline/ha-faber-home",
-});
-window.customCards.push({
-  type: "faber-spesa",
-  name: "Faber Spesa",
-  description: "Card spettacolare e interattiva per la lista della spesa.",
-  preview: true,
-  documentationURL: "https://github.com/cristianwebonline/ha-faber-home",
-});
+window.customCards = window.customCards || [];
+const existingCards = window.customCards.map(x => x.type);
+if (!existingCards.includes("faber-cancello")) {
+  window.customCards.push({
+    type: "faber-cancello",
+    name: "Faber Cancello",
+    description: "Comando per cancello carrabile con timer animato e cancelletto pedonale.",
+    preview: true,
+    documentationURL: "https://github.com/cristianwebonline/ha-faber-home",
+  });
+}
+if (!existingCards.includes("faber-spesa")) {
+  window.customCards.push({
+    type: "faber-spesa",
+    name: "Faber Spesa",
+    description: "Card spettacolare e interattiva per la lista della spesa con popup mini-app.",
+    preview: true,
+    documentationURL: "https://github.com/cristianwebonline/ha-faber-home",
+  });
+}
