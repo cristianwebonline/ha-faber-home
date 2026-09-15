@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.99.16";
+const FH_VERSION = "0.99.17";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -5856,8 +5856,9 @@ const FH_CSS = `
     margin-inline:auto;
   }
   .fh-app.tab .fg-card,
-  .fh-app.tab .fsp-tile{
-    max-width:100%;
+  .fh-app.tab .fsp-card{
+    max-width:180px;
+    margin-inline:auto;
   }
   .fh-app.tab .fh-row.piatta{
     grid-template-columns:repeat(auto-fill,minmax(140px,1fr))!important;
@@ -10413,39 +10414,116 @@ window.customCards.push({
 
 
 // ===========================================================================
-// FABER CANCELLO (COMPATTO CON ANIMAZIONE TIMER)
+// FABER CONFIRMATION MODAL (POPUP DI CONFERMA PER CANCELLO E AZIONI CRITICHE)
+// ===========================================================================
+window.fhConfirmAction = function(opts) {
+  const existing = document.querySelector(".fh-conf-scrim");
+  if (existing) existing.remove();
+
+  const scrim = document.createElement("div");
+  scrim.className = "fh-conf-scrim";
+  scrim.innerHTML = `
+    <style>
+      .fh-conf-scrim {
+        position: fixed; inset: 0; background: rgba(0,0,0,.68);
+        backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+        z-index: 9999999; display: flex; align-items: center; justify-content: center;
+        padding: 20px; box-sizing: border-box; animation: fhConfIn .2s ease;
+      }
+      .fh-conf-box {
+        width: 100%; max-width: 360px; border-radius: 24px;
+        background: #181d26; border: 1px solid rgba(255,255,255,.15);
+        box-shadow: 0 24px 60px rgba(0,0,0,.65); color: #eaf1f8;
+        padding: 22px 20px; box-sizing: border-box; display: flex;
+        flex-direction: column; gap: 14px; text-align: center;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      }
+      .fh-conf-icon {
+        width: 52px; height: 52px; border-radius: 16px; margin: 0 auto;
+        background: rgba(255,176,32,.16); color: #ffb020; display: flex;
+        align-items: center; justify-content: center; font-size: 28px;
+      }
+      .fh-conf-title { font-size: 17px; font-weight: 850; letter-spacing: -.01em; }
+      .fh-conf-msg { font-size: 13.5px; opacity: .8; line-height: 1.45; }
+      .fh-conf-btns { display: flex; gap: 10px; margin-top: 4px; }
+      .fh-conf-btn {
+        flex: 1; padding: 12px 14px; border-radius: 14px; font: inherit;
+        font-size: 13px; font-weight: 850; cursor: pointer; border: none;
+        transition: all .18s ease;
+      }
+      .fh-conf-cancel {
+        background: rgba(255,255,255,.08); color: inherit;
+        border: 1px solid rgba(255,255,255,.12);
+      }
+      .fh-conf-cancel:hover { background: rgba(255,255,255,.14); }
+      .fh-conf-ok {
+        background: linear-gradient(135deg, #ffb020, #e09810); color: #1c1400;
+        box-shadow: 0 4px 14px rgba(255,176,32,.35);
+      }
+      .fh-conf-ok:hover { filter: brightness(1.08); }
+      .fh-conf-btn:active { transform: scale(.96); }
+      @keyframes fhConfIn { from { opacity: 0; transform: scale(.95); } to { opacity: 1; transform: scale(1); } }
+    </style>
+    <div class="fh-conf-box">
+      <div class="fh-conf-icon"><ha-icon icon="${opts.icon || 'mdi:alert-circle-outline'}"></ha-icon></div>
+      <div class="fh-conf-title">${fhEsc(opts.title || "Conferma")}</div>
+      <div class="fh-conf-msg">${fhEsc(opts.message || "Sei sicuro?")}</div>
+      <div class="fh-conf-btns">
+        <button type="button" class="fh-conf-btn fh-conf-cancel" id="fhConfCancel">${fhEsc(opts.cancelText || "Annulla")}</button>
+        <button type="button" class="fh-conf-btn fh-conf-ok" id="fhConfOk">${fhEsc(opts.confirmText || "Conferma")}</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(scrim);
+
+  const close = () => scrim.remove();
+  scrim.querySelector("#fhConfCancel").onclick = close;
+  scrim.onclick = (e) => { if (e.target === scrim) close(); };
+  scrim.querySelector("#fhConfOk").onclick = () => {
+    close();
+    if (opts.onConfirm) opts.onConfirm();
+  };
+};
+
+// ===========================================================================
+// FABER CANCELLO (CARD VERTICALE CONFERMATA CON TIMER ANIMATO)
 // ===========================================================================
 const FGC_CSS = `
-  .fg-card{position:relative;overflow:hidden;border-radius:20px;padding:12px 16px;
-    background:rgba(16,18,24,.82);border:1px solid rgba(255,255,255,.10);
+  .fg-card{position:relative;overflow:hidden;border-radius:24px;padding:14px 14px 12px;
+    background:rgba(16,22,34,.78);border:1px solid rgba(255,255,255,.10);
     backdrop-filter:blur(18px) saturate(140%);-webkit-backdrop-filter:blur(18px) saturate(140%);
-    color:#eaf1f8;box-shadow:0 8px 24px rgba(0,0,0,.25);transition:all .3s ease;
+    color:#eaf1f8;box-shadow:0 10px 28px rgba(0,0,0,.3);transition:all .25s ease;
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
-    display:flex;align-items:center;justify-content:space-between;gap:12px;box-sizing:border-box;min-height:72px}
+    display:flex;flex-direction:column;justify-content:space-between;min-height:142px;
+    box-sizing:border-box;user-select:none}
   .fh-app.chiaro .fg-card{background:rgba(255,255,255,.78);border-color:rgba(15,23,42,.1);
-    color:#12161c;box-shadow:0 8px 24px rgba(20,26,40,.1)}
-  .fg-card.moving{border-color:rgba(74,222,128,.6);box-shadow:0 0 20px rgba(74,222,128,.35)}
-  .fg-info{display:flex;align-items:center;gap:10px;min-width:0;flex:1}
-  .fg-icon{width:40px;height:40px;border-radius:12px;background:rgba(255,176,32,.14);
-    color:#ffb020;display:flex;align-items:center;justify-content:center;font-size:22px;flex:0 0 auto}
-  .fg-card.moving .fg-icon{background:rgba(74,222,128,.18);color:#4ade80;animation:fgPulse 1.2s infinite ease-in-out}
-  .fg-text{display:flex;flex-direction:column;gap:1px;min-width:0}
-  .fg-title{font-size:14.5px;font-weight:850;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .fg-sub{font-size:10.5px;font-weight:600;opacity:.7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .fg-actions{display:flex;align-items:center;gap:8px;flex:0 0 auto}
-  .fg-btn-main{display:flex;align-items:center;gap:6px;padding:10px 14px;border-radius:14px;
-    border:none;cursor:pointer;font:inherit;font-size:12px;font-weight:850;letter-spacing:.02em;
-    background:linear-gradient(135deg,#ffb020,#e09810);color:#1c1400;box-shadow:0 4px 14px rgba(255,176,32,.3);
-    transition:all .18s ease}
-  .fg-card.moving .fg-btn-main{background:linear-gradient(135deg,#4ade80,#22c55e);color:#052e16;
-    box-shadow:0 4px 14px rgba(74,222,128,.4);animation:fgPulse 1.2s infinite ease-in-out}
-  .fg-btn-main ha-icon{--mdc-icon-size:20px}
-  .fg-btn-ped{display:flex;align-items:center;gap:5px;padding:9px 11px;border-radius:14px;
+    color:#12161c;box-shadow:0 10px 28px rgba(20,26,40,.1)}
+  .fg-card.moving{border-color:rgba(74,222,128,.6);box-shadow:0 0 24px rgba(74,222,128,.35)}
+  .fg-top{display:flex;align-items:center;justify-content:space-between;width:100%}
+  .fg-icon{width:42px;height:42px;border-radius:14px;background:rgba(255,176,32,.14);
+    color:#ffb020;display:flex;align-items:center;justify-content:center;font-size:22px;transition:all .2s ease}
+  .fg-card.moving .fg-icon{background:rgba(74,222,128,.2);color:#4ade80;animation:fgPulse 1.2s infinite ease-in-out}
+  .fg-ped-btn{display:flex;align-items:center;gap:4px;padding:5px 9px;border-radius:10px;
     border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:inherit;
-    font:inherit;font-size:11.5px;font-weight:800;cursor:pointer;transition:all .18s ease}
-  .fh-app.chiaro .fg-btn-ped{background:rgba(15,23,42,.05);border-color:rgba(15,23,42,.12)}
-  .fg-btn-ped ha-icon{--mdc-icon-size:18px;color:#ffb020}
-  @keyframes fgPulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.03);opacity:.88}}
+    font:inherit;font-size:11px;font-weight:800;cursor:pointer;transition:all .18s ease}
+  .fg-ped-btn:hover{background:rgba(255,176,32,.15);border-color:rgba(255,176,32,.35)}
+  .fg-ped-btn:active{transform:scale(.95)}
+  .fg-ped-btn ha-icon{--mdc-icon-size:15px;color:#ffb020}
+  .fg-center{display:flex;flex-direction:column;gap:2px;margin:6px 0}
+  .fg-title{font-size:15px;font-weight:850;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .fg-sub{font-size:11.5px;font-weight:600;opacity:.7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .fg-card.moving .fg-sub{color:#4ade80;font-weight:800;opacity:1}
+  .fg-btn-act{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;
+    padding:9px 12px;border-radius:14px;border:none;font:inherit;font-size:12px;font-weight:850;
+    letter-spacing:.02em;cursor:pointer;box-sizing:border-box;transition:all .18s ease;
+    background:linear-gradient(135deg,#ffb020,#e09810);color:#1c1400;box-shadow:0 4px 14px rgba(255,176,32,.35)}
+  .fg-card.moving .fg-btn-act{background:linear-gradient(135deg,#4ade80,#22c55e);color:#052e16;
+    box-shadow:0 4px 14px rgba(74,222,128,.45)}
+  .fg-btn-act:hover{filter:brightness(1.08)}
+  .fg-btn-act:active{transform:scale(.97)}
+  .fg-btn-act ha-icon{--mdc-icon-size:16px}
+  @keyframes fgPulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.04);opacity:.85}}
 `;
 
 class FaberCancello extends HTMLElement {
@@ -10480,34 +10558,52 @@ class FaberCancello extends HTMLElement {
       this.innerHTML = `
         <style>${FGC_CSS}</style>
         <div class="fg-card" data-card>
-          <div class="fg-info">
-            <div class="fg-icon" data-icon><ha-icon icon="mdi:gate"></ha-icon></div>
-            <div class="fg-text">
-              <div class="fg-title">${fhEsc(this._cfg.name || "Cancello")}</div>
-              <div class="fg-sub" data-sub>${isMoving ? "In movimento..." : "Pronto · tocca per aprire"}</div>
+          <div class="fg-top">
+            <div class="fg-icon" data-icon>
+              <ha-icon icon="${isMoving ? 'mdi:gate-open' : 'mdi:gate'}"></ha-icon>
             </div>
-          </div>
-          <div class="fg-actions">
-            <button type="button" class="fg-btn-main" data-act="main">
-              <ha-icon icon="mdi:gate-open"></ha-icon>
-              <span data-btn-label>${isMoving ? "In moto" : "Apri"}</span>
-            </button>
-            <button type="button" class="fg-btn-ped" data-act="ped" title="Cancelletto pedonale">
+            <button type="button" class="fg-ped-btn" data-act="ped" title="Cancelletto Pedonale">
               <ha-icon icon="mdi:door-open"></ha-icon>
-              <span>${pBatState ? (pBatState + "%") : "Pedonale"}</span>
+              <span>${pBatState ? (pBatState + "%") : "Ped."}</span>
             </button>
           </div>
+          <div class="fg-center">
+            <div class="fg-title">${fhEsc(this._cfg.name || "Cancello")}</div>
+            <div class="fg-sub" data-sub>${isMoving ? "In movimento..." : "Pronto"}</div>
+          </div>
+          <button type="button" class="fg-btn-act" data-act="main">
+            <ha-icon icon="${isMoving ? 'mdi:progress-clock' : 'mdi:play'}"></ha-icon>
+            <span data-btn-label>${isMoving ? "In Moto" : "Apri"}</span>
+          </button>
         </div>`;
 
       const q = s => this.querySelector(s);
       const bMain = q('[data-act="main"]');
       if (bMain) {
         bMain.onclick = () => {
-          fhVibra(12);
-          if (this._cfg.gate_script && this._hass.states[this._cfg.gate_script]) {
-            this._hass.callService("script", "apri_cancello_timer", {});
-          } else if (this._cfg.gate_button) {
-            this._hass.callService("button", "press", { entity_id: this._cfg.gate_button });
+          fhVibra(10);
+          if (window.fhConfirmAction) {
+            window.fhConfirmAction({
+              title: "Apertura Cancello",
+              message: "Vuoi davvero azionare il cancello carrabile? 🚧",
+              icon: "mdi:gate",
+              confirmText: "Aziona Cancello",
+              cancelText: "Annulla",
+              onConfirm: () => {
+                fhVibra(15);
+                if (this._cfg.gate_script && this._hass.states[this._cfg.gate_script]) {
+                  this._hass.callService("script", "apri_cancello_timer", {});
+                } else if (this._cfg.gate_button) {
+                  this._hass.callService("button", "press", { entity_id: this._cfg.gate_button });
+                }
+              }
+            });
+          } else {
+            if (this._cfg.gate_script && this._hass.states[this._cfg.gate_script]) {
+              this._hass.callService("script", "apri_cancello_timer", {});
+            } else if (this._cfg.gate_button) {
+              this._hass.callService("button", "press", { entity_id: this._cfg.gate_button });
+            }
           }
         };
       }
@@ -10515,8 +10611,24 @@ class FaberCancello extends HTMLElement {
       if (bPed) {
         bPed.onclick = () => {
           fhVibra(8);
-          if (this._cfg.pedestrian_button) {
-            this._hass.callService("button", "press", { entity_id: this._cfg.pedestrian_button });
+          if (window.fhConfirmAction) {
+            window.fhConfirmAction({
+              title: "Cancelletto Pedonale",
+              message: "Vuoi aprire il cancelletto pedonale? 🚪",
+              icon: "mdi:door-open",
+              confirmText: "Apri Pedonale",
+              cancelText: "Annulla",
+              onConfirm: () => {
+                fhVibra(12);
+                if (this._cfg.pedestrian_button) {
+                  this._hass.callService("button", "press", { entity_id: this._cfg.pedestrian_button });
+                }
+              }
+            });
+          } else {
+            if (this._cfg.pedestrian_button) {
+              this._hass.callService("button", "press", { entity_id: this._cfg.pedestrian_button });
+            }
           }
         };
       }
@@ -10525,23 +10637,25 @@ class FaberCancello extends HTMLElement {
     const card = this.querySelector("[data-card]");
     if (card) card.classList.toggle("moving", !!isMoving);
     const sub = this.querySelector("[data-sub]");
-    if (sub) sub.textContent = isMoving ? "In movimento..." : "Pronto · tocca per aprire";
+    if (sub) sub.textContent = isMoving ? "In movimento..." : "Pronto";
     const btnLabel = this.querySelector("[data-btn-label]");
-    if (btnLabel) btnLabel.textContent = isMoving ? "In moto" : "Apri";
+    if (btnLabel) btnLabel.textContent = isMoving ? "In Moto" : "Apri";
+    const iconEl = this.querySelector("[data-icon] ha-icon");
+    if (iconEl) iconEl.setAttribute("icon", isMoving ? "mdi:gate-open" : "mdi:gate");
   }
 }
 customElements.define("faber-cancello", FaberCancello);
 
 // ===========================================================================
-// FABER SPESA: MINI APP POPUP & COMPACT TILE
+// FABER SPESA (CARD VERTICALE CON POPUP MINI-APP)
 // ===========================================================================
 const FSP_CSS = `
-  .fsp-scrim{position:fixed;inset:0;background:rgba(0,0,0,.68);backdrop-filter:blur(12px);
-    -webkit-backdrop-filter:blur(12px);z-index:999999;display:flex;align-items:center;justify-content:center;
+  .fsp-scrim{position:fixed;inset:0;background:rgba(0,0,0,.68);backdrop-filter:blur(14px);
+    -webkit-backdrop-filter:blur(14px);z-index:999999;display:flex;align-items:center;justify-content:center;
     padding:16px;box-sizing:border-box;animation:fspFadeIn .2s ease}
   .fsp-modal{width:100%;max-width:480px;max-height:86vh;overflow:hidden;border-radius:24px;
-    background:rgba(18,22,30,.94);border:1px solid rgba(255,255,255,.14);
-    box-shadow:0 24px 64px rgba(0,0,0,.6);color:#eaf1f8;display:flex;flex-direction:column;
+    background:rgba(18,22,30,.95);border:1px solid rgba(255,255,255,.14);
+    box-shadow:0 24px 64px rgba(0,0,0,.65);color:#eaf1f8;display:flex;flex-direction:column;
     gap:14px;padding:20px;box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}
   .fh-app.chiaro .fsp-modal{background:rgba(255,255,255,.95);border-color:rgba(15,23,42,.12);
     color:#12161c;box-shadow:0 24px 64px rgba(20,26,40,.2)}
@@ -10602,26 +10716,31 @@ const FSP_CSS = `
     transition:all .15s ease}
   .fsp-clear-btn:hover{background:#ff5442;color:#fff}
 
-  /* Compact Tile Card */
-  .fsp-tile{position:relative;overflow:hidden;border-radius:20px;padding:12px 16px;
-    background:rgba(16,18,24,.82);border:1px solid rgba(255,255,255,.10);
+  /* Vertical Card */
+  .fsp-card{position:relative;overflow:hidden;border-radius:24px;padding:14px 14px 12px;
+    background:rgba(16,22,34,.78);border:1px solid rgba(255,255,255,.10);
     backdrop-filter:blur(18px) saturate(140%);-webkit-backdrop-filter:blur(18px) saturate(140%);
-    color:#eaf1f8;box-shadow:0 8px 24px rgba(0,0,0,.25);transition:all .25s ease;
-    cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:12px;
-    box-sizing:border-box;min-height:72px}
-  .fh-app.chiaro .fsp-tile{background:rgba(255,255,255,.78);border-color:rgba(15,23,42,.1);
-    color:#12161c;box-shadow:0 8px 24px rgba(20,26,40,.1)}
-  .fsp-tile:active{transform:scale(.98)}
-  .fsp-tile-left{display:flex;align-items:center;gap:10px;min-width:0;flex:1}
-  .fsp-tile-icon{width:40px;height:40px;border-radius:12px;background:rgba(255,176,32,.14);
-    color:#ffb020;display:flex;align-items:center;justify-content:center;font-size:22px;flex:0 0 auto}
-  .fsp-tile-text{display:flex;flex-direction:column;gap:1px;min-width:0}
-  .fsp-tile-title{font-size:14.5px;font-weight:850;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .fsp-tile-sub{font-size:10.5px;font-weight:600;opacity:.7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .fsp-tile-right{display:flex;align-items:center;gap:8px;flex:0 0 auto}
-  .fsp-tile-badge{padding:4px 10px;border-radius:999px;font-size:11px;font-weight:900;background:#ffb020;color:#1c1400}
-  .fsp-tile-arr{color:rgba(255,255,255,.35);--mdc-icon-size:20px}
-  .fh-app.chiaro .fsp-tile-arr{color:rgba(15,23,42,.35)}
+    color:#eaf1f8;box-shadow:0 10px 28px rgba(0,0,0,.3);transition:all .25s ease;
+    cursor:pointer;display:flex;flex-direction:column;justify-content:space-between;min-height:142px;
+    box-sizing:border-box;user-select:none}
+  .fh-app.chiaro .fsp-card{background:rgba(255,255,255,.78);border-color:rgba(15,23,42,.1);
+    color:#12161c;box-shadow:0 10px 28px rgba(20,26,40,.1)}
+  .fsp-card:active{transform:scale(.98)}
+  .fsp-top{display:flex;align-items:center;justify-content:space-between;width:100%}
+  .fsp-icon{width:42px;height:42px;border-radius:14px;background:rgba(255,176,32,.14);
+    color:#ffb020;display:flex;align-items:center;justify-content:center;font-size:22px}
+  .fsp-badge-pill{padding:4px 10px;border-radius:999px;font-size:11.5px;font-weight:900;
+    background:#ffb020;color:#1c1400;box-shadow:0 2px 10px rgba(255,176,32,.4)}
+  .fsp-center{display:flex;flex-direction:column;gap:2px;margin:6px 0}
+  .fsp-title{font-size:15px;font-weight:850;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .fsp-sub{font-size:11.5px;font-weight:600;opacity:.7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .fsp-btn-act{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;
+    padding:9px 12px;border-radius:14px;border:1px solid rgba(255,255,255,.12);
+    background:rgba(255,255,255,.08);color:inherit;font:inherit;font-size:12px;font-weight:850;
+    letter-spacing:.02em;cursor:pointer;box-sizing:border-box;transition:all .18s ease}
+  .fh-app.chiaro .fsp-btn-act{background:rgba(15,23,42,.06);border-color:rgba(15,23,42,.12)}
+  .fsp-card:hover .fsp-btn-act{background:#ffb020;color:#1c1400;border-color:#ffb020}
+  .fsp-btn-act ha-icon{--mdc-icon-size:16px}
   @keyframes fspFadeIn{from{opacity:0;transform:scale(.97)}to{opacity:1;transform:scale(1)}}
 `;
 
@@ -10720,7 +10839,7 @@ window.fhOpenSpesaModal = async function(hass, entityId = "todo.shopping_list") 
         <div class="fsp-empty">
           <ha-icon icon="${activeTab === "da_comprare" ? "mdi:cart-check" : "mdi:check-all"}"></ha-icon>
           <b>${activeTab === "da_comprare" ? "Carrello vuoto!" : "Nessun completato"}</b>
-          <small>${activeTab === "da_comprare" ? "Tutto comprato o lista vuota." : "Gli articoli completati appariranno qui."}</small>
+          <small>${activeTab === "da_comprare" ? "Aggiungi articoli con la barra qui sopra." : "Gli articoli comprati appariranno qui."}</small>
         </div>`;
     } else {
       listEl.innerHTML = activeList.map(item => `
@@ -10815,7 +10934,7 @@ class FaberSpesa extends HTMLElement {
   setConfig(config) {
     this._cfg = Object.assign({
       entity: "todo.shopping_list",
-      name: "Lista della Spesa"
+      name: "Spesa"
     }, config || {});
     this._built = false;
   }
@@ -10824,7 +10943,7 @@ class FaberSpesa extends HTMLElement {
     this._update();
   }
   getCardSize() { return 1; }
-  static getStubConfig() { return { type: "custom:faber-spesa", name: "Lista della Spesa" }; }
+  static getStubConfig() { return { type: "custom:faber-spesa", name: "Spesa" }; }
 
   _update() {
     if (!this._hass) return;
@@ -10835,23 +10954,24 @@ class FaberSpesa extends HTMLElement {
       this._built = true;
       this.innerHTML = `
         <style>${FSP_CSS}</style>
-        <div class="fsp-tile" data-card>
-          <div class="fsp-tile-left">
-            <div class="fsp-tile-icon"><ha-icon icon="mdi:cart-outline"></ha-icon></div>
-            <div class="fsp-tile-text">
-              <div class="fsp-tile-title">${fhEsc(this._cfg.name || "Lista della Spesa")}</div>
-              <div class="fsp-tile-sub" data-sub>${count > 0 ? (`${count} ${count === 1 ? "articolo da acquistare" : "articoli da acquistare"}`) : "Tutto completato · tocca per aprire"}</div>
-            </div>
+        <div class="fsp-card" data-card>
+          <div class="fsp-top">
+            <div class="fsp-icon"><ha-icon icon="mdi:cart-outline"></ha-icon></div>
+            <div class="fsp-badge-pill" data-badge>${count}</div>
           </div>
-          <div class="fsp-tile-right">
-            <div class="fsp-tile-badge" data-badge>${count}</div>
-            <ha-icon icon="mdi:chevron-right" class="fsp-tile-arr"></ha-icon>
+          <div class="fsp-center">
+            <div class="fsp-title">${fhEsc(this._cfg.name || "Spesa")}</div>
+            <div class="fsp-sub" data-sub>${count > 0 ? (`${count} da acquistare`) : "Tutto fatto"}</div>
           </div>
+          <button type="button" class="fsp-btn-act" data-btn>
+            <span>Apri Lista</span>
+            <ha-icon icon="mdi:arrow-right"></ha-icon>
+          </button>
         </div>`;
 
       const c = this.querySelector("[data-card]");
       if (c) {
-        c.onclick = () => {
+        c.onclick = (e) => {
           fhVibra(8);
           if (window.fhOpenSpesaModal) {
             window.fhOpenSpesaModal(this._hass, this._cfg.entity);
@@ -10861,7 +10981,7 @@ class FaberSpesa extends HTMLElement {
     }
 
     const sub = this.querySelector("[data-sub]");
-    if (sub) sub.textContent = count > 0 ? `${count} ${count === 1 ? "articolo da acquistare" : "articoli da acquistare"}` : "Tutto completato · tocca per aprire";
+    if (sub) sub.textContent = count > 0 ? `${count} da acquistare` : "Tutto fatto · tocca per aprire";
     const badge = this.querySelector("[data-badge]");
     if (badge) badge.textContent = count;
   }
