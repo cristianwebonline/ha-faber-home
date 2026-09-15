@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.99.17";
+const FH_VERSION = "0.99.18";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -4936,13 +4936,14 @@ const FH_CSS = `
     max-width:min(100%,var(--fh-quadra,340px));margin-inline:auto;align-self:start;
     display:flex;flex-direction:column}
   .fh-slot.quadra.editing{aspect-ratio:auto !important}
+  .fh-slot.quadra{border-radius:24px}
   .fh-slot.quadra>*:not(.fh-tools):not(.fh-shield):not(.fh-ang){
     display:flex;flex-direction:column;height:100%!important;width:100%!important;
-    min-height:0!important;box-sizing:border-box;overflow:hidden}
+    min-height:0!important;box-sizing:border-box;border-radius:24px}
   .fh-slot.quadra ha-card{height:100%!important;width:100%!important;min-height:0!important;
-    aspect-ratio:1 / 1!important;box-sizing:border-box;overflow:hidden}
+    aspect-ratio:1 / 1!important;box-sizing:border-box;border-radius:24px!important;overflow:hidden!important}
   .fh-slot.quadra .fp{aspect-ratio:1 / 1!important;height:100%!important;width:100%!important;
-    box-sizing:border-box!important;display:flex!important;flex-direction:column!important;overflow:hidden!important}
+    box-sizing:border-box!important;display:flex!important;flex-direction:column!important;border-radius:24px!important;overflow:hidden!important}
   .fh-slot.quadra .fp-body{height:100%!important;width:100%!important;min-height:0!important;box-sizing:border-box!important;
     padding:10px 8px 8px!important;display:flex!important;flex-direction:column!important;align-items:center!important;
     justify-content:space-evenly!important;text-align:center!important;gap:2px!important;overflow:hidden!important}
@@ -5046,6 +5047,7 @@ const FH_CSS = `
     backdrop-filter:blur(var(--fh-card-blur, 16px)) saturate(1.25)!important;
     -webkit-backdrop-filter:blur(var(--fh-card-blur, 16px)) saturate(1.25)!important;
     border-color:var(--fh-card-border)!important;
+    border-radius:24px!important;
   }
   .fh-range{width:100%;accent-color:var(--fh-acc,#ffb020);height:26px}
   .fh-rangeval{font-size:13px;font-weight:800;font-variant-numeric:tabular-nums;
@@ -6814,7 +6816,7 @@ class FaberCarichi extends HTMLElement {
 }
 
 const FC_CSS = `
-  .fc{display:block;position:relative;overflow:hidden;border-radius:22px;container-type:inline-size;
+  .fc{display:block;position:relative;overflow:hidden;border-radius:24px;container-type:inline-size;
     background-color:rgba(16,18,24,.82);border:1px solid rgba(255,255,255,.10);
     backdrop-filter:blur(18px) saturate(140%);-webkit-backdrop-filter:blur(18px) saturate(140%);
     color:#eaf1f8;box-shadow:0 10px 30px rgba(0,0,0,.28);transition:background-image .5s ease,border-color .5s ease}
@@ -9531,7 +9533,7 @@ class FaberPersona extends HTMLElement {
 }
 
 const FP_CSS = `
-  .fp{display:block;position:relative;overflow:hidden;border-radius:22px;cursor:pointer;
+  .fp{display:block;position:relative;overflow:hidden;border-radius:24px;cursor:pointer;
     background-color:rgba(16,18,24,.82);border:1px solid rgba(255,255,255,.10);
     backdrop-filter:blur(18px) saturate(140%);-webkit-backdrop-filter:blur(18px) saturate(140%);
     color:#eaf1f8;box-shadow:0 10px 30px rgba(0,0,0,.28);
