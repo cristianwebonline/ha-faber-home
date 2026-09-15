@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.103.0";
+const FH_VERSION = "0.103.1";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -1365,7 +1365,8 @@ class FaberHome extends HTMLElement {
       : d.tipo === "autoclave" ? ` type="button" data-chip-autoclave="${fhEsc(d.target)}"`
       : ` type="button" data-chip-entity="${fhEsc(d.target || "")}"`;
     const accClass = d.accent ? " " + d.accent : "";
-    return `<${tag} class="fh-chip${d.on ? " on" : ""}${accClass}" data-key="${fhEsc(d.key)}"${attr}>
+    const tocco = d.tocco ? ` data-tocco="${fhEsc(d.tocco)}" data-vai="${fhEsc(d.vai || "")}"` : "";
+    return `<${tag} class="fh-chip${d.on ? " on" : ""}${accClass}" data-key="${fhEsc(d.key)}"${attr}${tocco}>
       ${d.icon ? `<ha-icon icon="${fhEsc(d.icon)}"></ha-icon>` : ""}
       <span data-eti>${fhEsc(d.label || "")}</span>
       ${d.sotto ? `<small data-sotto>${fhEsc(d.sotto)}</small>` : ""}
@@ -1379,8 +1380,9 @@ class FaberHome extends HTMLElement {
     if (!box) return;
     const dati = this._chipsDati();
     const nodi = Array.from(box.children);
-    const stesse = nodi.length === dati.length &&
+    const stesse = !this._forzaChip && nodi.length === dati.length &&
       dati.every((d, i) => nodi[i].dataset.key === d.key);
+    this._forzaChip = false;
     if (stesse) {
       dati.forEach((d, i) => {
         const n = nodi[i];
@@ -1599,6 +1601,7 @@ class FaberHome extends HTMLElement {
           key: "autoclave",
           tipo: "autoclave",
           target: swId,
+          tocco: chip.tocco || "info", vai: chip.vai || "",
           icon: isOn ? "mdi:water-pump" : "mdi:water-pump-off",
           // Il consumo si vede sempre, anche a pompa ferma: "0 W" dice che e
           // accesa e pronta, e quando parte si vede subito quanto tira.
@@ -1641,6 +1644,7 @@ class FaberHome extends HTMLElement {
       const st = chip.entity && hass ? hass.states[chip.entity] : null;
       out.push({
         key: "e:" + (chip.entity || ""), tipo: "entita", target: chip.entity,
+        tocco: chip.tocco || "info", vai: chip.vai || "",
         icon: chip.icon, label: chip.label || (st ? st.attributes.friendly_name : ""),
         on: !!(st && ["on", "home", "open", "unlocked"].includes(st.state)),
         sotto: st ? fhStateText(st) : "",
@@ -4527,7 +4531,7 @@ class FaberHome extends HTMLElement {
           Mostra anche i secondi nell'orologio</label>
 
         <div class="fh-sgroup">Chip</div>
-        <div class="fh-note">Compaiono sotto l'orologio, su una riga che scorre. Al tocco accendono o spengono.</div>
+        <div class="fh-note">Compaiono sotto l'orologio, su una riga che scorre. Cosa fanno al tocco lo scegli per ognuno: di serie mostrano le informazioni.</div>
         ${(h.chips || []).map((c, i) => `
           <div class="fh-chiprow" data-c="${i}">
             <div class="fh-srow">
@@ -4537,6 +4541,19 @@ class FaberHome extends HTMLElement {
                 <input class="fh-input" data-f="label" value="${fhEsc(c.label || "")}"></div>
             </div>
             ${this._entityListHTML("stChip" + i, c.entity, "", "Entità")}
+            ${c.tipo === "spesa" || c.tipo === "dispositivi" || c.tipo === "offline" || c.link || c.pagina
+              || String(c.entity || "").startsWith("todo.") ? "" : `<div class="fh-srow">
+              <div class="fh-sfield"><label class="fh-slab">Al tocco</label>
+                <select class="fh-input" data-sel="tocco">
+                  ${[["info", "Mostra le informazioni"], ["comando", "Comanda (accende/spegne, apre/chiude)"], ["pagina", "Apre una pagina"], ["nulla", "Niente"]]
+                    .map(([v, t]) => `<option value="${v}"${(c.tocco || "info") === v ? " selected" : ""}>${t}</option>`).join("")}
+                </select></div>
+              ${(c.tocco || "info") === "pagina" ? `<div class="fh-sfield"><label class="fh-slab">Pagina</label>
+                <select class="fh-input" data-sel="vai">
+                  <option value="">Scegli…</option>
+                  ${(this._cfg.pages || []).map(p => `<option value="${fhEsc(p.id)}"${c.vai === p.id ? " selected" : ""}>${fhEsc(p.title || p.id)}</option>`).join("")}
+                </select></div>` : ""}
+            </div>`}
             <div class="fh-chiptools">
               <button type="button" class="fh-tool" data-act="up"><ha-icon icon="mdi:arrow-up"></ha-icon></button>
               <button type="button" class="fh-tool" data-act="down"><ha-icon icon="mdi:arrow-down"></ha-icon></button>
@@ -4624,6 +4641,16 @@ class FaberHome extends HTMLElement {
         }));
         const ent = row.querySelector("#stChip" + i);
         if (ent) ent.addEventListener("change", e => { chip.entity = e.target.value.trim(); this._updateLive(); });
+        row.querySelectorAll("[data-sel]").forEach(sel => sel.addEventListener("change", () => {
+          const k = sel.dataset.sel;
+          if (sel.value && !(k === "tocco" && sel.value === "info")) chip[k] = sel.value; else delete chip[k];
+          if (k === "tocco" && sel.value !== "pagina") delete chip.vai;
+          // Il chip si ridisegna col suo nuovo comportamento; la riga
+          // dell'editor si rifa se deve comparire (o sparire) la pagina.
+          this._forzaChip = true;
+          this._updateChips();
+          if (k === "tocco") draw();
+        }));
         row.querySelectorAll("[data-act]").forEach(b => b.addEventListener("click", () => {
           const a = b.dataset.act;
           if (a === "up" && i > 0) { const [x] = h.chips.splice(i, 1); h.chips.splice(i - 1, 0, x); }
@@ -4999,11 +5026,7 @@ class FaberHome extends HTMLElement {
       };
     });
     this.querySelectorAll("[data-chip-autoclave]").forEach(btn => {
-      btn.onclick = () => {
-        if (!this._hass) return;
-        fhVibra(8);
-        this._hass.callService("switch", "toggle", { entity_id: btn.dataset.chipAutoclave || "switch.power" });
-      };
+      btn.onclick = () => this._toccoChip(btn, btn.dataset.chipAutoclave || "switch.power");
     });
     this.querySelectorAll("[data-chip-link]").forEach(btn => {
       btn.onclick = () => {
@@ -5024,22 +5047,45 @@ class FaberHome extends HTMLElement {
       };
     });
     this.querySelectorAll("[data-chip-entity]").forEach(btn => {
-      btn.onclick = () => {
-        const ent = btn.dataset.chipEntity;
-        if (!ent || !this._hass) return;
-        const dom = ent.split(".")[0];
-        if (["switch", "light", "fan", "input_boolean", "automation", "lock"].includes(dom)) {
-          const svc = dom === "lock" ? (this._hass.states[ent].state === "locked" ? "unlock" : "lock") : "toggle";
-          this._hass.callService(dom, svc, { entity_id: ent });
-        } else {
-          this.dispatchEvent(new CustomEvent("hass-more-info", {
-            bubbles: true,
-            composed: true,
-            detail: { entityId: ent },
-          }));
-        }
-      };
+      btn.onclick = () => this._toccoChip(btn, btn.dataset.chipEntity);
     });
+  }
+
+  // COSA FA UN CHIP AL TOCCO. Prima un tocco sul chip Porta apriva la
+  // serratura della blindata e uno sull'Autoclave spegneva la pompa: il chip
+  // sta in una riga che si scorre col dito, e un tocco sbagliato e facile.
+  // Ora di serie mostra le informazioni; comandare si sceglie in Impostazioni
+  // (Chip > Al tocco), e la serratura chiede comunque conferma.
+  _toccoChip(btn, ent) {
+    const h = this._hass;
+    if (!ent || !h) return;
+    const tocco = btn.dataset.tocco || "info";
+    if (tocco === "nulla") return;
+    fhVibra(8);
+    if (tocco === "pagina") {
+      const i = this._cfg.pages.findIndex(p => p.id === btn.dataset.vai);
+      if (i >= 0) this._vaiPagina(i);
+      return;
+    }
+    const st = h.states[ent];
+    const dom = ent.split(".")[0];
+    const comandabile = ["switch", "light", "fan", "input_boolean", "automation", "lock", "cover"].includes(dom);
+    if (tocco !== "comando" || !st || !comandabile) {
+      this.dispatchEvent(new CustomEvent("hass-more-info", { bubbles: true, composed: true, detail: { entityId: ent } }));
+      return;
+    }
+    const nome = (st.attributes && st.attributes.friendly_name) || ent;
+    if (dom === "lock") {
+      const apre = st.state === "locked";
+      const fai = () => h.callService("lock", apre ? "unlock" : "lock", { entity_id: ent });
+      if (window.fhConfirmAction) window.fhConfirmAction({ title: apre ? "Sbloccare " + nome + "?" : "Bloccare " + nome + "?",
+        message: apre ? "La serratura si apre." : "La serratura si chiude.", icon: apre ? "mdi:lock-open-variant-outline" : "mdi:lock-outline",
+        confirmText: apre ? "Sblocca" : "Blocca", cancelText: "Annulla",
+        chiaro: !!this.querySelector(".fh-app.chiaro"), onConfirm: fai });
+      return;
+    }
+    if (dom === "cover") { h.callService("cover", "toggle", { entity_id: ent }); return; }
+    h.callService(dom, "toggle", { entity_id: ent });
   }
 }
 
