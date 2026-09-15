@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.100.0";
+const FH_VERSION = "0.101.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -2764,6 +2764,11 @@ class FaberHome extends HTMLElement {
       { g: "Faber", n: "Smart Card (tela)", i: "mdi:palette-swatch-outline", c: { type: "custom:smart-card", name: "Smart Card", canvas: { w: 100, h: 50 }, elements: [] } },
       { g: "Faber", n: "Cancello (con timer)", i: "mdi:gate", c: { type: "custom:faber-cancello", name: "Cancello" } },
       { g: "Faber", n: "Fuori casa (automazione)", i: "mdi:shield-home", c: { type: "custom:faber-fuoricasa", name: "Fuori casa", entity: "" } },
+      { g: "Faber", n: "Automazioni e sistema", i: "mdi:robot-happy-outline", c: { type: "custom:faber-automazioni", name: "Automazioni", compatta: true, gruppi: [] } },
+      { g: "Faber", n: "Rifiuti porta a porta", i: "mdi:recycle", c: { type: "custom:faber-rifiuti", name: "Rifiuti", calendario: { lun: "", mar: "", mer: "", gio: "", ven: "", sab: "", dom: "" } } },
+      { g: "Faber", n: "Robot aspirapolvere", i: "mdi:robot-vacuum", c: { type: "custom:faber-robot", name: "Robot", entity: "" } },
+      { g: "Faber", n: "Casse e TV (player)", i: "mdi:speaker-wireless", c: { type: "custom:faber-player", entity: "" } },
+      { g: "Faber", n: "Pulsantiera / telecomando", i: "mdi:remote", c: { type: "custom:faber-pulsantiera", name: "Comandi", icona: "mdi:remote", remote: "", device: "", tasti: [] } },
       { g: "Faber", n: "Lista della Spesa", i: "mdi:cart-outline", c: { type: "custom:faber-spesa", name: "Lista della Spesa" } },
       { g: "Faber", n: "Meteo", i: "mdi:weather-partly-cloudy", c: { type: "custom:faber-weather", entity: "", days: 4 } },
       { g: "Faber", n: "Telecomando", i: "mdi:remote-tv", c: { type: "custom:faber-media", title: "Telecomando",
@@ -2819,6 +2824,11 @@ class FaberHome extends HTMLElement {
       { g: "Home Assistant", n: "Tessera (tile)", i: "mdi:card-outline", c: { type: "tile", entity: "" } },
       { g: "Faber", n: "Cancello (con timer)", i: "mdi:gate", c: { type: "custom:faber-cancello", name: "Cancello" } },
       { g: "Faber", n: "Fuori casa (automazione)", i: "mdi:shield-home", c: { type: "custom:faber-fuoricasa", name: "Fuori casa", entity: "" } },
+      { g: "Faber", n: "Automazioni e sistema", i: "mdi:robot-happy-outline", c: { type: "custom:faber-automazioni", name: "Automazioni", compatta: true, gruppi: [] } },
+      { g: "Faber", n: "Rifiuti porta a porta", i: "mdi:recycle", c: { type: "custom:faber-rifiuti", name: "Rifiuti", calendario: { lun: "", mar: "", mer: "", gio: "", ven: "", sab: "", dom: "" } } },
+      { g: "Faber", n: "Robot aspirapolvere", i: "mdi:robot-vacuum", c: { type: "custom:faber-robot", name: "Robot", entity: "" } },
+      { g: "Faber", n: "Casse e TV (player)", i: "mdi:speaker-wireless", c: { type: "custom:faber-player", entity: "" } },
+      { g: "Faber", n: "Pulsantiera / telecomando", i: "mdi:remote", c: { type: "custom:faber-pulsantiera", name: "Comandi", icona: "mdi:remote", remote: "", device: "", tasti: [] } },
       { g: "Faber", n: "Lista della Spesa", i: "mdi:cart-outline", c: { type: "custom:faber-spesa", name: "Lista della Spesa" } },
       { g: "Faber", n: "Meteo", i: "mdi:weather-partly-cloudy", c: { type: "custom:faber-weather", entity: "", days: 4 } },
       { g: "Faber", n: "Telecomando", i: "mdi:remote-tv", c: { type: "custom:faber-media", title: "Telecomando",
@@ -6330,6 +6340,26 @@ class FaberWeather extends HTMLElement {
   // giorni per un dato che si guarda ogni tanto. Ora la card resta compatta e
   // i giorni si aprono al tocco, con piu informazioni di quante ne stessero
   // in una striscia (probabilita di pioggia e vento).
+  // Sole e luna, portati dalla vista "Meteo 3D" della plancia telefono. La
+  // fase lunare si cerca da sola fra i sensori (quello dell'integrazione Luna
+  // ha come stato "full_moon", "waxing_crescent"...); si puo forzare con `luna`.
+  _astroHTML() {
+    const h = this._hass;
+    const sun = h.states["sun.sun"];
+    const FASI = { new_moon: ["Luna nuova", "mdi:moon-new"], waxing_crescent: ["Luna crescente", "mdi:moon-waxing-crescent"],
+      first_quarter: ["Primo quarto", "mdi:moon-first-quarter"], waxing_gibbous: ["Gibbosa crescente", "mdi:moon-waxing-gibbous"],
+      full_moon: ["Luna piena", "mdi:moon-full"], waning_gibbous: ["Gibbosa calante", "mdi:moon-waning-gibbous"],
+      last_quarter: ["Ultimo quarto", "mdi:moon-last-quarter"], waning_crescent: ["Luna calante", "mdi:moon-waning-crescent"] };
+    const lunaId = this._cfg.luna || Object.keys(h.states).find(e => e.startsWith("sensor.") && FASI[h.states[e].state]);
+    const luna = lunaId && FASI[h.states[lunaId].state];
+    const ora = iso => iso ? new Date(iso).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" }) : "–";
+    const pezzi = [];
+    if (sun) pezzi.push(`<div class="fw-astro"><ha-icon icon="mdi:weather-sunset-up"></ha-icon><div><b>Alba ${ora(sun.attributes.next_rising)}</b>
+      <small>Tramonto ${ora(sun.attributes.next_setting)}</small></div></div>`);
+    if (luna) pezzi.push(`<div class="fw-astro"><ha-icon icon="${luna[1]}"></ha-icon><div><b>${luna[0]}</b><small>Fase della luna</small></div></div>`);
+    return pezzi.length ? `<div class="fw-astrorow">${pezzi.join("")}</div>` : "";
+  }
+
   _openForecast() {
     const st = this._hass.states[this._cfg.entity];
     const sk = fwSkin(st ? st.state : "");
@@ -6366,6 +6396,7 @@ class FaberWeather extends HTMLElement {
               </div>
             </div>`;
           }).join("") : `<div class="fw-mempty">Previsioni non disponibili.</div>`}
+          ${this._astroHTML()}
         </div>
       </div>`;
     const style = document.createElement("style");
@@ -6387,6 +6418,12 @@ class FaberWeather extends HTMLElement {
         background:var(--fw-soft);display:flex;align-items:center;justify-content:center}
       .fw-mlist{overflow-y:auto;padding:6px 16px 22px;display:flex;flex-direction:column;gap:8px}
       .fw-mrow{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:18px;background:var(--fw-soft)}
+      .fw-astrorow{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:4px}
+      .fw-astro{display:flex;align-items:center;gap:10px;padding:12px 14px;border-radius:18px;background:var(--fw-soft)}
+      .fw-astro ha-icon{--mdc-icon-size:26px;flex:0 0 auto}
+      .fw-astro div{display:flex;flex-direction:column;gap:1px;min-width:0}
+      .fw-astro b{font-size:14px;font-weight:850}
+      .fw-astro small{font-size:11.5px;opacity:.7}
       /* Anche i giorni futuri si muovono, ma piu piano: otto disegni vivi
          alla stessa velocita di quello grande diventano un luna park. */
       .fw-mart{flex:0 0 auto}
@@ -10022,11 +10059,18 @@ class FaberMedia extends HTMLElement {
     return true;
   }
 
+  // Due modi di comandare. Di serie passa dagli script di casa (sala). Con
+  // `remote` (e `device`) parla direttamente al Broadlink: e cosi che la
+  // stessa card fa da telecomando alla TV di Gaia, che ha il suo Broadlink e
+  // i suoi tasti imparati sotto il dispositivo "LG_Gaia". In quel modo
+  // l'accoppiamento non ha bisogno di levette in casa: impara remote.learn_command.
   _imparando() {
+    if (this._cfg.remote) return !!this._imparaLocale;
     const st = this._hass.states[this._cfg.apprendimento];
     return !!st && st.state === "on";
   }
   _accendiApprendimento(acceso) {
+    if (this._cfg.remote) { this._imparaLocale = !!acceso; return; }
     const e = this._cfg.apprendimento;
     if (!e) return;
     this._hass.callService("input_boolean", acceso ? "turn_on" : "turn_off", { entity_id: e });
@@ -10044,6 +10088,12 @@ class FaberMedia extends HTMLElement {
   _premi(chiave) { this._mandaCmd(this._cmd[chiave]); }
   _mandaCmd(c) {
     if (!c) return;
+    if (this._cfg.remote) {
+      const d = { entity_id: this._cfg.remote, command: c };
+      if (this._cfg.device) d.device = this._cfg.device;
+      this._hass.callService("remote", this._imparaLocale ? "learn_command" : "send_command", d);
+      return;
+    }
     const [dom, srv] = this._cfg.script_tasto.split(".");
     this._hass.callService(dom, srv, { command: c });
   }
@@ -10210,16 +10260,16 @@ class FaberMedia extends HTMLElement {
         <div class="fm-top">
           <div class="fm-tit">${fhEsc(c.title || "Telecomando")}</div>
           <div class="fm-pow">
-            <button type="button" class="fm-p acceso" data-k="acceso" title="Accendi">
+            <button type="button" class="fm-p acceso" data-k="acceso" title="${this._cmd.acceso === this._cmd.spento ? "Accendi / spegni" : "Accendi"}">
               <ha-icon icon="mdi:power"></ha-icon></button>
-            <button type="button" class="fm-p spento" data-k="spento" title="Spegni">
-              <ha-icon icon="mdi:power-off"></ha-icon></button>
+            ${this._cmd.acceso === this._cmd.spento ? "" : `<button type="button" class="fm-p spento" data-k="spento" title="Spegni">
+              <ha-icon icon="mdi:power-off"></ha-icon></button>`}
           </div>
         </div>
 
         ${s.lista.length ? `<div class="fm-src">
           ${s.lista.map(x => `<button type="button" class="fm-s${x === s.attiva ? " on" : ""}" data-src="${fhEsc(x)}">${fhEsc(x)}</button>`).join("")}
-        </div>` : `<div class="fm-vuoto">Nessun elenco sorgenti: controlla ${fhEsc(c.selettore)}</div>`}
+        </div>` : c.selettore ? `<div class="fm-vuoto">Nessun elenco sorgenti: controlla ${fhEsc(c.selettore)}</div>` : ""}
 
         <div class="fm-mid">
           <div class="fm-rock">
@@ -10320,7 +10370,8 @@ FaberMedia.prototype._disegnaPannello = function () {
       </label>
       <div class="fm-nota${imparo ? " forte" : ""}">
         ${imparo
-          ? "Adesso ogni tasto che tocchi qui dentro NON comanda: <b>impara</b>. Punta il telecomando vero verso il Broadlink della sala e premi il tasto entro pochi secondi. Poi spegni questa levetta."
+          ? "Adesso ogni tasto che tocchi qui dentro NON comanda: <b>impara</b>. Punta il telecomando vero verso il Broadlink" + (this._cfg.remote ? "" : " della sala") + " e premi il tasto entro pochi secondi. Poi spegni questa levetta."
+          : this._cfg.remote ? "Accendila per insegnare un tasto nuovo: tocca il tasto qui sotto e premi quello vero sul telecomando, puntato verso il Broadlink."
           : "Accendila per insegnare un tasto nuovo: scegli il dispositivo in cima alla card (BOSE, TV, Decoder, FIRE TV), poi tocca il tasto qui sotto e premi quello vero sul telecomando."}
       </div>
 
@@ -11082,6 +11133,742 @@ class FaberFuoriCasa extends HTMLElement {
 customElements.define("faber-fuoricasa", FaberFuoriCasa);
 
 // ===========================================================================
+// PEZZI COMUNI DELLE CARD PORTATE DALLA PLANCIA TELEFONO (0.101.0)
+// Stessa famiglia del cancello e della spesa: tessera verticale che si colora
+// del suo stato, e il dettaglio in un foglio che sale dal basso.
+// ===========================================================================
+const FHT_CSS = `
+  faber-automazioni,faber-rifiuti,faber-robot,faber-player,faber-pulsantiera{display:block}
+  .fht{position:relative;overflow:hidden;border-radius:24px;padding:14px 14px 12px;
+    background-color:rgba(16,22,34,.78);border:1px solid rgba(255,255,255,.10);
+    backdrop-filter:blur(18px) saturate(140%);-webkit-backdrop-filter:blur(18px) saturate(140%);
+    color:#eaf1f8;box-shadow:0 10px 28px rgba(0,0,0,.3);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+    display:flex;flex-direction:column;gap:6px;min-height:142px;box-sizing:border-box;user-select:none;
+    --t-c:#93a1b0;--t-t:rgba(147,161,176,0);
+    background-image:linear-gradient(150deg,var(--t-t),transparent 75%);transition:background-color .35s,border-color .35s}
+  .fh-app.chiaro .fht{background-color:rgba(255,255,255,.78);border-color:rgba(15,23,42,.1);color:#12161c;
+    box-shadow:0 10px 28px rgba(20,26,40,.1)}
+  .fht.tap{cursor:pointer}
+  .fht[data-tono="ambra"]{--t-c:#ffb020;--t-t:rgba(255,176,32,.20);border-color:rgba(255,176,32,.40)}
+  .fht[data-tono="verde"]{--t-c:#4ade80;--t-t:rgba(74,222,128,.22);border-color:rgba(74,222,128,.45)}
+  .fht[data-tono="arancio"]{--t-c:#ff8a3d;--t-t:rgba(255,138,61,.24);border-color:rgba(255,138,61,.55)}
+  .fht[data-tono="rosso"]{--t-c:#ff5c5c;--t-t:rgba(255,92,92,.24);border-color:rgba(255,92,92,.55)}
+  .fht[data-tono="blu"]{--t-c:#5aa9ff;--t-t:rgba(90,169,255,.20);border-color:rgba(90,169,255,.40)}
+  .fh-app.chiaro .fht[data-tono="ambra"]{--t-c:#b37000}
+  .fh-app.chiaro .fht[data-tono="verde"]{--t-c:#15803d}
+  .fh-app.chiaro .fht[data-tono="arancio"]{--t-c:#c2410c}
+  .fh-app.chiaro .fht[data-tono="rosso"]{--t-c:#c62828}
+  .fh-app.chiaro .fht[data-tono="blu"]{--t-c:#1d6fd1}
+  .fht-top{display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .fht-ic{width:42px;height:42px;border-radius:14px;flex:0 0 auto;display:flex;align-items:center;justify-content:center;
+    color:var(--t-c);background:color-mix(in srgb,var(--t-c) 16%,transparent)}
+  .fht-ic ha-icon{--mdc-icon-size:24px}
+  .fht-pill{padding:4px 9px;border-radius:999px;font-size:10px;font-weight:900;letter-spacing:.05em;white-space:nowrap;
+    color:var(--t-c);background:color-mix(in srgb,var(--t-c) 16%,transparent);display:inline-flex;align-items:center;gap:3px}
+  .fht-pill ha-icon{--mdc-icon-size:13px}
+  .fht-pill[hidden]{display:none}
+  .fht-testo{display:flex;flex-direction:column;gap:2px;min-width:0}
+  .fht-title{font-size:15px;font-weight:850;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .fht-stato{font-size:12.5px;font-weight:850;color:var(--t-c)}
+  .fht-sub{font-size:11px;font-weight:600;opacity:.72;line-height:1.25;
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .fht-btns{display:flex;gap:6px;margin-top:auto}
+  .fht-btn{flex:1;display:flex;align-items:center;justify-content:center;gap:5px;padding:8px 6px;border-radius:13px;
+    border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.07);color:inherit;font:inherit;font-size:11.5px;
+    font-weight:850;cursor:pointer;box-sizing:border-box;transition:transform .12s,filter .15s;min-width:0}
+  .fh-app.chiaro .fht-btn{background:rgba(15,23,42,.05);border-color:rgba(15,23,42,.12)}
+  .fht-btn.pieno{background:linear-gradient(135deg,#ffb020,#e09810);border-color:transparent;color:#1c1400;
+    box-shadow:0 4px 14px rgba(255,176,32,.32)}
+  .fht-btn ha-icon{--mdc-icon-size:17px}
+  .fht-btn:active{transform:scale(.95)}
+  .fht-btn:disabled{opacity:.4;cursor:default}
+
+  .fhf-scrim{position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+    z-index:999999;display:flex;align-items:flex-end;justify-content:center;animation:fhfIn .2s ease}
+  .fhf-sheet{width:100%;max-width:560px;max-height:86vh;overflow-y:auto;box-sizing:border-box;
+    padding:18px 16px calc(22px + env(safe-area-inset-bottom,0px));border-radius:26px 26px 0 0;
+    background:#161c26;color:#eaf1f8;border:1px solid rgba(255,255,255,.14);border-bottom:none;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;display:flex;flex-direction:column;gap:14px}
+  .fhf-scrim.chiaro .fhf-sheet{background:#fff;color:#12161c;border-color:rgba(15,23,42,.12)}
+  .fhf-head{display:flex;align-items:center;gap:10px}
+  .fhf-head b{flex:1;font-size:17px;font-weight:900}
+  .fhf-x{width:32px;height:32px;border-radius:50%;border:none;background:rgba(255,255,255,.1);color:inherit;font-size:14px;cursor:pointer}
+  .fhf-scrim.chiaro .fhf-x{background:rgba(15,23,42,.07)}
+  .fhf-corpo{display:flex;flex-direction:column;gap:14px}
+  .fhf-sez{display:flex;flex-direction:column;gap:6px}
+  .fhf-sez h4{margin:0;font-size:10.5px;font-weight:900;letter-spacing:.07em;text-transform:uppercase;opacity:.6}
+  .fhf-riga{display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:14px;background:rgba(255,255,255,.05);
+    font-size:13px;--r-c:#93a1b0}
+  .fhf-scrim.chiaro .fhf-riga,.fh-app.chiaro .fhf-riga{background:rgba(15,23,42,.04)}
+  .fhf-riga.cliccabile{cursor:pointer}
+  .fhf-rig-ic{width:36px;height:36px;border-radius:11px;flex:0 0 auto;display:flex;align-items:center;justify-content:center;
+    color:var(--r-c);background:color-mix(in srgb,var(--r-c) 15%,transparent)}
+  .fhf-rig-ic ha-icon{--mdc-icon-size:20px}
+  .fhf-rig-t{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+  .fhf-rig-t b{font-size:13px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .fhf-rig-t small{font-size:11px;font-weight:600;opacity:.65;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .fhf-riga.oggi{outline:2px solid var(--r-c);outline-offset:-2px}
+  .fhf-val{font-weight:850;font-size:12.5px;color:var(--r-c);white-space:nowrap}
+  .fhf-tasto{padding:7px 12px;border-radius:11px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.08);
+    color:inherit;font:inherit;font-size:11.5px;font-weight:850;cursor:pointer;white-space:nowrap}
+  .fhf-scrim.chiaro .fhf-tasto,.fh-app.chiaro .fhf-tasto{background:rgba(15,23,42,.06);border-color:rgba(15,23,42,.14)}
+  .fhf-tasto:active{transform:scale(.95)}
+  /* L'interruttore: si capisce da lontano se e acceso, e il tocco e grande. */
+  .fhf-sw{position:relative;width:46px;height:27px;border-radius:999px;border:none;cursor:pointer;flex:0 0 auto;
+    background:rgba(255,255,255,.18);transition:background .2s}
+  .fhf-scrim.chiaro .fhf-sw,.fh-app.chiaro .fhf-sw{background:rgba(15,23,42,.18)}
+  .fhf-sw::after{content:"";position:absolute;top:3px;left:3px;width:21px;height:21px;border-radius:50%;background:#fff;
+    box-shadow:0 1px 4px rgba(0,0,0,.35);transition:transform .2s}
+  .fhf-sw.on{background:#ffb020}
+  .fhf-sw.on::after{transform:translateX(19px)}
+  .fhf-nota{font-size:11.5px;opacity:.65;line-height:1.4}
+  @keyframes fhfIn{from{opacity:0}to{opacity:1}}
+`;
+
+// Un foglio che sale dal basso, agganciato a document.body: dentro il pannello
+// le card hanno il vetro sfocato, che terrebbe prigioniero un position:fixed.
+function fhFoglio(titolo, chiaro) {
+  document.querySelectorAll(".fhf-scrim").forEach(x => x.remove());
+  const scrim = document.createElement("div");
+  scrim.className = "fhf-scrim" + (chiaro ? " chiaro" : "");
+  scrim.innerHTML = `<style>${FHT_CSS}</style><div class="fhf-sheet">
+    <div class="fhf-head"><b>${fhEsc(titolo)}</b><button type="button" class="fhf-x" data-x>✕</button></div>
+    <div class="fhf-corpo" data-corpo></div></div>`;
+  document.body.appendChild(scrim);
+  const chiudi = () => scrim.remove();
+  scrim.addEventListener("click", e => { if (e.target === scrim) chiudi(); });
+  scrim.querySelector("[data-x]").addEventListener("click", chiudi);
+  return { scrim, corpo: scrim.querySelector("[data-corpo]"), chiudi, aperto: () => document.body.contains(scrim) };
+}
+
+function fhQuando(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d)) return "";
+  const ora = d.toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
+  const oggi = new Date(); oggi.setHours(0, 0, 0, 0);
+  const g = new Date(d); g.setHours(0, 0, 0, 0);
+  const diff = Math.round((oggi - g) / 86400000);
+  if (diff === 0) return "oggi alle " + ora;
+  if (diff === 1) return "ieri alle " + ora;
+  if (diff === -1) return "domani alle " + ora;
+  return d.toLocaleDateString("it-IT", { day: "numeric", month: "short" }) + " alle " + ora;
+}
+
+// ===========================================================================
+// FABER AUTOMAZIONI — le routine di casa in un posto solo
+// Una tessera sulla Casa ("4 attive su 6") che apre il foglio con tutto:
+// automazioni con l'interruttore, script e pulsanti da eseguire, e i sensori
+// di sistema (internet, alimentazione, certificato) da tenere d'occhio.
+// Voce: { entity, nome, icona, nota, testi:{on,off}, ok:"on"|"off", conferma,
+//         azione:"dominio.servizio", dati:{...}, tasto:"Ricarica" }
+// ===========================================================================
+class FaberAutomazioni extends HTMLElement {
+  setConfig(c) {
+    this._cfg = Object.assign({ name: "Automazioni", compatta: true, gruppi: [] }, c || {});
+    this._built = false;
+  }
+  static getStubConfig(hass) {
+    const s = (hass && hass.states) || {};
+    const voci = Object.keys(s).filter(e => e.startsWith("automation.")).slice(0, 6).map(entity => ({ entity }));
+    return { type: "custom:faber-automazioni", name: "Automazioni", compatta: true, gruppi: [{ titolo: "Automazioni", voci }] };
+  }
+  getCardSize() { return 2; }
+  set hass(h) {
+    this._hass = h;
+    this._update();
+    if (this._foglio && this._foglio.aperto()) this._disegnaLista(this._foglio.corpo);
+  }
+
+  _voci() { return (this._cfg.gruppi || []).flatMap(g => g.voci || []); }
+
+  _leggi(v) {
+    const h = this._hass;
+    const st = h.states[v.entity];
+    const dom = String(v.entity || "").split(".")[0];
+    const r = { dom, st, nome: v.nome || (st && st.attributes.friendly_name) || v.entity || "Azione",
+      icona: v.icona || { automation: "mdi:robot-outline", script: "mdi:script-text-outline", button: "mdi:gesture-tap-button",
+        binary_sensor: "mdi:checkbox-marked-circle-outline", sensor: "mdi:gauge" }[dom] || "mdi:flash",
+      sub: v.nota || "", on: false, ok: true, valore: "" };
+    if (!st && !v.azione) { r.sub = "Non trovata in Home Assistant"; r.ok = null; return r; }
+    if (dom === "automation") {
+      r.on = st.state === "on";
+      const ult = fhQuando(st.attributes.last_triggered);
+      r.sub = (r.on ? "Attiva" : "Spenta") + (v.nota ? " · " + v.nota : "") + (ult ? " · scattata " + ult : "");
+    } else if (dom === "script") {
+      r.on = st.state === "on";
+      r.sub = r.on ? "In esecuzione…" : (v.nota || "Pronto");
+    } else if (dom === "binary_sensor") {
+      const on = st.state === "on";
+      const dc = st.attributes.device_class;
+      const okSe = v.ok || (["problem", "safety", "smoke", "moisture", "gas", "tamper", "battery"].includes(dc) ? "off" : "on");
+      r.ok = ["unavailable", "unknown"].includes(st.state) ? false : (okSe === "on" ? on : !on);
+      const testi = v.testi || (dc === "connectivity" ? { on: "Connessa", off: "Scollegata" }
+        : dc === "problem" ? { on: "Problema", off: "Regolare" } : { on: "Attivo", off: "Spento" });
+      r.valore = ["unavailable", "unknown"].includes(st.state) ? "Non letto" : (on ? testi.on : testi.off);
+    } else if (dom === "sensor") {
+      const dc = st.attributes.device_class;
+      const n = parseFloat(st.state);
+      if (dc === "timestamp") {
+        const giorni = Math.round((new Date(st.state) - new Date()) / 86400000);
+        r.valore = isNaN(giorni) ? "–" : giorni >= 0 ? "fra " + giorni + (giorni === 1 ? " giorno" : " giorni") : "scaduto";
+        r.ok = !isNaN(giorni) && giorni > 14;
+      } else if (dc === "battery" || st.attributes.unit_of_measurement === "%") {
+        r.valore = isNaN(n) ? st.state : Math.round(n) + "%";
+        r.ok = isNaN(n) ? false : n > 20;
+      } else {
+        r.valore = st.state + (st.attributes.unit_of_measurement ? " " + st.attributes.unit_of_measurement : "");
+      }
+    }
+    return r;
+  }
+
+  _update() {
+    const h = this._hass;
+    if (!h) return;
+    const voci = this._voci().map(v => this._leggi(v));
+    const auto = voci.filter(r => r.dom === "automation" && r.st);
+    const attive = auto.filter(r => r.on).length;
+    const guai = voci.filter(r => r.ok === false);
+    let tono = attive ? "ambra" : "grigio", stato = attive + (attive === 1 ? " attiva" : " attive") + " su " + auto.length;
+    let sub = "Routine, presenza e sistema";
+    if (guai.length) { tono = "arancio"; sub = guai.map(g => g.nome + ": " + (g.valore || "da controllare")).join(" · "); }
+    const firma = [tono, stato, sub].join("|");
+    if (this._cfg.compatta === false) { this._inline(); return; }
+    if (!this._built) {
+      this._built = true;
+      this.innerHTML = `<style>${FHT_CSS}</style>
+        <div class="fht tap" data-card>
+          <div class="fht-top"><div class="fht-ic"><ha-icon icon="mdi:robot-happy-outline"></ha-icon></div>
+            <span class="fht-pill" data-pill></span></div>
+          <div class="fht-testo"><div class="fht-title">${fhEsc(this._cfg.name)}</div>
+            <div class="fht-stato" data-stato></div><div class="fht-sub" data-sub></div></div>
+        </div>`;
+      this.querySelector("[data-card]").addEventListener("click", () => { fhVibra(8); this._apri(); });
+    }
+    if (this._firma === firma) return;
+    this._firma = firma;
+    const card = this.querySelector("[data-card]");
+    card.dataset.tono = tono;
+    this.querySelector("[data-pill]").textContent = attive + "/" + auto.length;
+    this.querySelector("[data-stato]").textContent = guai.length ? "Da controllare" : stato;
+    this.querySelector("[data-sub]").textContent = sub;
+  }
+
+  _inline() {
+    if (!this._built) {
+      this._built = true;
+      this.innerHTML = `<style>${FHT_CSS}</style><div class="fht" style="min-height:0">
+        <div class="fht-title">${fhEsc(this._cfg.name)}</div><div class="fhf-corpo" data-corpo></div></div>`;
+    }
+    this._disegnaLista(this.querySelector("[data-corpo]"));
+  }
+
+  _apri() {
+    this._foglio = fhFoglio(this._cfg.name, !!this.closest(".fh-app.chiaro"));
+    this._firmaLista = null;
+    this._disegnaLista(this._foglio.corpo);
+  }
+
+  // Si ridisegna solo se qualcosa di quello che si vede e cambiato: la card
+  // riceve lo stato di tutta la casa molte volte al secondo.
+  _disegnaLista(corpo) {
+    const gruppi = (this._cfg.gruppi || []).map(g => ({ titolo: g.titolo, voci: (g.voci || []).map(v => ({ v, r: this._leggi(v) })) }));
+    const firma = JSON.stringify(gruppi.map(g => g.voci.map(({ r }) => [r.on, r.ok, r.sub, r.valore])));
+    if (corpo.__firma === firma) return;
+    corpo.__firma = firma;
+    corpo.innerHTML = gruppi.map((g, gi) => `<div class="fhf-sez">${g.titolo ? `<h4>${fhEsc(g.titolo)}</h4>` : ""}
+      ${g.voci.map(({ v, r }, vi) => {
+        const col = r.ok === false ? "#ff8a3d" : r.on ? "#ffb020" : r.dom === "binary_sensor" || r.dom === "sensor" ? "#4ade80" : "#93a1b0";
+        let ctrl = "";
+        if (r.dom === "automation" && r.st) ctrl = `<button type="button" class="fhf-sw${r.on ? " on" : ""}" data-sw="${gi}.${vi}" aria-label="Attiva o spegni"></button>`;
+        else if (v.azione) ctrl = `<button type="button" class="fhf-tasto" data-az="${gi}.${vi}">${fhEsc(v.tasto || "Esegui")}</button>`;
+        else if (r.dom === "script" && r.st) ctrl = `<button type="button" class="fhf-tasto" data-az="${gi}.${vi}">${fhEsc(v.tasto || "Avvia")}</button>`;
+        else if (r.dom === "button" && r.st) ctrl = `<button type="button" class="fhf-tasto" data-az="${gi}.${vi}">${fhEsc(v.tasto || "Premi")}</button>`;
+        else if (r.valore) ctrl = `<span class="fhf-val">${fhEsc(r.valore)}</span>`;
+        return `<div class="fhf-riga${r.st ? " cliccabile" : ""}" style="--r-c:${col}" data-info="${fhEsc(v.entity || "")}">
+          <div class="fhf-rig-ic"><ha-icon icon="${fhEsc(r.icona)}"></ha-icon></div>
+          <div class="fhf-rig-t"><b>${fhEsc(r.nome)}</b>${r.sub ? `<small>${fhEsc(r.sub)}</small>` : ""}</div>${ctrl}</div>`;
+      }).join("")}</div>`).join("");
+    const voce = k => { const [a, b] = k.split(".").map(Number); return (this._cfg.gruppi[a].voci || [])[b]; };
+    corpo.querySelectorAll("[data-sw]").forEach(b => b.addEventListener("click", e => {
+      e.stopPropagation();
+      const v = voce(b.dataset.sw);
+      const st = this._hass.states[v.entity];
+      if (!st) return;
+      fhVibra(10);
+      this._hass.callService("automation", st.state === "on" ? "turn_off" : "turn_on", { entity_id: v.entity });
+    }));
+    corpo.querySelectorAll("[data-az]").forEach(b => b.addEventListener("click", e => {
+      e.stopPropagation();
+      const v = voce(b.dataset.az);
+      const fai = () => {
+        fhVibra(12);
+        if (v.azione) {
+          const [d, s] = v.azione.split(".");
+          this._hass.callService(d, s, Object.assign({}, v.dati || {}));
+        } else if (v.entity.startsWith("script.")) this._hass.callService("script", "turn_on", { entity_id: v.entity });
+        else if (v.entity.startsWith("button.")) this._hass.callService("button", "press", { entity_id: v.entity });
+        b.textContent = "Fatto ✓";
+        setTimeout(() => { b.textContent = v.tasto || "Esegui"; }, 1600);
+      };
+      if (v.conferma && window.fhConfirmAction) window.fhConfirmAction({ title: v.nome || "Confermi?", message: v.conferma,
+        icon: v.icona || "mdi:help-circle-outline", confirmText: v.tasto || "Esegui", cancelText: "Annulla",
+        chiaro: !!this.closest(".fh-app.chiaro"), onConfirm: fai });
+      else fai();
+    }));
+    corpo.querySelectorAll("[data-info]").forEach(riga => riga.addEventListener("click", () => {
+      const id = riga.dataset.info;
+      if (id && this._hass.states[id]) this.dispatchEvent(new CustomEvent("hass-more-info", { bubbles: true, composed: true, detail: { entityId: id } }));
+    }));
+  }
+}
+customElements.define("faber-automazioni", FaberAutomazioni);
+
+// ===========================================================================
+// FABER RIFIUTI — "stasera esponi..." e il calendario della settimana
+// Il porta a porta si espone la sera prima: la tessera dice cosa mettere fuori
+// stasera, col colore del sacco. Il foglio ha la settimana e il centro raccolta.
+// calendario: { lun: "Plastica e Metalli", mar: "Organico", ... dom: "" }
+// centro: { nome, orari: { lun: "14:00 - 18:00", ... } }
+// ===========================================================================
+const FR_GIORNI = ["dom", "lun", "mar", "mer", "gio", "ven", "sab"];
+const FR_NOMI = { dom: "Domenica", lun: "Lunedì", mar: "Martedì", mer: "Mercoledì", gio: "Giovedì", ven: "Venerdì", sab: "Sabato" };
+const FR_TIPI = [
+  { re: /plastic|metall|lattin/i, c: "#f2b705", i: "mdi:bottle-soda-classic-outline" },
+  { re: /organic|umido/i, c: "#a0712b", i: "mdi:food-apple-outline" },
+  { re: /indiff|secco|residu/i, c: "#8a94a1", i: "mdi:trash-can-outline" },
+  { re: /vetro/i, c: "#2fb36b", i: "mdi:bottle-wine-outline" },
+  { re: /carta|cartone/i, c: "#3b8cf6", i: "mdi:newspaper-variant-outline" },
+  { re: /verde|sfalci|potatur/i, c: "#65a30d", i: "mdi:leaf" },
+];
+function frTipi(testo) {
+  const out = [];
+  String(testo || "").split(/\s*(?:,|\+|\/|\se\s)\s*/i).forEach(p => {
+    const t = FR_TIPI.find(x => x.re.test(p));
+    if (t && !out.includes(t)) out.push(t);
+  });
+  return out;
+}
+
+class FaberRifiuti extends HTMLElement {
+  setConfig(c) {
+    this._cfg = Object.assign({ name: "Rifiuti", calendario: {}, centro: null }, c || {});
+    this._built = false;
+  }
+  static getStubConfig() {
+    return { type: "custom:faber-rifiuti", name: "Rifiuti",
+      calendario: { lun: "", mar: "", mer: "", gio: "", ven: "", sab: "", dom: "" } };
+  }
+  getCardSize() { return 2; }
+  connectedCallback() {
+    // Il giorno cambia anche se in casa non cambia niente: un controllo ogni 10 minuti.
+    if (!this._tic) this._tic = setInterval(() => this._update(), 600000);
+  }
+  disconnectedCallback() { clearInterval(this._tic); this._tic = null; }
+  set hass(h) { this._hass = h; this._update(); }
+
+  _giorno(offset) {
+    const d = new Date(); d.setDate(d.getDate() + offset);
+    const k = FR_GIORNI[d.getDay()];
+    const testo = (this._cfg.calendario || {})[k] || "";
+    return { d, k, testo, tipi: frTipi(testo) };
+  }
+
+  _situazione() {
+    const ora = new Date().getHours();
+    // Prima dell'alba il camion non e ancora passato: conta il giro di oggi.
+    const g = ora < 5 ? this._giorno(0) : this._giorno(1);
+    if (g.testo) return { g, stato: ora < 5 ? "Passa stamattina" : "Stasera esponi", pill: ora < 5 ? "OGGI" : "DOMANI", sub: g.testo };
+    for (let i = 2; i < 8; i++) {
+      const n = this._giorno(i);
+      if (n.testo) return { g: n, vuoto: true, stato: "Stasera niente", pill: "LIBERO",
+        sub: "Prossimo: " + FR_NOMI[n.k].toLowerCase() + " · " + n.testo };
+    }
+    return { g, vuoto: true, stato: "Calendario vuoto", pill: "–", sub: "Scrivi i giorni nella configurazione della card." };
+  }
+
+  _update() {
+    if (!this._hass) return;
+    const s = this._situazione();
+    const tipo = !s.vuoto && s.g.tipi[0];
+    const firma = [s.stato, s.sub, s.pill, tipo ? tipo.c : ""].join("|");
+    if (!this._built) {
+      this._built = true;
+      this.innerHTML = `<style>${FHT_CSS}</style>
+        <div class="fht tap" data-card>
+          <div class="fht-top"><div class="fht-ic"><ha-icon data-icona></ha-icon></div><span class="fht-pill" data-pill></span></div>
+          <div class="fht-testo"><div class="fht-title">${fhEsc(this._cfg.name)}</div>
+            <div class="fht-stato" data-stato></div><div class="fht-sub" data-sub></div></div>
+        </div>`;
+      this.querySelector("[data-card]").addEventListener("click", () => { fhVibra(8); this._apri(); });
+    }
+    if (this._firma === firma) return;
+    this._firma = firma;
+    const card = this.querySelector("[data-card]");
+    // Il colore e quello del sacco: si riconosce prima di leggere.
+    if (tipo) { card.style.setProperty("--t-c", tipo.c); card.style.setProperty("--t-t", tipo.c + "33"); card.style.borderColor = tipo.c + "77"; }
+    else { card.style.removeProperty("--t-c"); card.style.removeProperty("--t-t"); card.style.borderColor = ""; }
+    this.querySelector("[data-icona]").setAttribute("icon", tipo ? tipo.i : "mdi:recycle");
+    this.querySelector("[data-pill]").textContent = s.pill;
+    this.querySelector("[data-stato]").textContent = s.stato;
+    this.querySelector("[data-sub]").textContent = s.sub;
+  }
+
+  _apri() {
+    const f = fhFoglio(this._cfg.name, !!this.closest(".fh-app.chiaro"));
+    const s = this._situazione();
+    const settimana = [];
+    for (let i = 0; i < 7; i++) settimana.push(this._giorno(i));
+    const nomeGiorno = (g, i) => i === 0 ? "Oggi" : i === 1 ? "Domani" : FR_NOMI[g.k];
+    const riga = (g, i) => {
+      const t = g.tipi[0];
+      const col = t ? t.c : "#93a1b0";
+      const evid = !s.vuoto && g.d.toDateString() === s.g.d.toDateString();
+      return `<div class="fhf-riga${evid ? " oggi" : ""}" style="--r-c:${col}">
+        <div class="fhf-rig-ic"><ha-icon icon="${t ? t.i : "mdi:minus-circle-outline"}"></ha-icon></div>
+        <div class="fhf-rig-t"><b>${fhEsc(nomeGiorno(g, i))}</b><small>${fhEsc(g.testo || "Nessun ritiro")}</small></div>
+        ${g.tipi.length > 1 ? `<span class="fhf-val">${g.tipi.map(x => `<ha-icon icon="${x.i}" style="--mdc-icon-size:18px;color:${x.c}"></ha-icon>`).join("")}</span>` : ""}
+        ${evid ? `<span class="fhf-val">${i === 0 ? "passa oggi" : "esponi stasera"}</span>` : ""}</div>`;
+    };
+    const c = this._cfg.centro;
+    let centro = "";
+    if (c && c.orari) {
+      const oggiK = FR_GIORNI[new Date().getDay()];
+      const ordine = ["lun", "mar", "mer", "gio", "ven", "sab", "dom"].filter(k => c.orari[k]);
+      const aperto = (() => {
+        const o = c.orari[oggiK];
+        if (!o) return false;
+        const m = o.match(/(\d{1,2})[:.](\d{2})\s*-\s*(\d{1,2})[:.](\d{2})/);
+        if (!m) return false;
+        const now = new Date(); const min = now.getHours() * 60 + now.getMinutes();
+        return min >= (+m[1]) * 60 + (+m[2]) && min < (+m[3]) * 60 + (+m[4]);
+      })();
+      centro = `<div class="fhf-sez"><h4>${fhEsc(c.nome || "Centro raccolta")}</h4>
+        ${ordine.map(k => `<div class="fhf-riga${k === oggiK ? " oggi" : ""}" style="--r-c:${k === oggiK && aperto ? "#4ade80" : "#93a1b0"}">
+          <div class="fhf-rig-ic"><ha-icon icon="mdi:warehouse"></ha-icon></div>
+          <div class="fhf-rig-t"><b>${fhEsc(FR_NOMI[k])}</b><small>${fhEsc(c.orari[k])}</small></div>
+          ${k === oggiK ? `<span class="fhf-val">${aperto ? "aperto adesso" : "oggi"}</span>` : ""}</div>`).join("")}</div>`;
+    }
+    f.corpo.innerHTML = `<div class="fhf-sez"><h4>Porta a porta · si espone la sera prima</h4>${settimana.map(riga).join("")}</div>${centro}`;
+  }
+}
+customElements.define("faber-rifiuti", FaberRifiuti);
+
+// ===========================================================================
+// FABER ROBOT — il robot aspirapolvere
+// Stato in italiano, batteria (dall'attributo o dal sensore del suo stesso
+// dispositivo), e solo i tasti che il robot DICHIARA di saper fare: mostrare
+// "Pausa" a un robot che non la supporta vuol dire un tasto che non fa niente.
+// ===========================================================================
+const FRB_STATI = { cleaning: "Sta pulendo", docked: "In base", returning: "Torna alla base", paused: "In pausa",
+  idle: "Fermo", error: "Errore", unavailable: "Non raggiungibile", unknown: "Sconosciuto" };
+const FRB_CSS = `
+  .frb-svg{width:46px;height:46px;flex:0 0 auto}
+  .frb-spaz{transform-box:fill-box;transform-origin:center}
+  .fht[data-pulisce="1"] .frb-spaz{animation:frbGira .6s linear infinite}
+  .fht[data-pulisce="1"] .frb-corpo{animation:frbVai 3.2s ease-in-out infinite}
+  .frb-led{fill:var(--t-c)}
+  @keyframes frbGira{to{transform:rotate(360deg)}}
+  @keyframes frbVai{0%,100%{transform:translate(0,0)}25%{transform:translate(2px,-1px)}75%{transform:translate(-2px,1px)}}
+  @media (prefers-reduced-motion:reduce){.frb-spaz,.frb-corpo{animation:none!important}}
+`;
+function frbDisegno() {
+  return `<svg class="frb-svg" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+    <g class="frb-corpo">
+      <circle cx="24" cy="24" r="19" fill="#3a4150" stroke="#050608" stroke-width="1.2"/>
+      <circle cx="24" cy="24" r="15" fill="#2a303c"/>
+      <rect x="16" y="9" width="16" height="6" rx="3" fill="#4a5261"/>
+      <circle cx="24" cy="24" r="5" fill="#4a5261" stroke="#050608" stroke-width=".8"/>
+      <circle class="frb-led" cx="24" cy="24" r="2"/>
+      <g class="frb-spaz" transform="translate(9 35)"><g stroke="#8a94a1" stroke-width="1.3" stroke-linecap="round">
+        <path d="M0 -5V5M-5 0H5M-3.5 -3.5L3.5 3.5M-3.5 3.5L3.5 -3.5"/></g></g>
+    </g></svg>`;
+}
+class FaberRobot extends HTMLElement {
+  setConfig(c) { this._cfg = Object.assign({ name: "", entity: "" }, c || {}); this._built = false; }
+  static getStubConfig(hass) {
+    const e = Object.keys((hass && hass.states) || {}).find(x => x.startsWith("vacuum.")) || "";
+    return { type: "custom:faber-robot", name: "Robot", entity: e };
+  }
+  getCardSize() { return 2; }
+  set hass(h) { this._hass = h; this._update(); }
+
+  _batteria(st) {
+    if (st.attributes.battery_level != null) return Math.round(st.attributes.battery_level);
+    const h = this._hass, reg = h.entities || {};
+    const dev = (reg[this._cfg.entity] || {}).device_id;
+    if (!dev) return null;
+    const b = Object.keys(reg).find(e => reg[e].device_id === dev && e.startsWith("sensor.") &&
+      h.states[e] && h.states[e].attributes.device_class === "battery");
+    const n = b ? parseFloat(h.states[b].state) : NaN;
+    return isNaN(n) ? null : Math.round(n);
+  }
+
+  _update() {
+    const h = this._hass;
+    if (!h) return;
+    const st = h.states[this._cfg.entity];
+    const f = st ? Number(st.attributes.supported_features) || 0 : 0;
+    const stato = st ? st.state : "unavailable";
+    const tono = { cleaning: "verde", returning: "ambra", paused: "ambra", error: "rosso", unavailable: "grigio" }[stato] || "blu";
+    const bat = st ? this._batteria(st) : null;
+    const pulisce = stato === "cleaning";
+    const tasti = [];
+    if (st && !pulisce && (f & 8192)) tasti.push({ k: "start", i: "mdi:play", t: stato === "paused" ? "Riprendi" : "Avvia", pieno: true });
+    if (pulisce && (f & 4)) tasti.push({ k: "pause", i: "mdi:pause", t: "Pausa", pieno: true });
+    else if (pulisce && (f & 8)) tasti.push({ k: "stop", i: "mdi:stop", t: "Ferma", pieno: true });
+    if (st && stato !== "docked" && (f & 16)) tasti.push({ k: "return_to_base", i: "mdi:home-import-outline", t: "Base" });
+    if (st && (f & 512)) tasti.push({ k: "locate", i: "mdi:map-marker-radius", t: "Trova" });
+    const sub = st ? (st.attributes.fan_speed ? "Aspirazione: " + st.attributes.fan_speed : st.attributes.status || "") : "Robot non trovato";
+    const firma = [stato, bat, sub, tasti.map(x => x.k).join()].join("|");
+    if (!this._built) {
+      this._built = true;
+      this.innerHTML = `<style>${FHT_CSS}${FRB_CSS}</style>
+        <div class="fht" data-card>
+          <div class="fht-top" data-info style="cursor:pointer">${frbDisegno()}<span class="fht-pill" data-pill></span></div>
+          <div class="fht-testo" data-info style="cursor:pointer"><div class="fht-title">${fhEsc(this._cfg.name || (st && st.attributes.friendly_name) || "Robot")}</div>
+            <div class="fht-stato" data-stato></div><div class="fht-sub" data-sub></div></div>
+          <div class="fht-btns" data-btns></div>
+        </div>`;
+      this.querySelectorAll("[data-info]").forEach(el => el.addEventListener("click", () =>
+        this.dispatchEvent(new CustomEvent("hass-more-info", { bubbles: true, composed: true, detail: { entityId: this._cfg.entity } }))));
+    }
+    if (this._firma === firma) return;
+    this._firma = firma;
+    const card = this.querySelector("[data-card]");
+    card.dataset.tono = tono;
+    card.dataset.pulisce = pulisce ? "1" : "0";
+    const pill = this.querySelector("[data-pill]");
+    pill.hidden = bat == null;
+    pill.innerHTML = bat != null
+      ? `<ha-icon icon="${bat > 90 ? "mdi:battery" : bat < 20 ? "mdi:battery-alert-variant-outline" : "mdi:battery-" + Math.max(10, Math.round(bat / 10) * 10)}"></ha-icon>${bat}%` : "";
+    this.querySelector("[data-stato]").textContent = FRB_STATI[stato] || stato;
+    this.querySelector("[data-sub]").textContent = sub;
+    const box = this.querySelector("[data-btns]");
+    box.innerHTML = tasti.map(x => `<button type="button" class="fht-btn${x.pieno ? " pieno" : ""}" data-k="${x.k}"><ha-icon icon="${x.i}"></ha-icon>${x.t}</button>`).join("");
+    box.querySelectorAll("[data-k]").forEach(b => b.addEventListener("click", e => {
+      e.stopPropagation();
+      fhVibra(10);
+      this._hass.callService("vacuum", b.dataset.k, { entity_id: this._cfg.entity });
+    }));
+  }
+}
+customElements.define("faber-robot", FaberRobot);
+
+// ===========================================================================
+// FABER PLAYER — casse Alexa, Fire TV, cassa del bagno
+// Una card per tutte: se ne passi piu d'una (entities) si sceglie la cassa
+// dalle chip in alto. I tasti sono quelli che l'apparecchio dichiara.
+// ===========================================================================
+const FPL_CSS = `
+  .fpl{min-height:0;gap:10px}
+  .fpl-head{display:flex;align-items:center;gap:12px;cursor:pointer}
+  .fpl-art{width:58px;height:58px;border-radius:16px;flex:0 0 auto;background:color-mix(in srgb,var(--t-c) 16%,transparent);
+    display:flex;align-items:center;justify-content:center;color:var(--t-c);overflow:hidden;background-size:cover;background-position:center}
+  .fpl-art ha-icon{--mdc-icon-size:28px}
+  .fpl-art.foto ha-icon{display:none}
+  .fpl-pow{margin-left:auto;width:36px;height:36px;border-radius:50%;border:1px solid rgba(255,255,255,.14);
+    background:rgba(255,255,255,.07);color:inherit;cursor:pointer;display:flex;align-items:center;justify-content:center;flex:0 0 auto}
+  .fh-app.chiaro .fpl-pow{background:rgba(15,23,42,.05);border-color:rgba(15,23,42,.12)}
+  .fpl-pow.on{color:#4ade80}
+  .fpl-chips{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding-bottom:1px}
+  .fpl-chips::-webkit-scrollbar{display:none}
+  .fpl-chip{flex:0 0 auto;padding:6px 11px;border-radius:999px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);
+    color:inherit;font:inherit;font-size:11.5px;font-weight:800;cursor:pointer;display:flex;align-items:center;gap:5px;white-space:nowrap}
+  .fh-app.chiaro .fpl-chip{background:rgba(15,23,42,.05);border-color:rgba(15,23,42,.12)}
+  .fpl-chip ha-icon{--mdc-icon-size:15px}
+  .fpl-chip.sel{background:#ffb020;border-color:#ffb020;color:#1c1400}
+  .fpl-chip.suona::after{content:"";width:6px;height:6px;border-radius:50%;background:#4ade80}
+  .fpl-ctrl{display:flex;align-items:center;justify-content:center;gap:14px}
+  .fpl-c{width:44px;height:44px;border-radius:50%;border:none;background:rgba(255,255,255,.08);color:inherit;cursor:pointer;
+    display:flex;align-items:center;justify-content:center}
+  .fh-app.chiaro .fpl-c{background:rgba(15,23,42,.06)}
+  .fpl-c.grande{width:56px;height:56px;background:linear-gradient(135deg,#ffb020,#e09810);color:#1c1400;box-shadow:0 4px 14px rgba(255,176,32,.35)}
+  .fpl-c ha-icon{--mdc-icon-size:24px}
+  .fpl-c:active{transform:scale(.93)}
+  .fpl-vol{display:flex;align-items:center;gap:8px}
+  .fpl-vol ha-icon{--mdc-icon-size:18px;opacity:.7;cursor:pointer}
+  .fpl-vol input{flex:1;accent-color:#ffb020;height:24px}
+  .fpl-src{display:flex;gap:6px;flex-wrap:wrap}
+`;
+class FaberPlayer extends HTMLElement {
+  setConfig(c) {
+    this._cfg = Object.assign({ name: "", entity: "", entities: [] }, c || {});
+    this._lista = [...new Set([this._cfg.entity, ...(this._cfg.entities || [])].filter(Boolean))];
+    this._sel = this._lista[0] || "";
+    this._built = false;
+  }
+  static getStubConfig(hass) {
+    const e = Object.keys((hass && hass.states) || {}).find(x => x.startsWith("media_player.")) || "";
+    return { type: "custom:faber-player", entity: e };
+  }
+  getCardSize() { return 3; }
+  set hass(h) {
+    this._hass = h;
+    // Se ne sta suonando un'altra e quella scelta e ferma, si passa da sola a
+    // quella che suona: e quasi sempre quella che si vuole comandare.
+    if (!this._scelto && this._lista.length > 1) {
+      const suona = this._lista.find(e => h.states[e] && h.states[e].state === "playing");
+      if (suona) this._sel = suona;
+    }
+    this._update();
+  }
+
+  _icona(st) {
+    const dc = st && st.attributes.device_class;
+    return dc === "tv" ? "mdi:television" : dc === "speaker" ? "mdi:speaker" : "mdi:speaker-wireless";
+  }
+
+  _update() {
+    const h = this._hass;
+    if (!h) return;
+    const id = this._sel;
+    const st = h.states[id];
+    const a = st ? st.attributes : {};
+    const f = Number(a.supported_features) || 0;
+    const stato = st ? st.state : "unavailable";
+    const suona = stato === "playing";
+    const spento = ["off", "unavailable", "standby"].includes(stato);
+    const titolo = a.media_title || { playing: "In riproduzione", paused: "In pausa", idle: "In attesa", on: "Acceso",
+      off: "Spento", standby: "In standby", unavailable: "Non raggiungibile" }[stato] || stato;
+    const sotto = [a.media_artist, a.media_album_name].filter(Boolean).join(" · ") || (a.friendly_name || id);
+    const vol = a.volume_level != null ? Math.round(a.volume_level * 100) : null;
+    const firma = JSON.stringify([id, stato, titolo, sotto, a.entity_picture, vol, a.is_volume_muted, a.source,
+      this._lista.map(e => h.states[e] && h.states[e].state)]);
+    if (this._firma === firma || this._trascino) return;
+    this._firma = firma;
+    const nomeDi = e => { const s = h.states[e]; return (s && s.attributes.friendly_name) || e; };
+    const chips = this._lista.length > 1 ? `<div class="fpl-chips">${this._lista.map(e => {
+      const s = h.states[e];
+      return `<button type="button" class="fpl-chip${e === id ? " sel" : ""}${s && s.state === "playing" ? " suona" : ""}" data-sel="${fhEsc(e)}">
+        <ha-icon icon="${this._icona(s)}"></ha-icon>${fhEsc(nomeDi(e))}</button>`;
+    }).join("")}</div>` : "";
+    const pp = (f & 1) || (f & 16384);
+    const ctrl = spento ? "" : `<div class="fpl-ctrl">
+      ${f & 16 ? `<button type="button" class="fpl-c" data-srv="media_previous_track"><ha-icon icon="mdi:skip-previous"></ha-icon></button>` : ""}
+      ${pp ? `<button type="button" class="fpl-c grande" data-srv="media_play_pause"><ha-icon icon="${suona ? "mdi:pause" : "mdi:play"}"></ha-icon></button>` : ""}
+      ${f & 32 ? `<button type="button" class="fpl-c" data-srv="media_next_track"><ha-icon icon="mdi:skip-next"></ha-icon></button>` : ""}
+    </div>`;
+    const volHTML = !spento && vol != null && (f & 4) ? `<div class="fpl-vol">
+      <ha-icon icon="${a.is_volume_muted ? "mdi:volume-off" : "mdi:volume-medium"}" data-muto></ha-icon>
+      <input type="range" min="0" max="100" step="2" value="${vol}" data-vol aria-label="Volume">
+      <span class="fhf-val" style="--r-c:inherit;min-width:34px;text-align:right">${vol}%</span></div>` : "";
+    const src = !spento && (f & 2048) && (a.source_list || []).length && (a.source_list || []).length <= 8
+      ? `<div class="fpl-src">${a.source_list.map(x => `<button type="button" class="fpl-chip${x === a.source ? " sel" : ""}" data-src="${fhEsc(x)}">${fhEsc(x)}</button>`).join("")}</div>` : "";
+    const pow = (f & 128) || (f & 256) ? `<button type="button" class="fpl-pow${spento ? "" : " on"}" data-pow title="Accendi o spegni"><ha-icon icon="mdi:power"></ha-icon></button>` : "";
+    this.innerHTML = `<style>${FHT_CSS}${FPL_CSS}</style>
+      <div class="fht fpl" data-tono="${suona ? "ambra" : spento ? "grigio" : "blu"}">
+        ${chips}
+        <div class="fpl-head" data-info>
+          <div class="fpl-art${a.entity_picture ? " foto" : ""}" ${a.entity_picture ? `style="background-image:url('${fhEsc(a.entity_picture)}')"` : ""}>
+            <ha-icon icon="${this._icona(st)}"></ha-icon></div>
+          <div class="fht-testo"><div class="fht-title">${fhEsc(this._cfg.name && this._lista.length === 1 ? this._cfg.name : titolo)}</div>
+            <div class="fht-sub">${fhEsc(this._cfg.name && this._lista.length === 1 ? titolo + " · " + sotto : sotto)}</div></div>
+          ${pow}
+        </div>
+        ${ctrl}${volHTML}${src}
+      </div>`;
+    const srv = (s, d) => { fhVibra(8); h.callService("media_player", s, Object.assign({ entity_id: id }, d || {})); };
+    this.querySelectorAll("[data-sel]").forEach(b => b.addEventListener("click", () => {
+      this._sel = b.dataset.sel; this._scelto = true; this._firma = null; this._update();
+    }));
+    this.querySelectorAll("[data-srv]").forEach(b => b.addEventListener("click", () => srv(b.dataset.srv)));
+    this.querySelectorAll("[data-src]").forEach(b => b.addEventListener("click", () => srv("select_source", { source: b.dataset.src })));
+    const pw = this.querySelector("[data-pow]");
+    if (pw) pw.addEventListener("click", e => { e.stopPropagation(); srv(spento ? "turn_on" : "turn_off"); });
+    const mu = this.querySelector("[data-muto]");
+    if (mu && (f & 8)) mu.addEventListener("click", () => srv("volume_mute", { is_volume_muted: !a.is_volume_muted }));
+    const vr = this.querySelector("[data-vol]");
+    if (vr) {
+      vr.addEventListener("pointerdown", () => { this._trascino = true; });
+      vr.addEventListener("change", () => { this._trascino = false; srv("volume_set", { volume_level: +vr.value / 100 }); });
+      vr.addEventListener("input", () => { const l = vr.nextElementSibling; if (l) l.textContent = vr.value + "%"; });
+    }
+    const info = this.querySelector("[data-info]");
+    if (info) info.addEventListener("click", () =>
+      this.dispatchEvent(new CustomEvent("hass-more-info", { bubbles: true, composed: true, detail: { entityId: id } })));
+  }
+}
+customElements.define("faber-player", FaberPlayer);
+
+// ===========================================================================
+// FABER PULSANTIERA — telecomandi semplici e pulsanti di casa
+// Stufa della camera (Broadlink), movimento della telecamera, qualunque fila
+// di comandi. Un tasto manda un comando al Broadlink (remote + device) oppure
+// preme un'entita (button.*, script.*).
+// tasti: [{ nome, icona, cmd | entity, ripeti, pausa, principale, vuoto }]
+// ===========================================================================
+const FPU_CSS = `
+  .fpu{min-height:0;gap:10px}
+  .fpu-grid{display:grid;grid-template-columns:repeat(var(--fpu-n,3),1fr);gap:8px}
+  .fpu-t{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:12px 6px;border-radius:16px;
+    border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:inherit;font:inherit;font-size:11px;font-weight:800;
+    cursor:pointer;min-height:64px;transition:transform .12s,background .2s}
+  .fh-app.chiaro .fpu-t{background:rgba(15,23,42,.05);border-color:rgba(15,23,42,.12)}
+  .fpu-t ha-icon{--mdc-icon-size:24px;color:#ffb020}
+  .fpu-t.principale{background:linear-gradient(135deg,#ffb020,#e09810);border-color:transparent;color:#1c1400;
+    box-shadow:0 4px 14px rgba(255,176,32,.32)}
+  .fpu-t.principale ha-icon{color:#1c1400}
+  .fpu-t.vuoto{visibility:hidden}
+  .fpu-t:active{transform:scale(.94)}
+  .fpu-t.inviato{background:rgba(74,222,128,.25)}
+`;
+class FaberPulsantiera extends HTMLElement {
+  setConfig(c) {
+    this._cfg = Object.assign({ name: "Comandi", icona: "mdi:remote", remote: "", device: "", colonne: 3, tasti: [] }, c || {});
+    this._built = false;
+  }
+  static getStubConfig() {
+    return { type: "custom:faber-pulsantiera", name: "Comandi", icona: "mdi:remote", remote: "", device: "",
+      tasti: [{ nome: "Accendi", icona: "mdi:power", cmd: "power", principale: true }] };
+  }
+  getCardSize() { return 3; }
+  set hass(h) {
+    this._hass = h;
+    if (this._built) return;
+    this._built = true;
+    const c = this._cfg;
+    this.innerHTML = `<style>${FHT_CSS}${FPU_CSS}</style>
+      <div class="fht fpu">
+        <div class="fht-top" style="justify-content:flex-start;gap:10px"><div class="fht-ic"><ha-icon icon="${fhEsc(c.icona)}"></ha-icon></div>
+          <div class="fht-testo"><div class="fht-title">${fhEsc(c.name)}</div>${c.nota ? `<div class="fht-sub">${fhEsc(c.nota)}</div>` : ""}</div></div>
+        <div class="fpu-grid" style="--fpu-n:${Math.max(1, Math.min(6, +c.colonne || 3))}">
+          ${(c.tasti || []).map((t, i) => t.vuoto ? `<span class="fpu-t vuoto"></span>`
+            : `<button type="button" class="fpu-t${t.principale ? " principale" : ""}" data-i="${i}">
+                <ha-icon icon="${fhEsc(t.icona || "mdi:circle-medium")}"></ha-icon>${fhEsc(t.nome || "")}</button>`).join("")}
+        </div>
+      </div>`;
+    this.querySelectorAll("[data-i]").forEach(b => b.addEventListener("click", () => {
+      const t = c.tasti[+b.dataset.i];
+      this._manda(t);
+      fhVibra(t.principale ? 18 : 10);
+      b.classList.add("inviato");
+      setTimeout(() => b.classList.remove("inviato"), 450);
+    }));
+  }
+  _manda(t) {
+    const h = this._hass;
+    const c = this._cfg;
+    if (t.entity) {
+      const d = t.entity.split(".")[0];
+      if (d === "button") h.callService("button", "press", { entity_id: t.entity });
+      else if (d === "script") h.callService("script", "turn_on", { entity_id: t.entity });
+      else h.callService(d, "toggle", { entity_id: t.entity });
+      return;
+    }
+    if (!c.remote || !t.cmd) return;
+    const dati = { entity_id: c.remote, command: t.cmd };
+    if (c.device) dati.device = c.device;
+    if (t.ripeti || c.ripeti) dati.num_repeats = +(t.ripeti || c.ripeti);
+    if (t.pausa || c.pausa) dati.delay_secs = +(t.pausa || c.pausa);
+    h.callService("remote", "send_command", dati);
+  }
+}
+customElements.define("faber-pulsantiera", FaberPulsantiera);
+
+// ===========================================================================
 // FABER SPESA (CARD VERTICALE CON POPUP MINI-APP)
 // ===========================================================================
 const FSP_CSS = `
@@ -11449,6 +12236,16 @@ if (!existingCards.includes("faber-fuoricasa")) {
     documentationURL: "https://github.com/cristianwebonline/ha-faber-home",
   });
 }
+if (!existingCards.includes("faber-automazioni")) window.customCards.push({ type: "faber-automazioni", name: "Faber Automazioni", description: "Routine, presenza e sistema: interruttori e stato in un foglio.", preview: true,
+  documentationURL: "https://github.com/cristianwebonline/ha-faber-home" });
+if (!existingCards.includes("faber-rifiuti")) window.customCards.push({ type: "faber-rifiuti", name: "Faber Rifiuti", description: "Cosa esporre stasera, calendario porta a porta e centro raccolta.", preview: true,
+  documentationURL: "https://github.com/cristianwebonline/ha-faber-home" });
+if (!existingCards.includes("faber-robot")) window.customCards.push({ type: "faber-robot", name: "Faber Robot", description: "Robot aspirapolvere: stato, batteria e comandi.", preview: true,
+  documentationURL: "https://github.com/cristianwebonline/ha-faber-home" });
+if (!existingCards.includes("faber-player")) window.customCards.push({ type: "faber-player", name: "Faber Player", description: "Casse Alexa, Fire TV e altoparlanti con scelta della cassa.", preview: true,
+  documentationURL: "https://github.com/cristianwebonline/ha-faber-home" });
+if (!existingCards.includes("faber-pulsantiera")) window.customCards.push({ type: "faber-pulsantiera", name: "Faber Pulsantiera", description: "Tasti per telecomandi Broadlink e pulsanti di casa.", preview: true,
+  documentationURL: "https://github.com/cristianwebonline/ha-faber-home" });
 if (!existingCards.includes("faber-spesa")) {
   window.customCards.push({
     type: "faber-spesa",
