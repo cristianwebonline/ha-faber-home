@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.101.1";
+const FH_VERSION = "0.101.2";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -11189,6 +11189,9 @@ const FHT_CSS = `
   .fh-app.chiaro .fht-btn{background:rgba(15,23,42,.05);border-color:rgba(15,23,42,.12)}
   .fht-btn.pieno{background:linear-gradient(135deg,#ffb020,#e09810);border-color:transparent;color:#1c1400;
     box-shadow:0 4px 14px rgba(255,176,32,.32)}
+  /* Il tasto principale resta ambra anche di giorno: la regola del tema
+     chiaro qui sopra e piu specifica e lo faceva diventare grigio. */
+  .fh-app.chiaro .fht-btn.pieno{background:linear-gradient(135deg,#ffb020,#e09810);border-color:transparent;color:#1c1400}
   .fht-btn ha-icon{--mdc-icon-size:17px}
   .fht-btn:active{transform:scale(.95)}
   .fht-btn:disabled{opacity:.4;cursor:default}
@@ -11695,6 +11698,7 @@ const FPL_CSS = `
     display:flex;align-items:center;justify-content:center}
   .fh-app.chiaro .fpl-c{background:rgba(15,23,42,.06)}
   .fpl-c.grande{width:56px;height:56px;background:linear-gradient(135deg,#ffb020,#e09810);color:#1c1400;box-shadow:0 4px 14px rgba(255,176,32,.35)}
+  .fh-app.chiaro .fpl-c.grande{background:linear-gradient(135deg,#ffb020,#e09810);color:#1c1400}
   .fpl-c ha-icon{--mdc-icon-size:24px}
   .fpl-c:active{transform:scale(.93)}
   .fpl-vol{display:flex;align-items:center;gap:8px}
@@ -11817,6 +11821,7 @@ const FPU_CSS = `
     cursor:pointer;min-height:64px;transition:transform .12s,background .2s}
   .fh-app.chiaro .fpu-t{background:rgba(15,23,42,.05);border-color:rgba(15,23,42,.12)}
   .fpu-t ha-icon{--mdc-icon-size:24px;color:#ffb020}
+  .fh-app.chiaro .fpu-t.principale{background:linear-gradient(135deg,#ffb020,#e09810);border-color:transparent;color:#1c1400}
   .fpu-t.principale{background:linear-gradient(135deg,#ffb020,#e09810);border-color:transparent;color:#1c1400;
     box-shadow:0 4px 14px rgba(255,176,32,.32)}
   .fpu-t.principale ha-icon{color:#1c1400}
