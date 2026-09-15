@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.102.0";
+const FH_VERSION = "0.102.1";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -11641,11 +11641,14 @@ const FRB_COLORI = ["#8fc8ff", "#ffc98f", "#b6e3a1", "#f5a9c7", "#c7b5ff", "#ffe
 // Le entita di Xiaomi Home si chiamano "select.xiaomi_de_<id>_<modello>_<chiave>_p_2_4":
 // la chiave in mezzo ("sweep_mop_type") e la stessa su tutti i modelli, i
 // numeri in fondo no (la forza e p_2_3 sul robot sala e p_2_9 sul camere).
+// Quelle di Dreame Vacuum si chiamano come il robot: "select.robot_sala_cleaning_mode".
 // Per questo la card cerca per chiave, e solo dentro il dispositivo del robot.
-function frbChiave(eid) {
+function frbChiave(eid, pref) {
   const i = eid.indexOf(".");
-  const k = eid.slice(i + 1).replace(/^xiaomi_[a-z]{2}_\d+_[a-z0-9]+_/, "").replace(/_[pae]_\d+_\d+$/, "");
-  return eid.slice(0, i) + ":" + k;
+  let k = eid.slice(i + 1);
+  if (pref && k.startsWith(pref + "_")) k = k.slice(pref.length + 1);
+  else k = k.replace(/^xiaomi_[a-z]{2}_\d+_[a-z0-9]+_/, "");
+  return eid.slice(0, i) + ":" + k.replace(/_[pae]_\d+_\d+$/, "");
 }
 function frbOrdine(eid) {
   const m = eid.match(/_[pae]_(\d+)_(\d+)$/);
@@ -11659,28 +11662,41 @@ function frbFa(d) {
   return Math.round(ore / 24) + " giorni";
 }
 const FRB_SCELTE = [
-  { k: "select:sweep_mop_type", t: "Cosa fa", o: { "Sweep": "Aspira", "Mop": "Lava", "Sweep Mop": "Aspira e lava", "Sweep Before Mopping": "Prima aspira, poi lava" } },
-  { k: "select:mode", t: "Forza aspirazione", o: { "Silent": "Silenziosa", "Basic": "Normale", "Strong": "Forte", "Full Speed": "Massima" } },
-  { k: "select:mop_water_output_level", t: "Acqua sul panno", o: { "Off": "Niente", "Level1": "Poca", "Level2": "Media", "Level3": "Tanta" } },
-  { k: "select:clean_times", t: "Passate", o: { "One Time": "Una", "Two Time": "Due", "Three Time": "Tre" } },
-  { k: "select:sweep_route", t: "Percorso", o: { "Quick": "Veloce", "Daily": "Normale", "Careful": "Accurato" } },
+  { k: ["select:sweep_mop_type", "select:cleaning_mode"], t: "Cosa fa", o: { "Sweep": "Aspira", "Mop": "Lava", "Sweep Mop": "Aspira e lava",
+    "Sweep Before Mopping": "Prima aspira, poi lava", sweeping: "Aspira", mopping: "Lava", sweeping_and_mopping: "Aspira e lava",
+    mopping_after_sweeping: "Prima aspira, poi lava" } },
+  { k: ["select:mode", "select:suction_level"], t: "Forza aspirazione", o: { "Silent": "Silenziosa", "Basic": "Normale", "Strong": "Forte",
+    "Full Speed": "Massima", quiet: "Silenziosa", standard: "Normale", strong: "Forte", turbo: "Massima" } },
+  { k: ["select:mop_water_output_level", "select:mop_pad_humidity"], t: "Acqua sul panno", o: { "Off": "Niente", "Level1": "Poca",
+    "Level2": "Media", "Level3": "Tanta", slightly_dry: "Poca", moist: "Media", wet: "Tanta" } },
+  { k: ["select:clean_times"], t: "Passate", o: { "One Time": "Una", "Two Time": "Due", "Three Time": "Tre" } },
+  { k: ["select:sweep_route", "select:mopping_type"], t: "Percorso", o: { "Quick": "Veloce", "Daily": "Normale", "Careful": "Accurato",
+    deep: "Profondo", daily: "Normale", accurate: "Accurato" } },
+  { k: ["select:mop_wash_level"], t: "Lavaggio dei panni", o: { deep: "Profondo", daily: "Normale" } },
 ];
 const FRB_BASE = [
-  { k: "button:start_dust_arrest", t: "Svuota polvere", i: "mdi:delete-empty-outline" },
-  { k: "button:start_mop_wash", t: "Lava i panni", i: "mdi:water-sync" },
-  { k: "button:start_dry", t: "Asciuga i panni", i: "mdi:weather-windy" },
+  { k: ["button:start_dust_arrest", "button:start_auto_empty"], t: "Svuota polvere", i: "mdi:delete-empty-outline" },
+  { k: ["button:start_mop_wash", "button:self_clean"], t: "Lava i panni", i: "mdi:water-sync" },
+  { k: ["button:start_dry", "button:manual_drying"], t: "Asciuga i panni", i: "mdi:weather-windy" },
 ];
 const FRB_INTERR = [
-  { k: "switch:auto_dust_arrest", t: "Svuota da solo", s: "Alla fine di ogni pulizia", i: "mdi:delete-restore" },
-  { k: "switch:auto_mop_dry", t: "Asciuga i panni da solo", s: "Dopo il lavaggio, niente cattivi odori", i: "mdi:weather-windy" },
-  { k: "switch:carpet_boost", t: "Più forza sui tappeti", s: "", i: "mdi:rug" },
-  { k: "switch:no_disturb", t: "Non disturbare", s: "Di notte non parte da solo e non parla", i: "mdi:sleep" },
+  { k: ["switch:auto_dust_arrest", "switch:auto_dust_collecting"], t: "Svuota da solo", s: "Alla fine di ogni pulizia", i: "mdi:delete-restore" },
+  { k: ["switch:auto_mop_dry", "switch:auto_drying"], t: "Asciuga i panni da solo", s: "Dopo il lavaggio, niente cattivi odori", i: "mdi:weather-windy" },
+  { k: ["switch:self_clean"], t: "Sciacqua i panni durante la pulizia", s: "Torna in base a lavarli e riparte", i: "mdi:water-sync" },
+  { k: ["switch:carpet_boost"], t: "Più forza sui tappeti", s: "", i: "mdi:rug" },
+  { k: ["switch:no_disturb", "switch:dnd"], t: "Non disturbare", s: "Di notte non parte da solo e non parla", i: "mdi:sleep" },
+  { k: ["switch:child_lock"], t: "Blocco bambini", s: "I tasti sul robot non funzionano", i: "mdi:lock-outline" },
 ];
 const FRB_RICAMBI = [
   { k: "sensor:brush_life_level", o: "sensor:brush_left_time", t: ["Spazzola principale", "Spazzola laterale"], i: "mdi:broom" },
+  { k: "sensor:main_brush_left", o: "sensor:main_brush_time_left", t: ["Spazzola principale"], i: "mdi:broom" },
+  { k: "sensor:side_brush_left", o: "sensor:side_brush_time_left", t: ["Spazzola laterale"], i: "mdi:broom" },
   { k: "sensor:filter_life_level", o: "sensor:filter_left_time", t: ["Filtro"], i: "mdi:air-filter" },
+  { k: "sensor:filter_left", o: "sensor:filter_time_left", t: ["Filtro"], i: "mdi:air-filter" },
   { k: "sensor:mop_life_level", o: "sensor:mop_left_time", t: ["Panni"], i: "mdi:texture-box" },
+  { k: "sensor:mop_pad_left", o: "sensor:mop_pad_time_left", t: ["Panni"], i: "mdi:texture-box" },
   { k: "sensor:dust_bag_life_level", o: "sensor:dust_bag_left_time", t: ["Sacchetto polvere"], i: "mdi:sack" },
+  { k: "sensor:detergent_left", o: "sensor:detergent_time_left", t: ["Detersivo"], i: "mdi:bottle-tonic-outline" },
 ];
 // Cosa fanno le scene: il nome da solo ("Quando uscite") non dice le regole.
 const FRB_SCENE = [
@@ -11729,10 +11745,11 @@ class FaberRobot extends HTMLElement {
     const h = this._hass, reg = h.entities || {};
     if (this._cache && this._cache.reg === reg) return this._cache.m;
     const dev = (reg[this._cfg.entity] || {}).device_id;
+    const pref = String(this._cfg.entity).split(".")[1] || "";
     const m = {};
     if (dev) Object.keys(reg).forEach(e => {
       if (reg[e].device_id !== dev) return;
-      const k = frbChiave(e);
+      const k = frbChiave(e, pref);
       (m[k] = m[k] || []).push(e);
     });
     Object.values(m).forEach(l => l.sort((a, b) => frbOrdine(a) - frbOrdine(b)));
@@ -11740,6 +11757,17 @@ class FaberRobot extends HTMLElement {
     return m;
   }
   _e(k, i) { const l = this._entita()[k]; return l ? l[i || 0] || null : null; }
+  _k(lista) { return [].concat(lista).find(k => this._e(k)) || null; }
+  // Dreame Vacuum: stanze, mappa e comando per stanza sono suoi.
+  _dreame() { const r = (this._hass.entities || {})[this._cfg.entity]; return !!(r && r.platform === "dreame_vacuum"); }
+  _mappaId() { return this._cfg.mappa || this._e("camera:map"); }
+  // Quanto ha pulito finora: Xiaomi Home da i secondi, Dreame i minuti.
+  _adesso() {
+    const a = this._st("sensor:cleaning_area") || this._st("sensor:cleaned_area");
+    const t = this._st("sensor:cleaning_time");
+    const min = t ? (t.attributes.unit_of_measurement === "min" ? +t.state : +t.state / 60) : NaN;
+    return { mq: a ? Math.round(+a.state) : NaN, min: Math.round(min) };
+  }
   _st(k, i) {
     const e = this._e(k, i);
     const s = e ? this._hass.states[e] : null;
@@ -11748,6 +11776,7 @@ class FaberRobot extends HTMLElement {
 
   _batteria(st) {
     if (st.attributes.battery_level != null) return Math.round(st.attributes.battery_level);
+    if (typeof st.attributes.battery === "number") return Math.round(st.attributes.battery);
     const h = this._hass, reg = h.entities || {};
     const dev = (reg[this._cfg.entity] || {}).device_id;
     if (!dev) return null;
@@ -11766,6 +11795,22 @@ class FaberRobot extends HTMLElement {
     if (st) String(st.state).replace(/"label":"(\d+)_(\d+)_\d+","stime":(\d{10})\b/g, (_, s, a, t) => {
       out.push({ sec: +s, mq: Math.round(+a / 1000), t: new Date(+t * 1000) });
     });
+    // Dreame: { "09-13 22:20": { timestamp, cleaning_time: "31 min", cleaned_area: "24 m²" } }
+    // e la mappa di quel giro fra le immagini della camera mappa.
+    const dh = this._hass.states[this._e("sensor:cleaning_history")];
+    if (!out.length && dh) {
+      const mp = this._hass.states[this._mappaId()];
+      const foto = (mp && mp.attributes.cleaning_history_picture) || {};
+      Object.keys(dh.attributes).forEach(k => {
+        const v = dh.attributes[k];
+        if (!v || typeof v !== "object" || !v.timestamp) return;
+        const chiave = k.replace("-", "/");
+        const img = Object.keys(foto).find(f => f.includes(chiave));
+        out.push({ sec: (parseInt(v.cleaning_time, 10) || 0) * 60, mq: parseInt(v.cleaned_area, 10) || 0,
+          t: new Date(v.timestamp * 1000), ok: v.completed !== false, img: img ? foto[img] : "" });
+      });
+      out.sort((a, b) => b.t - a.t);
+    }
     return out;
   }
   // Quando ha pulito l'ultima volta: l'helper che segna ogni partenza (tiene
@@ -11783,6 +11828,13 @@ class FaberRobot extends HTMLElement {
   _stanze() {
     const nomi = this._cfg.stanze || {};
     const out = [];
+    const v = this._hass.states[this._cfg.entity];
+    const rooms = v && v.attributes.rooms;
+    if (rooms && typeof rooms === "object") {
+      const lista = rooms[v.attributes.selected_map] || Object.values(rooms)[0] || [];
+      lista.forEach(r => out.push({ id: String(r.id), nome: nomi[r.id] || r.name || "Stanza " + r.id }));
+      return out;
+    }
     const st = this._st("sensor:room_information");
     if (st) String(st.state).replace(/"id":(\d+),"name":"([^"]*)"/g, (_, id, n) => {
       out.push({ id, nome: nomi[id] || n || "Stanza " + id });
@@ -11826,8 +11878,8 @@ class FaberRobot extends HTMLElement {
     let sub = "";
     if (!st) sub = "Robot non trovato";
     else if (pulisce) {
-      const a = this._st("sensor:cleaning_area"), t = this._st("sensor:cleaning_time");
-      sub = [a && +a.state ? Math.round(+a.state) + " m²" : "", t && +t.state ? Math.round(+t.state / 60) + " min" : ""].filter(Boolean).join(" · ");
+      const ad = this._adesso();
+      sub = [ad.mq > 0 ? ad.mq + " m²" : "", ad.min > 0 ? ad.min + " min" : ""].filter(Boolean).join(" · ");
     } else {
       const u = this._ultima();
       if (u && frbFa(u)) sub = "Ultima pulizia " + frbFa(u) + " fa";
@@ -11871,6 +11923,7 @@ class FaberRobot extends HTMLElement {
     if (!this._hass) return;
     this._foglio = fhFoglio(this._nome(), !!this.closest(".fh-app.chiaro"));
     this._sel = new Set();
+    this._storica = null;
     const c = this._foglio.corpo;
     c.innerHTML = `<style>${FRB_FOGLIO_CSS}</style>
       <div data-s="stato"></div><div data-s="mappa"></div><div data-s="dati"></div><div data-s="cmd"></div>
@@ -11904,23 +11957,25 @@ class FaberRobot extends HTMLElement {
     const col = { cleaning: "#4ade80", returning: "#ffb020", paused: "#ffb020", error: "#ff5c5c", unavailable: "#93a1b0" }[stato] || "#5aa9ff";
 
     // Stato in una riga, come in cima all'app.
-    const carica = this._st("sensor:charging_state");
-    const guasto = this._st("sensor:fault");
+    const carica = this._st("sensor:charging_state") || this._st("sensor:charging_status");
+    const guasto = this._st("sensor:fault") || this._st("sensor:error");
     let extra = "";
-    if (stato === "docked" && carica) extra = carica.state === "Charging" ? "in carica" : "carico";
-    if (stato === "error" && guasto) extra = "codice " + guasto.state;
+    if (stato === "docked" && carica) extra = ["Charging", "charging"].includes(carica.state) ? "in carica" : "carico";
+    if (stato === "error" && guasto) extra = guasto.attributes.description || "codice " + guasto.state;
     const asciuga = this._st("sensor:dry_left_time");
     if (asciuga && +asciuga.state > 0) extra = (extra ? extra + " · " : "") + "asciuga i panni";
     this._sez("stato", `<div class="frb-stato" style="color:${col}"><i></i>${fhEsc(FRB_STATI[stato] || stato)}${extra ? `<span style="opacity:.7;font-weight:700">· ${fhEsc(extra)}</span>` : ""}</div>`);
 
     // La mappa: l'immagine vera se c'e, altrimenti le stanze fanno da mappa.
     const stanze = this._stanze();
-    const ms = this._cfg.mappa && h.states[this._cfg.mappa];
+    const ms = this._mappaId() && h.states[this._mappaId()];
     const tessere = stanze.map((s, i) => `<button type="button" class="frb-st${this._sel.has(s.id) ? " sel" : ""}"
       style="--s-c:${FRB_COLORI[i % FRB_COLORI.length]}" data-stanza="${fhEsc(s.id)}">${fhEsc(s.nome)}</button>`).join("");
     let mappa;
     if (ms && ms.attributes.entity_picture) {
       mappa = `<div class="frb-mappa"><img data-mappa alt="Mappa di ${fhEsc(this._nome())}"></div>
+        ${this._storica ? `<div class="frb-chips"><span class="fhf-nota" style="flex:1">Mappa della pulizia di ${fhEsc(this._storica.q)}</span>
+          <button type="button" class="frb-chip sel" data-adesso>Mappa di adesso</button></div>` : ""}
         ${stanze.length ? `<div class="fhf-sez"><h4>Tocca le stanze da pulire</h4><div class="frb-chips">${stanze.map(s =>
           `<button type="button" class="frb-chip${this._sel.has(s.id) ? " sel" : ""}" data-stanza="${fhEsc(s.id)}">${fhEsc(s.nome)}</button>`).join("")}</div></div>` : ""}`;
     } else if (stanze.length) {
@@ -11939,9 +11994,9 @@ class FaberRobot extends HTMLElement {
     if (bat != null) dati.push([bat + "%", "batteria"]);
     const p = this._pulizie()[0];
     if (pulisce) {
-      const a = this._st("sensor:cleaning_area"), t = this._st("sensor:cleaning_time");
-      if (a) dati.push([Math.round(+a.state) + " m²", "puliti finora"]);
-      if (t) dati.push([Math.round(+t.state / 60) + " min", "da quando è partito"]);
+      const ad = this._adesso();
+      if (!isNaN(ad.mq)) dati.push([ad.mq + " m²", "puliti finora"]);
+      if (!isNaN(ad.min)) dati.push([ad.min + " min", "da quando è partito"]);
     } else {
       const u = this._ultima();
       if (u && frbFa(u)) dati.push([frbFa(u), "dall'ultima pulizia"]);
@@ -11967,19 +12022,21 @@ class FaberRobot extends HTMLElement {
 
     // Come pulisce: solo le scelte che questo robot ha.
     this._sez("modi", FRB_SCELTE.map(s => {
-      const e = this._e(s.k), ss = this._st(s.k);
+      const k = this._k(s.k);
+      const e = k && this._e(k), ss = k && this._st(k);
       if (!ss || !Array.isArray(ss.attributes.options)) return "";
       return `<div class="fhf-sez"><h4>${fhEsc(s.t)}</h4><div class="frb-chips">${ss.attributes.options.map(o =>
         `<button type="button" class="frb-chip${o === ss.state ? " sel" : ""}" data-opt-ent="${e}" data-opt="${fhEsc(o)}">${fhEsc(s.o[o] || o)}</button>`).join("")}</div></div>`;
     }).join(""));
 
     // La base: i tasti che fanno qualcosa subito e le abitudini fisse.
-    const tasti = FRB_BASE.filter(b => this._e(b.k)).map(b => {
-      if (b.k === "button:start_dry" && asciuga && +asciuga.state > 0 && this._e("button:stop_dry"))
+    const tasti = FRB_BASE.filter(b => this._k(b.k)).map(b => {
+      const k = this._k(b.k);
+      if (k === "button:start_dry" && asciuga && +asciuga.state > 0 && this._e("button:stop_dry"))
         return `<button type="button" class="fhf-tasto" data-press="${this._e("button:stop_dry")}">Ferma asciugatura</button>`;
-      return `<button type="button" class="fhf-tasto" data-press="${this._e(b.k)}">${fhEsc(b.t)}</button>`;
+      return `<button type="button" class="fhf-tasto" data-press="${this._e(k)}">${fhEsc(b.t)}</button>`;
     });
-    const interr = FRB_INTERR.map(x => ({ x, s: this._st(x.k) })).filter(o => o.s).map(({ x, s }) =>
+    const interr = FRB_INTERR.map(x => ({ x, s: this._k(x.k) && this._st(this._k(x.k)) })).filter(o => o.s).map(({ x, s }) =>
       `<div class="fhf-riga" style="--r-c:${s.state === "on" ? "#ffb020" : "#93a1b0"}"><div class="fhf-rig-ic"><ha-icon icon="${x.i}"></ha-icon></div>
         <div class="fhf-rig-t"><b>${fhEsc(x.t)}</b>${x.s ? `<small>${fhEsc(x.s)}</small>` : ""}</div>
         <button type="button" class="fhf-sw${s.state === "on" ? " on" : ""}" data-sw="${s.entity_id}" aria-label="${fhEsc(x.t)}"></button></div>`);
@@ -12006,9 +12063,15 @@ class FaberRobot extends HTMLElement {
     this._sez("scene", scene.length ? `<div class="fhf-sez"><h4>Scene</h4>${scene.join("")}</div>` : "");
 
     // Cosa ha fatto e cosa fara.
-    const storia = this._pulizie().slice(0, 4).map(x => `<div class="fhf-riga" style="--r-c:#5aa9ff">
-      <div class="fhf-rig-ic"><ha-icon icon="mdi:check-circle-outline"></ha-icon></div>
-      <div class="fhf-rig-t"><b>${fhEsc(fhQuando(x.t.toISOString()))}</b><small>${x.mq} m² in ${Math.round(x.sec / 60)} minuti</small></div></div>`);
+    const storia = this._pulizie().slice(0, 5).map(x => {
+      const q = fhQuando(x.t.toISOString());
+      const vista = this._storica && this._storica.img === x.img;
+      return `<div class="fhf-riga${x.img ? " cliccabile" : ""}${vista ? " oggi" : ""}" style="--r-c:${x.ok === false ? "#ff8a3d" : "#5aa9ff"}"
+        ${x.img ? `data-storia="${fhEsc(x.img)}" data-quando="${fhEsc(q)}"` : ""}>
+        <div class="fhf-rig-ic"><ha-icon icon="${x.ok === false ? "mdi:alert-circle-outline" : "mdi:check-circle-outline"}"></ha-icon></div>
+        <div class="fhf-rig-t"><b>${fhEsc(q)}</b><small>${x.mq} m² in ${Math.round(x.sec / 60)} minuti${x.ok === false ? " · non finita" : ""}</small></div>
+        ${x.img ? `<span class="fhf-val">${vista ? "sulla mappa" : "vedi"}</span>` : ""}</div>`;
+    });
     const prog = this._programmi().map(x => `<div class="fhf-riga" style="--r-c:${x.on ? "#ffb020" : "#93a1b0"}">
       <div class="fhf-rig-ic"><ha-icon icon="mdi:calendar-clock"></ha-icon></div>
       <div class="fhf-rig-t"><b>${x.tutti ? "Ogni giorno" : "Alcuni giorni"} alle ${String(x.ora).padStart(2, "0")}:${String(x.min).padStart(2, "0")}</b>
@@ -12024,7 +12087,8 @@ class FaberRobot extends HTMLElement {
       const o = this._st(r.o, i);
       const c = n < 10 ? "#ff5c5c" : n < 25 ? "#ff8a3d" : "#4ade80";
       ricambi.push(`<div class="fhf-riga" style="--r-c:${c}"><div class="fhf-rig-ic"><ha-icon icon="${r.i}"></ha-icon></div>
-        <div class="fhf-rig-t"><b>${fhEsc(r.t[i] || r.t[0])}</b><small>${o && +o.state >= 0 ? "ancora circa " + Math.round(+o.state) + " ore di lavoro" : ""}</small>
+        <div class="fhf-rig-t"><b>${fhEsc(r.t[i] || r.t[0])}</b><small>${o && +o.state >= 0 ? "ancora circa " + Math.round(+o.state) +
+          (o.attributes.unit_of_measurement === "d" ? " giorni" : " ore di lavoro") : ""}</small>
           <div class="frb-barra"><i style="width:${Math.max(3, Math.min(100, n))}%"></i></div></div>
         <span class="fhf-val">${Math.round(n)}%</span></div>`);
     }));
@@ -12036,11 +12100,11 @@ class FaberRobot extends HTMLElement {
   // e cambia solo l'immagine).
   _aggiornaMappa() {
     const img = this._foglio && this._foglio.corpo.querySelector("[data-mappa]");
-    const ms = this._cfg.mappa && this._hass.states[this._cfg.mappa];
+    const ms = this._mappaId() && this._hass.states[this._mappaId()];
     if (!img || !ms || !ms.attributes.entity_picture) return;
     const st = this._hass.states[this._cfg.entity];
     const passo = st && st.state === "cleaning" ? 5000 : 60000;
-    const pic = ms.attributes.entity_picture;
+    const pic = this._storica ? this._storica.img : ms.attributes.entity_picture;
     const url = pic + (pic.includes("?") ? "&" : "?") + "v=" + Math.floor(Date.now() / passo);
     if (img.dataset.url === url) return;
     img.dataset.url = url;
@@ -12048,6 +12112,16 @@ class FaberRobot extends HTMLElement {
   }
 
   _clic(e) {
+    const riga = e.target.closest("[data-storia]");
+    if (riga) {
+      fhVibra(8);
+      this._storica = this._storica && this._storica.img === riga.dataset.storia ? null
+        : { img: riga.dataset.storia, q: riga.dataset.quando };
+      this._disegnaFoglio();
+      const m = this._foglio.corpo.querySelector("[data-s=mappa]");
+      if (m && m.scrollIntoView) m.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
     const b = e.target.closest("button");
     if (!b) return;
     const h = this._hass, ent = this._cfg.entity;
@@ -12057,16 +12131,24 @@ class FaberRobot extends HTMLElement {
       return;
     }
     fhVibra(10);
-    if (b.dataset.stanza) {
+    if (b.hasAttribute("data-adesso")) {
+      this._storica = null;
+      this._disegnaFoglio();
+    } else if (b.dataset.stanza) {
       const id = b.dataset.stanza;
       if (this._sel.has(id)) this._sel.delete(id); else this._sel.add(id);
       this._disegnaFoglio();
     } else if (b.dataset.cmd === "stanze") {
       // Xiaomi Home legge il messaggio come YAML: gli id vanno fra
       // virgolette ("4,6"), senno "4" diventa un numero e "4,6" una lista.
-      const n = this._e("notify:start_vacuum_room_sweep") || this._e("notify:start_room_sweep");
-      if (!n || !this._sel.size) return;
-      h.callService("notify", "send_message", { entity_id: n, message: JSON.stringify([...this._sel].join(",")) });
+      if (!this._sel.size) return;
+      if (this._dreame()) {
+        h.callService("dreame_vacuum", "vacuum_clean_segment", { entity_id: ent, segments: [...this._sel].map(Number) });
+      } else {
+        const n = this._e("notify:start_vacuum_room_sweep") || this._e("notify:start_room_sweep");
+        if (!n) return;
+        h.callService("notify", "send_message", { entity_id: n, message: JSON.stringify([...this._sel].join(",")) });
+      }
       this._sel.clear();
       fatto();
       this._disegnaFoglio();
