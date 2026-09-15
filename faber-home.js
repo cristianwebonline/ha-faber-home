@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.102.2";
+const FH_VERSION = "0.103.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -777,6 +777,7 @@ class FaberHome extends HTMLElement {
     else { this._updateLive(); }
     // Le card figlie sono card HA vere: vogliono l'oggetto hass a ogni giro.
     this._cardEls.forEach(el => { el.hass = hass; });
+    this._controllaAnomalie();
   }
 
   getCardSize() { return 20; }
@@ -1007,6 +1008,10 @@ class FaberHome extends HTMLElement {
       }
       else if (b.dataset.act === "reload") location.reload();
     }));
+    // I tocchi sui chip si collegavano solo quando l'elenco dei chip cambiava
+    // (passando a una pagina con i chip della stanza): appena aperto il
+    // pannello, sulla Casa, nessun chip rispondeva — "Dispositivi" compreso.
+    this._wireChips();
     this._renderNav();
     this._renderPage();
     this._startClock();
@@ -2048,6 +2053,7 @@ class FaberHome extends HTMLElement {
   // Quante colonne mostrare in questa riga, adesso. "auto" (0) vuol dire:
   // quante ce ne stanno larghe almeno quanto una card comoda.
   _colonneRiga(row) {
+    // (le righe con una sola card piccola le sistema _renderPage: mezza riga)
     const f = this._fasciaOra();
     const scelto = f === "tel" ? row.n_tel : f === "tab" ? row.n_tab : row.n_desk;
     if (scelto) return Math.max(1, Math.min(6, scelto));
@@ -2110,11 +2116,17 @@ class FaberHome extends HTMLElement {
       // Riga di sole Mini Card: sul tablet diventa una griglia fitta di tessere.
       const tessere = totCards > 0 && activeCols.every(c => (c.cards || []).every(cc => cc && cc.type === "custom:mini-card"));
       inner.classList.toggle("tessere", tessere);
+      // Una card PICCOLA da sola (il robot, il cancelletto) sul tablet si
+      // allargava su tutta la riga, con un tasto giallo lungo un metro: sta in
+      // mezza riga, sulla stessa linea delle righe da due card.
+      const primaCard = totCards === 1 ? activeCols.map(c => (c.cards || [])[0]).find(Boolean) : null;
+      const solaPiccola = !this._edit && this._fasciaOra() !== "tel" && primaCard && FH_CARD_PICCOLE.has(primaCard.type);
+      if (solaPiccola) inner.style.setProperty("--fh-n", 2);
       colsToRender.forEach((col, ci) => {
         const colEl = document.createElement("div");
         colEl.className = "fh-col";
         // Se la riga ha solo una colonna attiva, prende tutte le tracce della riga
-        const quante = (!this._edit && activeCols.length <= 1) ? n : Math.min(col.span || 1, n);
+        const quante = solaPiccola ? 1 : (!this._edit && activeCols.length <= 1) ? n : Math.min(col.span || 1, n);
         if (!piatta) colEl.style.gridColumn = `span ${quante}`;
         colEl.dataset.col = ci;
         if (this._edit) colEl.appendChild(this._colToolsEl(ri, ci));
@@ -2186,7 +2198,12 @@ class FaberHome extends HTMLElement {
   _misuraQuadre() {
     const quadre = this.querySelectorAll(".fh-slot.quadra");
     if (!quadre.length) return;
+    // Sul tablet le quadrate che non sono tessere riempiono la cella in
+    // larghezza e hanno un'altezza fissa dal CSS: quadrate da 464px erano
+    // due persone alte mezzo schermo.
+    const tab = this._fasciaOra() === "tab";
     const applica = () => quadre.forEach(el => {
+      if (tab && !el.classList.contains("tessera")) { el.style.height = ""; return; }
       const w = Math.round(el.getBoundingClientRect().width);
       if (w > 0) {
         el.style.setProperty("--fh-q", w + "px");
@@ -4770,6 +4787,132 @@ class FaberHome extends HTMLElement {
     return { tutti: tutti.length, offline: tutti.filter(g => g.giu.length) };
   }
 
+  _offlineDa(e) {
+    const st = this._hass && this._hass.states[e];
+    const t = st ? new Date(st.last_changed).getTime() : NaN;
+    if (!isFinite(t)) return "";
+    const m = Math.max(1, Math.round((Date.now() - t) / 60000));
+    return "non risponde da " + (m < 60 ? m + " min" : m < 2880 ? Math.round(m / 60) + " ore" : Math.round(m / 1440) + " giorni") + " · ";
+  }
+
+  // ALLARME DISPOSITIVI. Un dispositivo che non risponde non e sempre un
+  // guasto: la presa del presepe a settembre, il tablet spento la notte. E'
+  // un'anomalia quando NON RISPONDE ADESSO ma di solito, a quest'ora, si: si
+  // guardano gli ultimi 7 giorni alla stessa ora (almeno 3 giorni di storico,
+  // online in almeno 4 su 5) e quanto e stato online nella settimana (almeno
+  // l'80%). Solo dopo 10 minuti: un riavvio o un Wi-Fi che si riaggancia non
+  // sono allarmi. Una volta per episodio: se torna e poi ricade, si riguarda.
+  async _controllaAnomalie() {
+    const hass = this._hass;
+    if (!hass || this._anomalieInCorso || this._edit) return;
+    if (document.visibilityState === "hidden") return;
+    if (Date.now() - (this._anomalieTs || 0) < 60000) return;
+    // Mai sopra un altro foglio (impostazioni, lista della spesa): si riprova fra un minuto.
+    if (this.querySelector(".fh-scrim")) return;
+    this._anomalieTs = Date.now();
+    const chip = this._chipOffline() || {};
+    const ora = Date.now();
+    const r = this._dispositiviOffline(chip);
+    this._anomalieViste = this._anomalieViste || new Map();
+    const nuovi = r.offline.map(g => {
+      const st = hass.states[g.giu[0]];
+      return { g, e: g.giu[0], da: st ? new Date(st.last_changed).getTime() : ora };
+    }).filter(x => ora - x.da >= 10 * 60000 && this._anomalieViste.get(x.g.chiave) !== x.da);
+    if (!nuovi.length) return;
+    this._anomalieInCorso = true;
+    try {
+      const inizio = ora - 7 * 86400000;
+      const res = await hass.callWS({
+        type: "history/history_during_period",
+        start_time: new Date(inizio).toISOString(), end_time: new Date(ora).toISOString(),
+        entity_ids: nuovi.map(x => x.e), minimal_response: true, no_attributes: true,
+        significant_changes_only: false,
+      });
+      const anomalie = [];
+      nuovi.forEach(x => {
+        this._anomalieViste.set(x.g.chiave, x.da);
+        const pts = ((res && res[x.e]) || []).map(p => ({
+          t: p.lu !== undefined ? p.lu * 1000 : new Date(p.last_updated || p.last_changed || p.lc).getTime(),
+          s: p.s !== undefined ? p.s : p.state,
+        })).filter(p => isFinite(p.t)).sort((a, b) => a.t - b.t);
+        if (!pts.length) return;
+        const statoA = t => { let v = null; for (const p of pts) { if (p.t <= t) v = p.s; else break; } return v; };
+        let giorni = 0, online = 0;
+        for (let d = 1; d <= 7; d++) {
+          const v = statoA(ora - d * 86400000);
+          if (v == null) continue;
+          giorni++;
+          if (v !== "unavailable") online++;
+        }
+        let tOn = 0, tTot = 0;
+        pts.forEach((p, i) => {
+          const a = Math.max(p.t, inizio), b = i + 1 < pts.length ? pts[i + 1].t : ora;
+          if (b <= a) return;
+          tTot += b - a;
+          if (p.s !== "unavailable") tOn += b - a;
+        });
+        const quota = tTot ? tOn / tTot : 0;
+        if (giorni >= 3 && online / giorni >= 0.8 && quota >= 0.8) anomalie.push(Object.assign({}, x, { giorni, online, quota }));
+      });
+      if (anomalie.length && !this.querySelector(".fh-scrim")) this._mostraAnomalie(anomalie);
+    } catch (e) {
+      console.warn("[faber-home] controllo dispositivi:", e);
+    } finally {
+      this._anomalieInCorso = false;
+    }
+  }
+
+  _mostraAnomalie(lista) {
+    fhVibra([60, 40, 60]);
+    const chip = this._chipOffline();
+    const quanto = x => {
+      const m = Math.max(10, Math.round((Date.now() - x.da) / 60000));
+      return m < 60 ? m + " minuti" : m < 2880 ? Math.round(m / 60) + " ore" : Math.round(m / 1440) + " giorni";
+    };
+    // Tre o piu insieme: non sono tre guasti, e il Wi-Fi o la corrente.
+    const insieme = lista.length >= 3;
+    const box = document.createElement("div");
+    box.className = "fh-offbody fh-anom";
+    box.innerHTML = `<div class="fh-off-head">
+        <b>${insieme ? lista.length + " dispositivi hanno smesso di rispondere insieme"
+          : lista.length === 1 ? fhEsc(lista[0].g.nome) + " non risponde" : "2 dispositivi non rispondono"}</b>
+        <small>${insieme ? "Quando succede a tanti insieme di solito e il Wi-Fi o la corrente: guarda il router e il contatore."
+          : "A quest'ora di solito e acceso e collegato: non e normale. Controlla che abbia corrente e Wi-Fi."}</small>
+      </div>
+      <div class="fh-off-list">${lista.map(x => `<div class="fh-off-item" data-ent="${fhEsc(x.e)}">
+          <ha-icon icon="mdi:lan-disconnect"></ha-icon>
+          <div class="fh-off-info">
+            <span class="fh-off-name">${fhEsc(x.g.nome)}</span>
+            <small class="fh-off-id">Non risponde da ${quanto(x)} · a quest'ora era online ${x.online} giorni su ${x.giorni}</small>
+          </div>
+          ${chip ? `<button type="button" class="fh-off-act" data-ignora="${fhEsc(x.g.chiave)}">Ignora</button>` : ""}
+        </div>`).join("")}</div>
+      <div class="fh-anom-tasti">
+        <button type="button" class="fh-off-act" data-tutti>Tutti i dispositivi</button>
+        <button type="button" class="fh-off-act pieno" data-ok>Ho capito</button>
+      </div>`;
+    const scrim = this._sheet("Anomalia dispositivi", box, false);
+    box.querySelectorAll(".fh-off-item[data-ent]").forEach(item => {
+      item.onclick = e => {
+        if (e.target.closest("button")) return;
+        this.dispatchEvent(new CustomEvent("hass-more-info", { bubbles: true, composed: true, detail: { entityId: item.dataset.ent } }));
+      };
+    });
+    box.querySelectorAll("[data-ignora]").forEach(b => b.addEventListener("click", async e => {
+      e.stopPropagation();
+      const c = this._chipOffline();
+      if (!c) return;
+      const k = b.dataset.ignora;
+      c.escludi = (Array.isArray(c.escludi) ? c.escludi : []).filter(x => x !== k).concat([k]);
+      this._updateChips();
+      await this._save(true);
+      b.closest(".fh-off-item").remove();
+      if (!box.querySelector(".fh-off-item")) scrim.remove();
+    }));
+    box.querySelector("[data-ok]").addEventListener("click", () => scrim.remove());
+    box.querySelector("[data-tutti]").addEventListener("click", () => this._popupOfflineDispositivi());
+  }
+
   _chipOffline() {
     return ((this._cfg.header || {}).chips || []).find(c => c.tipo === "dispositivi" || c.tipo === "offline") || null;
   }
@@ -4802,7 +4945,7 @@ class FaberHome extends HTMLElement {
             <ha-icon icon="mdi:alert-circle-outline"></ha-icon>
             <div class="fh-off-info">
               <span class="fh-off-name">${fhEsc(g.nome)}</span>
-              <small class="fh-off-id">${fhEsc(g.giu.join(", "))}</small>
+              <small class="fh-off-id">${fhEsc(this._offlineDa(g.giu[0]))}${fhEsc(g.giu.join(", "))}</small>
             </div>
             <button type="button" class="fh-off-act" data-ignora="${fhEsc(g.chiave)}">Ignora</button>
           </div>`).join("")}
@@ -5912,6 +6055,11 @@ const FH_CSS = `
   .fh-off-act{padding:4px 10px;border-radius:8px;border:none;background:rgba(255,255,255,.1);
     color:inherit;font:inherit;font-size:10.5px;font-weight:700;cursor:pointer}
   .fh-off-item.ignorato{background:rgba(255,255,255,.04);border-color:rgba(255,255,255,.1);cursor:default}
+  .fh-anom .fh-off-head b{color:#ff8a3d}
+  .fh-app.chiaro .fh-anom .fh-off-head b{color:#c2410c}
+  .fh-anom-tasti{display:flex;gap:8px;justify-content:flex-end;margin-top:10px}
+  .fh-anom-tasti .fh-off-act{padding:9px 14px;font-size:12px;border-radius:11px}
+  .fh-anom-tasti .fh-off-act.pieno{background:linear-gradient(135deg,#ffb020,#e09810);color:#1c1400}
   .fh-off-item.ignorato ha-icon{color:inherit;opacity:.55}
   .fh-app.chiaro .fh-off-act{background:rgba(15,23,42,.08)}
   .fh-app.chiaro .fh-off-item.ignorato{background:rgba(15,23,42,.03);border-color:rgba(15,23,42,.1)}
@@ -5941,11 +6089,17 @@ const FH_CSS = `
     padding:8px 14px;
     gap:6px;
   }
-  .fh-app.tab .fg-card,
-  .fh-app.tab .fsp-card{
-    max-width:180px;
-    margin-inline:auto;
-  }
+  /* SUL TABLET OGNI CARD RIEMPIE LA SUA CELLA. Cancello e Spesa avevano un
+     tetto di 180px e le persone (card quadrate) di 240px, centrate in colonne
+     da 464: in ogni riga c'erano vuoti diversi e la pagina sembrava messa a
+     caso (Cristian: "sul tablet le card sono disposte in maniera casuale").
+     Riempiendo la cella tutte le righe cadono sulle stesse linee: le righe da
+     due card su due meta uguali, le tessere su sei colonne (tre tessere =
+     mezza riga), le card larghe su tutta la riga. */
+  .fh-app.tab .fh-slot.quadra:not(.tessera){max-width:none;aspect-ratio:auto!important;
+    height:190px;min-height:0;align-self:stretch}
+  .fh-app.tab .fh-slot.quadra:not(.tessera) ha-card,
+  .fh-app.tab .fh-slot.quadra:not(.tessera) .fp{aspect-ratio:auto!important}
   /* Sul tablet le TESSERE (righe fatte solo di Mini Card) si fanno piccole e
      fitte. Solo loro: prima il tetto dei 190px valeva per ogni card, e clima,
      consumi, meteo e carichi finivano schiacciati in una striscia. */
@@ -6703,9 +6857,9 @@ class FaberCarichi extends HTMLElement {
     const k = this._confronto;
     if (!k) return "";
     const p = k.perc;
-    if (Math.abs(p) < 3) return `<div class="fc-ieri pari">come ieri a quest'ora</div>`;
+    if (Math.abs(p) < 3) return `<button type="button" class="fc-ieri pari" data-ieri>come ieri a quest'ora</button>`;
     const giu = p < 0;
-    return `<div class="fc-ieri ${giu ? "giu" : "su"}">${giu ? "&darr;" : "&uarr;"} ${Math.abs(p)}% di ieri</div>`;
+    return `<button type="button" class="fc-ieri ${giu ? "giu" : "su"}" data-ieri title="Perché?">${giu ? "&darr;" : "&uarr;"} ${Math.abs(p)}% di ieri <span class="fc-perche">perché?</span></button>`;
   }
 
   async _caricaCurva() {
@@ -6789,8 +6943,9 @@ class FaberCarichi extends HTMLElement {
       this.innerHTML = `<style>${FC_CSS}</style><ha-card class="fc"><div class="fc-body"></div></ha-card>`;
       this._card = this.querySelector(".fc");
       this._body = this.querySelector(".fc-body");
+      this._ultimoHTML = null;
       this._card.addEventListener("click", e => {
-        if (e.target.closest("[data-riga]")) return;
+        if (e.target.closest("[data-riga]") || e.target.closest("[data-ieri]")) return;
         if (this._cfg.naviga) {
           history.pushState(null, "", this._cfg.naviga);
           window.dispatchEvent(new CustomEvent("location-changed", { bubbles: true, composed: true }));
@@ -6812,7 +6967,7 @@ class FaberCarichi extends HTMLElement {
     this._card.classList.toggle("mini", !!c.compatta);
     if (c.compatta) {
       const primi = d.accesi.slice(0, Math.min(c.top || 3, 4));
-      this._body.innerHTML = `
+      if (!this._scrivi(`
         <div class="fc-mtop">
           <div class="fc-mtit">${fhEsc(c.title)}</div>
           <div class="fc-mnum">
@@ -6826,17 +6981,18 @@ class FaberCarichi extends HTMLElement {
             <span class="fc-cn">${fhEsc(nomi[v.id])}</span><b style="color:${t.forte};--fh-giorno:${t.giorno || t.forte}">${fcW(v.w)} W</b>
           </button>`).join("")}
           ${d.accesi.length > primi.length ? `<span class="fc-cpiu">+${d.accesi.length - primi.length}</span>` : ""}
-        </div>` : `<div class="fc-vuoto">Adesso non c'e niente di acceso.</div>`}`;
+        </div>` : `<div class="fc-vuoto">Adesso non c'e niente di acceso.</div>`}`)) return;
       this._body.querySelectorAll("[data-riga]").forEach(b => b.addEventListener("click", e => {
         e.stopPropagation();
         this.dispatchEvent(new CustomEvent("hass-more-info", {
           detail: { entityId: b.dataset.riga }, bubbles: true, composed: true,
         }));
       }));
+      this._collegaPerche();
       return;
     }
 
-    this._body.innerHTML = `
+    if (!this._scrivi(`
       <div class="fc-top">
         <div class="fc-tit">
           <div class="fc-t1">${fhEsc(c.title)}</div>
@@ -6872,7 +7028,7 @@ class FaberCarichi extends HTMLElement {
       </div>` : `<div class="fc-vuoto">Nessun carico acceso in questo momento.</div>`}
 
       ${d.accesi.length > lista.length ? `<div class="fc-altri">${d.accesi.length - lista.length === 1 ? "e un altro acceso" : "e altri " + (d.accesi.length - lista.length) + " accesi"}, sotto i ${fcW(lista[lista.length - 1].w)} W</div>` : ""}
-    `;
+    `)) return;
 
     this._body.querySelectorAll("[data-riga]").forEach(b => b.addEventListener("click", e => {
       e.stopPropagation();
@@ -6880,6 +7036,112 @@ class FaberCarichi extends HTMLElement {
         detail: { entityId: b.dataset.riga }, bubbles: true, composed: true,
       }));
     }));
+    this._collegaPerche();
+  }
+
+  // La card riceve lo stato di casa molte volte al secondo: riscrivere il suo
+  // contenuto ogni volta sostituiva i tasti sotto il dito e il tocco si perdeva.
+  _scrivi(html) {
+    if (this._ultimoHTML === html) return false;
+    this._ultimoHTML = html;
+    this._body.innerHTML = html;
+    return true;
+  }
+
+  _collegaPerche() {
+    const b = this._body.querySelector("[data-ieri]");
+    if (b) b.addEventListener("click", e => { e.stopPropagation(); fhVibra(8); this._spiegaConfronto(); });
+  }
+
+  // PERCHE OGGI DI PIU (o di meno). "+26% di ieri" da solo non dice niente:
+  // si rifanno gli stessi conti del confronto (ore chiuse di oggi contro le
+  // stesse ore di ieri, dalle medie orarie) per ogni apparecchio misurato,
+  // e si mostra chi ha fatto la differenza e in quali ore. Quello che il
+  // contatore conta ma nessuna presa misura resta come "resto della casa".
+  async _spiegaConfronto() {
+    const h = this._hass, c = this._cfg, k = this._confronto;
+    if (!h || !k || !c.totale) return;
+    const su = k.perc >= 0;
+    const f = fhFoglio(Math.abs(k.perc) < 3 ? "Oggi come ieri" : su ? "Perché oggi consumi di più" : "Perché oggi consumi di meno",
+      !!this.closest(".fh-app.chiaro"));
+    f.corpo.innerHTML = `<div class="fhf-nota">Confronto le ore di oggi con le stesse di ieri, apparecchio per apparecchio…</div>`;
+    const membri = this._membri().filter(id => h.states[id] && id !== c.totale);
+    const ora = new Date();
+    const limite = ora.getHours();
+    const mezzanotte = new Date(ora.getFullYear(), ora.getMonth(), ora.getDate()).getTime();
+    const inizioIeri = new Date(ora.getFullYear(), ora.getMonth(), ora.getDate() - 1);
+    let st;
+    try {
+      st = await h.callWS({ type: "recorder/statistics_during_period", start_time: inizioIeri.toISOString(),
+        end_time: ora.toISOString(), statistic_ids: [c.totale, ...membri], period: "hour", types: ["mean"] });
+    } catch (e) {
+      f.corpo.innerHTML = `<div class="fhf-nota">Non riesco a leggere lo storico dei consumi adesso.</div>`;
+      return;
+    }
+    // kWh per ora dalla media in W (o kW, se il sensore dice kW).
+    const conta = id => {
+      const u = String((h.states[id] && h.states[id].attributes.unit_of_measurement) || "W");
+      const fatt = /^kw$/i.test(u) ? 1 : 1 / 1000;
+      const o = new Array(24).fill(0), i = new Array(24).fill(0);
+      ((st && st[id]) || []).forEach(r => {
+        const w = parseFloat(r.mean);
+        if (!isFinite(w)) return;
+        const d = new Date(r.start);
+        if (d.getHours() >= limite) return;
+        (d.getTime() >= mezzanotte ? o : i)[d.getHours()] += Math.max(0, w) * fatt;
+      });
+      const somma = a => a.reduce((x, y) => x + y, 0);
+      return { oggi: somma(o), ieri: somma(i), oreO: o, oreI: i, dati: ((st && st[id]) || []).length > 0 };
+    };
+    const tot = conta(c.totale);
+    const nomi = fcNomiUnivoci(h, membri, c.nomi);
+    const voci = membri.map(id => Object.assign({ id, nome: nomi[id] }, conta(id))).filter(v => v.dati);
+    voci.forEach(v => { v.d = v.oggi - v.ieri; });
+    const dTot = tot.oggi - tot.ieri;
+    const dMis = voci.reduce((x, v) => x + v.d, 0);
+    const dAltro = dTot - dMis;
+    const segno = dTot >= 0 ? 1 : -1;
+    const kwh = x => (Math.abs(x) < 10 ? Math.abs(x).toFixed(2) : Math.abs(x).toFixed(1)).replace(".", ",") + " kWh";
+    const conSegno = x => (x >= 0 ? "+" : "−") + kwh(x);
+    const euro = x => (Math.abs(x) * (c.prezzo_kwh || 0)).toFixed(2).replace(".", ",") + " €";
+    const hh = n => String(n).padStart(2, "0") + ":00";
+    // Chi ha spinto nella stessa direzione del totale, e chi al contrario.
+    const principali = voci.filter(v => v.d * segno > 0.03).sort((a, b) => (b.d - a.d) * segno);
+    const contrari = voci.filter(v => v.d * segno < -0.03).sort((a, b) => (a.d - b.d) * segno);
+    const piuGrande = Math.max(0.01, ...principali.map(v => Math.abs(v.d)), Math.abs(dAltro));
+    const riga = (v, colore) => `<div class="fhf-riga" style="--r-c:${colore}">
+        <div class="fhf-rig-ic"><ha-icon icon="${v.d >= 0 ? "mdi:trending-up" : "mdi:trending-down"}"></ha-icon></div>
+        <div class="fhf-rig-t"><b>${fhEsc(v.nome)}</b><small>oggi ${kwh(v.oggi)} · ieri ${kwh(v.ieri)}</small>
+          <div class="fc-sbarra"><i style="width:${Math.max(4, Math.min(100, Math.abs(v.d) / piuGrande * 100))}%"></i></div></div>
+        <span class="fhf-val">${conSegno(v.d)}</span></div>`;
+    const colPiu = "#ffb020", colMeno = "#4ade80";
+    // Le ore dove la differenza e piu grande.
+    const ore = tot.oreO.map((x, n) => ({ n, d: x - tot.oreI[n] })).filter(x => x.n < limite)
+      .sort((a, b) => (b.d - a.d) * segno).filter(x => x.d * segno > 0.05).slice(0, 3);
+    const primo = principali[0];
+    const frase = Math.abs(k.perc) < 3
+      ? `Fino alle ${hh(limite)} hai consumato quasi come ieri: ${kwh(tot.oggi)} contro ${kwh(tot.ieri)}.`
+      : `Fino alle ${hh(limite)} oggi <b>${kwh(tot.oggi)}</b>, ieri alla stessa ora <b>${kwh(tot.ieri)}</b>: `
+        + `<b>${conSegno(dTot)}</b> (${k.perc > 0 ? "+" : ""}${k.perc}%)${c.prezzo_kwh ? ", circa " + euro(dTot) : ""}.`
+        + (primo ? ` Il grosso ${su ? "in più" : "in meno"} viene da <b>${fhEsc(primo.nome)}</b> (${conSegno(primo.d)}).` : "");
+    f.corpo.innerHTML = `<style>.fc-sbarra{height:5px;border-radius:99px;background:rgba(127,127,127,.18);overflow:hidden;margin-top:5px}
+      .fc-sbarra i{display:block;height:100%;border-radius:99px;background:var(--r-c)}
+      .fc-frase{font-size:13.5px;line-height:1.5}</style>
+      <div class="fhf-sez"><div class="fc-frase">${frase}</div></div>
+      ${principali.length ? `<div class="fhf-sez"><h4>${su ? "Chi ha consumato di più" : "Chi ha consumato di meno"}</h4>
+        ${principali.slice(0, 8).map(v => riga(v, su ? colPiu : colMeno)).join("")}</div>` : ""}
+      ${Math.abs(dAltro) > 0.1 ? `<div class="fhf-sez"><h4>Resto della casa</h4>
+        <div class="fhf-riga" style="--r-c:#93a1b0"><div class="fhf-rig-ic"><ha-icon icon="mdi:home-lightning-bolt-outline"></ha-icon></div>
+          <div class="fhf-rig-t"><b>Non misurato da nessuna presa</b><small>Quello che il contatore conta ma nessuna presa smart vede: luci, forno, prese normali…</small>
+            <div class="fc-sbarra"><i style="width:${Math.max(4, Math.min(100, Math.abs(dAltro) / piuGrande * 100))}%;background:#93a1b0"></i></div></div>
+          <span class="fhf-val">${conSegno(dAltro)}</span></div></div>` : ""}
+      ${ore.length ? `<div class="fhf-sez"><h4>Quando</h4>${ore.map(x => `<div class="fhf-riga" style="--r-c:${su ? colPiu : colMeno}">
+          <div class="fhf-rig-ic"><ha-icon icon="mdi:clock-outline"></ha-icon></div>
+          <div class="fhf-rig-t"><b>Fra le ${hh(x.n)} e le ${hh(x.n + 1)}</b><small>oggi ${kwh(tot.oreO[x.n])} · ieri ${kwh(tot.oreI[x.n])}</small></div>
+          <span class="fhf-val">${conSegno(x.d)}</span></div>`).join("")}</div>` : ""}
+      ${contrari.length ? `<div class="fhf-sez"><h4>${su ? "Hanno consumato meno di ieri" : "Hanno consumato più di ieri"}</h4>
+        ${contrari.slice(0, 4).map(v => riga(v, su ? colMeno : colPiu)).join("")}</div>` : ""}
+      <div class="fhf-nota">Si confrontano solo le ore già finite (00:00–${hh(limite)}), oggi e ieri. Dalle medie orarie di Home Assistant.</div>`;
   }
 }
 
@@ -6900,7 +7162,10 @@ const FC_CSS = `
   .fc.mini .fc-body{display:flex;flex-direction:column;gap:7px}
   .fc-mtop{display:flex;align-items:baseline;justify-content:space-between;gap:10px}
   .fc-mnum{text-align:right;flex:0 0 auto}
-  .fc-ieri{font-size:10.5px;font-weight:800;letter-spacing:.01em;margin-top:2px;white-space:nowrap}
+  .fc-ieri{font-size:10.5px;font-weight:800;letter-spacing:.01em;margin-top:2px;white-space:nowrap;
+    background:none;border:none;padding:2px 0;font-family:inherit;cursor:pointer;display:inline-flex;align-items:center;gap:5px}
+  .fc-perche{font-size:9.5px;font-weight:800;padding:1px 7px;border-radius:999px;background:color-mix(in srgb,currentColor 16%,transparent)}
+
   .fc-ieri.giu{color:#39d98a}
   .fc-ieri.su{color:#ffb020}
   .fc-ieri.pari{opacity:.55}
@@ -11232,6 +11497,12 @@ const FHT_CSS = `
 
 // Un foglio che sale dal basso, agganciato a document.body: dentro il pannello
 // le card hanno il vetro sfocato, che terrebbe prigioniero un position:fixed.
+// Card piccole: una tessera con un titolo e un tasto. Da sole in una riga,
+// fuori dal telefono, occupano mezza riga invece di tutta.
+const FH_CARD_PICCOLE = new Set(["custom:faber-robot", "custom:faber-rifiuti", "custom:faber-automazioni",
+  "custom:faber-cancello", "custom:faber-spesa", "custom:faber-persona", "custom:faber-pulsantiera",
+  "custom:faber-player", "custom:mini-card"]);
+
 function fhFoglio(titolo, chiaro) {
   document.querySelectorAll(".fhf-scrim").forEach(x => x.remove());
   const scrim = document.createElement("div");
