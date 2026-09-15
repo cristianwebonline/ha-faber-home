@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.99.18";
+const FH_VERSION = "0.99.19";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -708,34 +708,16 @@ function fhNorm(s) {
 }
 
 
-const FH_MONITORED_DEVICES = [
-  "sensor.cancelletto_batteria", "sensor.porta_blindata_battery", "switch.power",
-  "alarm_control_panel.ialarm_xr", "lock.porta_blindata", "alarm_control_panel.ezviz_alarm",
-  "light.luce_cucina", "switch.presa_forno", "switch.presa_micronde_1_switch",
-  "switch.macchina_acqua_cucina_outlet", "switch.presa_microonde", "switch.frigo_outlet",
-  "switch.shelly_lavastoviglie", "vacuum.xiaomi_de_1142022616_c102gl",
-  "switch.presa_condizionatore_sala_switch", "climate.split_aria_condizionata",
-  "switch.presa_stufa_a_pellet_sala_switch", "climate.stufa_pellet_sala",
-  "media_player.tv_sala", "switch.presa_tv_sala_presa_1",
-  "switch.corrente_ciabatta_sala_outlet", "switch.stampante_3d_sala_socket_1",
-  "switch.presa_modem_sala_switch", "switch.presa_tablet_homeassistant_switch",
-  "switch.sonoff_10002d8b8f", "media_player.echo_dot_di_cristian",
-  "light.led_scaffale_sala", "switch.lavatrice", "switch.asciugatrice",
-  "switch.presa_dvr_switch", "switch.presa_camera_gaia", "switch.presa_tv_gaia_switch",
-  "media_player.echo_dot_gaia", "switch.ciabatta_gaia_s1", "switch.ciabatta_gaia_s2",
-  "switch.ciabatta_gaia_s3", "switch.ciabatta_gaia_s4", "switch.presa_bagno",
-  "switch.presa_2", "switch.presa_piscina", "switch.luce_bagno_pt",
-  "switch.presa_stufetta", "media_player.cassa_bagno",
-  "switch.presa_condizionatore_gaia_switch", "climate.condizionatore_gaia",
-  "switch.presa_condizionatore_leo_switch", "climate.camera_leo_ac_2",
-  "switch.presa_tv_leo", "switch.presa_digitaleterrestre_leo", "switch.presa_3_leo",
-  "switch.presa_broadlink_leo", "switch.presa_condizionatore_cda_letto_switch",
-  "switch.shelly_como_camera_da_letto", "switch.presa_tv_camera_switch",
-  "switch.1_2", "switch.2_2", "switch.3_2", "switch.4_2", "switch.5_2",
-  "vacuum.d10_plus_gen_2", "switch.sonoff_1000e34157", "switch.sonoff_100077744a",
-  "switch.presa_stampante_3d_ufficio_presa", "switch.presa_vetro_ufficio_presa",
-  "switch.led_ufficio_presa"
-];
+// I watt di un sensore, qualunque unita dichiari. Alcune integrazioni danno
+// kW (l'autoclave scrive "Kw", con la maiuscola a meta): senza conversione
+// 0,8 kW diventava "1 W". Null se il sensore non c'e o non e un numero.
+function fhWatt(st) {
+  if (!st) return null;
+  const n = parseFloat(st.state);
+  if (isNaN(n)) return null;
+  const u = String((st.attributes && st.attributes.unit_of_measurement) || "").toLowerCase();
+  return u === "kw" ? n * 1000 : n;
+}
 
 class FaberHome extends HTMLElement {
   setConfig(config) {
@@ -1155,6 +1137,10 @@ class FaberHome extends HTMLElement {
       Object.keys(hass.states).forEach(e => {
         if (!e.startsWith("sensor.")) return;
         if (hass.states[e].attributes.device_class !== "power") return;
+        // "device_power" e il consumo della PRESA stessa (stima di powercalc),
+        // non del carico: sommato al carico contava due volte il microonde,
+        // il forno e la lavastoviglie. Stessa regola del collegamento dispositivi.
+        if (/device_power|device_energy|standby/.test(e)) return;
         const r = reg[e];
         if (!r) return;
         const a = r.area_id || (dev[r.device_id] || {}).area_id;
@@ -1363,8 +1349,8 @@ class FaberHome extends HTMLElement {
       d.tipo === "link" ? ` type="button" data-chip-link="${fhEsc(d.target)}"`
       : d.tipo === "pagina" ? ` type="button" data-chip-page="${fhEsc(d.target)}"`
       : d.tipo === "offline_devs" ? ` type="button" data-chip-offline="true"`
-      : d.tipo === "spesa" ? ` type="button" data-chip-spesa="true"`
-      : d.tipo === "autoclave" ? ` type="button" data-chip-autoclave="true"`
+      : d.tipo === "spesa" ? ` type="button" data-chip-spesa="${fhEsc(d.target)}"`
+      : d.tipo === "autoclave" ? ` type="button" data-chip-autoclave="${fhEsc(d.target)}"`
       : ` type="button" data-chip-entity="${fhEsc(d.target || "")}"`;
     const accClass = d.accent ? " " + d.accent : "";
     return `<${tag} class="fh-chip${d.on ? " on" : ""}${accClass}" data-key="${fhEsc(d.key)}"${attr}>
@@ -1387,6 +1373,11 @@ class FaberHome extends HTMLElement {
       dati.forEach((d, i) => {
         const n = nodi[i];
         n.classList.toggle("on", !!d.on);
+        // Anche il colore d'allarme e l'icona cambiano col dato: senza, la
+        // chip dell'autoclave restava spenta di colore mentre la pompa girava.
+        ["warn", "danger"].forEach(a => n.classList.toggle(a, d.accent === a));
+        const ic = n.querySelector("ha-icon");
+        if (ic && d.icon && ic.getAttribute("icon") !== d.icon) ic.setAttribute("icon", d.icon);
         const eti = n.querySelector("[data-eti]");
         if (eti && eti.textContent !== (d.label || "")) eti.textContent = d.label || "";
         const so = n.querySelector("[data-sotto]");
@@ -1575,13 +1566,14 @@ class FaberHome extends HTMLElement {
       }
     }
     (h.chips || []).forEach(chip => {
-      if (chip.tipo === "spesa" || chip.entity === "todo.shopping_list") {
-        const st = hass ? hass.states["todo.shopping_list"] : null;
+      if (chip.tipo === "spesa" || String(chip.entity || "").startsWith("todo.")) {
+        const lista = String(chip.entity || "").startsWith("todo.") ? chip.entity : "todo.shopping_list";
+        const st = hass ? hass.states[lista] : null;
         const cnt = st ? (parseInt(st.state, 10) || 0) : 0;
         out.push({
           key: "spesa",
           tipo: "spesa",
-          target: "todo.shopping_list",
+          target: lista,
           icon: "mdi:cart-outline",
           label: cnt > 0 ? `${cnt} spesa` : "Spesa",
           sotto: cnt > 0 ? "da comprare" : "fatta",
@@ -1590,18 +1582,21 @@ class FaberHome extends HTMLElement {
         });
         return;
       }
-      if (chip.tipo === "autoclave" || chip.entity === "switch.power") {
-        const sw = hass ? hass.states["switch.power"] : null;
-        const cur = hass ? hass.states["sensor.power_current"] : null;
-        const w = cur ? parseFloat(cur.state) : 0;
-        const isOn = sw && sw.state === "on";
+      if (chip.tipo === "autoclave") {
+        // Interruttore e sensore si possono scegliere nella chip (entity,
+        // power); quelli di casa restano il valore di partenza.
+        const swId = chip.entity || "switch.power";
+        const pwId = chip.power || "sensor.power_current";
+        const sw = hass ? hass.states[swId] : null;
+        const w = hass ? (fhWatt(hass.states[pwId]) || 0) : 0;
+        const isOn = !!sw && sw.state === "on";
         const isPompa = isOn && w > 0;
         out.push({
           key: "autoclave",
           tipo: "autoclave",
-          target: "switch.power",
-          icon: isPompa ? "mdi:water-pump" : (isOn ? "mdi:water-pump" : "mdi:water-pump-off"),
-          label: isPompa ? (Math.round(w) + " W") : (isOn ? "Pronta" : "Spenta"),
+          target: swId,
+          icon: isOn ? "mdi:water-pump" : "mdi:water-pump-off",
+          label: isPompa ? fhNumW(w) : (isOn ? "Pronta" : "Spenta"),
           sotto: isPompa ? "Autoclave attiva" : "Autoclave",
           on: isOn,
           accent: isPompa ? "warn" : "",
@@ -1609,12 +1604,7 @@ class FaberHome extends HTMLElement {
         return;
       }
       if (chip.tipo === "dispositivi" || chip.tipo === "offline") {
-        const monitorati = FH_MONITORED_DEVICES;
-        const offline = hass ? monitorati.filter(id => {
-          const st = hass.states[id];
-          return st && ["unavailable", "unknown"].includes(st.state);
-        }) : [];
-        const count = offline.length;
+        const count = this._dispositiviOffline(chip).offline.length;
         out.push({
           key: "offline_devs",
           tipo: "offline_devs",
@@ -1624,7 +1614,6 @@ class FaberHome extends HTMLElement {
           sotto: "Dispositivi",
           on: count > 0,
           accent: count > 0 ? "danger" : "",
-          offlineIds: offline,
         });
         return;
       }
@@ -2117,6 +2106,9 @@ class FaberHome extends HTMLElement {
       // Appiattisce in griglia diretta per allineare perfettamente le card su ogni riga
       const piatta = !this._edit && (n < colsToRender.length || totCards > n || isStanza);
       inner.classList.toggle("piatta", piatta);
+      // Riga di sole Mini Card: sul tablet diventa una griglia fitta di tessere.
+      const tessere = totCards > 0 && activeCols.every(c => (c.cards || []).every(cc => cc && cc.type === "custom:mini-card"));
+      inner.classList.toggle("tessere", tessere);
       colsToRender.forEach((col, ci) => {
         const colEl = document.createElement("div");
         colEl.className = "fh-col";
@@ -2133,6 +2125,7 @@ class FaberHome extends HTMLElement {
           const slot = document.createElement("div");
           slot.className = "fh-slot";
           slot.dataset.slot = `${ri}.${ci}.${di}`;
+          if (cardCfg && cardCfg.type === "custom:mini-card") slot.classList.add("tessera");
           // Smontando il gruppo la larghezza della colonna deve passare alle
           // CARD, che diventano loro gli elementi della griglia. Senza questo
           // una card larga due colonne si ritrovava stretta in una sola: era
@@ -2770,7 +2763,6 @@ class FaberHome extends HTMLElement {
         soglia: 10, soglia_freddo: 18, soglia_caldo: 26, prezzo_kwh: 0.30, storico_giorni: 14 } },
       { g: "Faber", n: "Smart Card (tela)", i: "mdi:palette-swatch-outline", c: { type: "custom:smart-card", name: "Smart Card", canvas: { w: 100, h: 50 }, elements: [] } },
       { g: "Faber", n: "Cancello (con timer)", i: "mdi:gate", c: { type: "custom:faber-cancello", name: "Cancello" } },
-      { g: "Faber", n: "Automazione Casa", i: "mdi:shield-home", c: { type: "custom:faber-automazione", name: "Automazione Casa" } },
       { g: "Faber", n: "Lista della Spesa", i: "mdi:cart-outline", c: { type: "custom:faber-spesa", name: "Lista della Spesa" } },
       { g: "Faber", n: "Meteo", i: "mdi:weather-partly-cloudy", c: { type: "custom:faber-weather", entity: "", days: 4 } },
       { g: "Faber", n: "Telecomando", i: "mdi:remote-tv", c: { type: "custom:faber-media", title: "Telecomando",
@@ -2825,7 +2817,6 @@ class FaberHome extends HTMLElement {
         lock: "", door_sensor: "", battery: "", sensors: "", alarm: "", cameras: "", mostra_allarme: false, mostra_porta: false, mostra_telecamere: true } },
       { g: "Home Assistant", n: "Tessera (tile)", i: "mdi:card-outline", c: { type: "tile", entity: "" } },
       { g: "Faber", n: "Cancello (con timer)", i: "mdi:gate", c: { type: "custom:faber-cancello", name: "Cancello" } },
-      { g: "Faber", n: "Automazione Casa", i: "mdi:shield-home", c: { type: "custom:faber-automazione", name: "Automazione Casa" } },
       { g: "Faber", n: "Lista della Spesa", i: "mdi:cart-outline", c: { type: "custom:faber-spesa", name: "Lista della Spesa" } },
       { g: "Faber", n: "Meteo", i: "mdi:weather-partly-cloudy", c: { type: "custom:faber-weather", entity: "", days: 4 } },
       { g: "Faber", n: "Telecomando", i: "mdi:remote-tv", c: { type: "custom:faber-media", title: "Telecomando",
@@ -3784,7 +3775,7 @@ class FaberHome extends HTMLElement {
         row.querySelectorAll("[data-act]").forEach(b => b.addEventListener("click", () => {
           const a = b.dataset.act, pages = this._cfg.pages;
           if (a === "stanza") { pages[i].stanza = !pages[i].stanza; }
-          else if (a === "sensori") { this._modificaSensoriStanza(i); return; }
+          else if (a === "sensori") { this._modificaSensoriStanza(i, true); return; }
           else if (a === "barra") { this._sceltaBarra(i); return; }
           if (a === "vedi") { pages[i].nascosta = !pages[i].nascosta; }
           else if (a === "up" && i > 0) { const [x] = pages.splice(i, 1); pages.splice(i - 1, 0, x); }
@@ -4085,7 +4076,7 @@ class FaberHome extends HTMLElement {
   }
 
   // Modifica sensore temperatura e consumi della stanza
-  _modificaSensoriStanza(indice) {
+  _modificaSensoriStanza(indice, daPagine) {
     const pg = this._cfg.pages[indice];
     if (!pg) return;
     const box = document.createElement("div");
@@ -4202,7 +4193,7 @@ class FaberHome extends HTMLElement {
 
         <div style="height:18px"></div>
         <button type="button" class="fh-btn primary" id="btnSalvaSensori" style="width:100%">
-          <ha-icon icon="mdi:check"></ha-icon>Salva sensori stanza
+          <ha-icon icon="mdi:check"></ha-icon>${daPagine ? "Applica e torna alle pagine" : "Applica e torna alle stanze"}
         </button>
       `;
 
@@ -4294,12 +4285,15 @@ class FaberHome extends HTMLElement {
           titolo: consumoTitolo || ""
         };
 
-        this._stanzeMosse = true;
-        await this._save(true);
-        const scrim = this.querySelector(".fh-scrim");
-        if (scrim) scrim.remove();
         this._renderNav();
         this._renderPage();
+        // Non si salva qui. Salvare a meta foglio fa ricostruire il pannello a
+        // Home Assistant e il foglio che si riapriva finiva su un elemento che
+        // non c'e piu. Si fa come per il nome e l'ordine: aperto dalle Pagine
+        // salva il tasto Salva della modifica, aperto dalle Stanze salva Fatto
+        // (o la chiusura) del foglio Stanze.
+        if (daPagine) { this._openPageSheet(); return; }
+        this._stanzeMosse = true;
         this._modificaStanze = true;
         this._apriStanze(true);
       });
@@ -4712,51 +4706,128 @@ class FaberHome extends HTMLElement {
     this._aggiornaConsumo();
   }
 
+  // Quali dispositivi del pannello non rispondono. Nessun elenco scritto a
+  // mano (quello di prima aveva gia tre entita che non esistono piu): si
+  // guardano le entita che le card delle pagine nominano davvero, cosi un
+  // dispositivo aggiunto al pannello e controllato da solo. Si raggruppano per
+  // dispositivo — i quattro canali di una ciabatta spenta sono UNA ciabatta,
+  // non quattro guasti — e conta solo "unavailable": "unknown" e lo stato
+  // normale di un pulsante mai premuto.
+  // Nella chip: `entita` per scegliere a mano cosa controllare, `escludi`
+  // per i dispositivi da ignorare (li scrive il tasto "Ignora" del foglio).
+  _dispositiviOffline(chip) {
+    const hass = this._hass;
+    if (!hass) return { tutti: 0, offline: [] };
+    const c = chip || {};
+    const escludi = new Set(Array.isArray(c.escludi) ? c.escludi : []);
+    const domini = /^(switch|light|climate|lock|alarm_control_panel|media_player|vacuum|cover|fan|water_heater|humidifier)\./;
+    let lista;
+    if (Array.isArray(c.entita) && c.entita.length) lista = c.entita;
+    else {
+      const trovate = new Set();
+      const gira = v => {
+        if (typeof v === "string") { if (/^[a-z_]+\.[a-z0-9_]+$/.test(v)) trovate.add(v); return; }
+        if (Array.isArray(v)) { v.forEach(gira); return; }
+        if (v && typeof v === "object") Object.keys(v).forEach(k => gira(v[k]));
+      };
+      (this._cfg.pages || []).forEach(p => gira(p.rows));
+      lista = [...trovate].filter(e => {
+        const st = hass.states[e];
+        if (!st) return false;
+        if (domini.test(e)) return true;
+        // Le batterie dicono se un apparecchio a pile (cancelletto, serratura) risponde.
+        return e.startsWith("sensor.") && st.attributes.device_class === "battery";
+      });
+    }
+    const reg = hass.entities || {}, dev = hass.devices || {};
+    const gruppi = new Map();
+    lista.forEach(e => {
+      const st = hass.states[e];
+      if (!st) return;
+      const r = reg[e] || {};
+      const chiave = r.device_id || e;
+      if (escludi.has(chiave) || escludi.has(e)) return;
+      if (!gruppi.has(chiave)) {
+        const d = r.device_id && dev[r.device_id];
+        gruppi.set(chiave, { chiave, nome: (d && (d.name_by_user || d.name)) || st.attributes.friendly_name || e, giu: [] });
+      }
+      if (st.state === "unavailable") gruppi.get(chiave).giu.push(e);
+    });
+    const tutti = [...gruppi.values()];
+    return { tutti: tutti.length, offline: tutti.filter(g => g.giu.length) };
+  }
+
+  _chipOffline() {
+    return ((this._cfg.header || {}).chips || []).find(c => c.tipo === "dispositivi" || c.tipo === "offline") || null;
+  }
+
   _popupOfflineDispositivi() {
     const hass = this._hass;
     if (!hass) return;
-    const monitorati = FH_MONITORED_DEVICES;
-    const offline = monitorati.filter(id => {
-      const st = hass.states[id];
-      return st && ["unavailable", "unknown"].includes(st.state);
-    });
+    const chip = this._chipOffline() || {};
+    const r = this._dispositiviOffline(chip);
+    const offline = r.offline;
+    const ignorati = Array.isArray(chip.escludi) ? chip.escludi : [];
     const box = document.createElement("div");
     box.className = "fh-offbody";
-    if (!offline.length) {
-      box.innerHTML = `<div class="fh-off-allgood">
+    const nomeDi = k => {
+      const d = (hass.devices || {})[k];
+      if (d) return d.name_by_user || d.name || k;
+      const st = hass.states[k];
+      return (st && st.attributes.friendly_name) || k;
+    };
+    box.innerHTML = (!offline.length ? `<div class="fh-off-allgood">
         <ha-icon icon="mdi:check-decagram"></ha-icon>
-        <b>Tutti i dispositivi sono online!</b>
-        <small>Nessun dispositivo tra i ${monitorati.length} monitorati risulta irraggiungibile.</small>
-      </div>`;
-    } else {
-      box.innerHTML = `<div class="fh-off-head">
+        <b>Tutti i dispositivi rispondono</b>
+        <small>Controllati ${r.tutti} dispositivi, quelli che compaiono nelle card del pannello.</small>
+      </div>` : `<div class="fh-off-head">
         <b>${offline.length} ${offline.length === 1 ? "dispositivo non raggiungibile" : "dispositivi non raggiungibili"}</b>
-        <small>Verifica alimentazione o connessione di rete.</small>
+        <small>Su ${r.tutti} controllati. Verifica alimentazione o rete; se uno e staccato per scelta, <b>Ignora</b> lo toglie dal conto.</small>
       </div>
       <div class="fh-off-list">
-        ${offline.map(id => {
-          const st = hass.states[id];
-          const name = (st && st.attributes && st.attributes.friendly_name) || id;
-          return `<div class="fh-off-item" data-ent="${fhEsc(id)}">
+        ${offline.map(g => `<div class="fh-off-item" data-ent="${fhEsc(g.giu[0])}">
             <ha-icon icon="mdi:alert-circle-outline"></ha-icon>
             <div class="fh-off-info">
-              <span class="fh-off-name">${fhEsc(name)}</span>
-              <small class="fh-off-id">${fhEsc(id)}</small>
+              <span class="fh-off-name">${fhEsc(g.nome)}</span>
+              <small class="fh-off-id">${fhEsc(g.giu.join(", "))}</small>
             </div>
-            <button type="button" class="fh-off-act">Dettagli</button>
-          </div>`;
-        }).join("")}
-      </div>`;
-      box.querySelectorAll(".fh-off-item").forEach(item => {
-        item.onclick = () => {
-          const ent = item.dataset.ent;
-          this.dispatchEvent(new CustomEvent("hass-more-info", {
-            bubbles: true, composed: true, detail: { entityId: ent }
-          }));
-        };
-      });
-    }
-    this._sheet("Stato Dispositivi", box, false);
+            <button type="button" class="fh-off-act" data-ignora="${fhEsc(g.chiave)}">Ignora</button>
+          </div>`).join("")}
+      </div>`) + (ignorati.length ? `
+      <div class="fh-off-head" style="margin-top:6px"><small>Ignorati (${ignorati.length})</small></div>
+      <div class="fh-off-list">
+        ${ignorati.map(k => `<div class="fh-off-item ignorato">
+            <ha-icon icon="mdi:eye-off-outline"></ha-icon>
+            <div class="fh-off-info"><span class="fh-off-name">${fhEsc(nomeDi(k))}</span></div>
+            <button type="button" class="fh-off-act" data-ripristina="${fhEsc(k)}">Ripristina</button>
+          </div>`).join("")}
+      </div>` : "");
+    box.querySelectorAll(".fh-off-item[data-ent]").forEach(item => {
+      item.onclick = () => this.dispatchEvent(new CustomEvent("hass-more-info", {
+        bubbles: true, composed: true, detail: { entityId: item.dataset.ent } }));
+    });
+    // Ignorare e ripristinare cambiano la configurazione del pannello: si
+    // salva subito, perche la chip non ha un tasto Salva suo.
+    const cambia = async (fn) => {
+      const c = this._chipOffline();
+      if (!c) return;
+      c.escludi = fn(Array.isArray(c.escludi) ? c.escludi.slice() : []);
+      if (!c.escludi.length) delete c.escludi;
+      this._updateChips();
+      await this._save(true);
+      this._popupOfflineDispositivi();
+    };
+    box.querySelectorAll("[data-ignora]").forEach(b => b.addEventListener("click", e => {
+      e.stopPropagation();
+      const k = b.dataset.ignora;
+      cambia(l => l.includes(k) ? l : l.concat([k]));
+    }));
+    box.querySelectorAll("[data-ripristina]").forEach(b => b.addEventListener("click", e => {
+      e.stopPropagation();
+      const k = b.dataset.ripristina;
+      cambia(l => l.filter(x => x !== k));
+    }));
+    this._sheet("Stato dispositivi", box, false);
   }
 
   _wireChips() {
@@ -4766,14 +4837,16 @@ class FaberHome extends HTMLElement {
     this.querySelectorAll("[data-chip-spesa]").forEach(btn => {
       btn.onclick = () => {
         fhVibra(8);
-        if (window.fhOpenSpesaModal) window.fhOpenSpesaModal(this._hass, "todo.shopping_list");
+        const app = this.querySelector(".fh-app");
+        if (window.fhOpenSpesaModal) window.fhOpenSpesaModal(this._hass,
+          btn.dataset.chipSpesa || "todo.shopping_list", { chiaro: !!(app && app.classList.contains("chiaro")) });
       };
     });
     this.querySelectorAll("[data-chip-autoclave]").forEach(btn => {
       btn.onclick = () => {
         if (!this._hass) return;
         fhVibra(8);
-        this._hass.callService("switch", "toggle", { entity_id: "switch.power" });
+        this._hass.callService("switch", "toggle", { entity_id: btn.dataset.chipAutoclave || "switch.power" });
       };
     });
     this.querySelectorAll("[data-chip-link]").forEach(btn => {
@@ -5825,6 +5898,10 @@ const FH_CSS = `
   .fh-off-id{font-size:10px;opacity:.65;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .fh-off-act{padding:4px 10px;border-radius:8px;border:none;background:rgba(255,255,255,.1);
     color:inherit;font:inherit;font-size:10.5px;font-weight:700;cursor:pointer}
+  .fh-off-item.ignorato{background:rgba(255,255,255,.04);border-color:rgba(255,255,255,.1);cursor:default}
+  .fh-off-item.ignorato ha-icon{color:inherit;opacity:.55}
+  .fh-app.chiaro .fh-off-act{background:rgba(15,23,42,.08)}
+  .fh-app.chiaro .fh-off-item.ignorato{background:rgba(15,23,42,.03);border-color:rgba(15,23,42,.1)}
 
   
   /* ======================== TABLET SPECIFIC STYLES ======================== */
@@ -5851,74 +5928,25 @@ const FH_CSS = `
     padding:8px 14px;
     gap:6px;
   }
-  .fh-app.tab custom:faber-persona,
-  .fh-app.tab .fp-wrap{
-    max-width:140px;
-    max-height:140px;
-    margin-inline:auto;
-  }
   .fh-app.tab .fg-card,
   .fh-app.tab .fsp-card{
     max-width:180px;
     margin-inline:auto;
   }
-  .fh-app.tab .fh-row.piatta{
+  /* Sul tablet le TESSERE (righe fatte solo di Mini Card) si fanno piccole e
+     fitte. Solo loro: prima il tetto dei 190px valeva per ogni card, e clima,
+     consumi, meteo e carichi finivano schiacciati in una striscia. */
+  .fh-app.tab .fh-row.piatta.tessere{
     grid-template-columns:repeat(auto-fill,minmax(140px,1fr))!important;
     gap:10px;
   }
-  .fh-app.tab .fh-slot{
+  .fh-app.tab .fh-slot.tessera{
     max-width:190px;
   }
-
-  /* Animated icon support for Faber Home */
-  .mc-card.on .mc-glow,
-  .mc-card.lavora .mc-glow,
-  .mc-card[data-on="1"] .mc-glow{
-    opacity:1!important;
-    animation:mc-pulse 2.6s ease-in-out infinite!important;
-  }
-  .mc-card.on .mc-screen,
-  .mc-card.lavora .mc-screen{
-    opacity:1!important;
-    animation:mc-schermo 3.6s ease-in-out infinite!important;
-  }
-  .mc-card.on .mc-bolt,
-  .mc-card.lavora .mc-bolt{
-    opacity:1!important;
-    filter:drop-shadow(0 0 5px #ffb020)!important;
-    animation:mc-pulse-fast 1.6s ease-in-out infinite!important;
-  }
-  .mc-card.on .mc-bulb2,
-  .mc-card.lavora .mc-bulb2{
-    animation:mc-lampada 3.4s ease-in-out infinite!important;
-  }
-  .mc-card.on .mc-heat,
-  .mc-card.lavora .mc-heat{
-    opacity:1!important;
-    filter:drop-shadow(0 0 6px #ff6a3d)!important;
-    animation:mc-pulse-fast 1.6s ease-in-out infinite!important;
-  }
-  .mc-card.on .mc-steam,
-  .mc-card.lavora .mc-steam{
-    opacity:1!important;
-    animation:mc-steam-rise 2.4s ease-in-out infinite!important;
-  }
-  .mc-card.on .mc-water,
-  .mc-card.lavora .mc-water{
-    opacity:.85!important;
-    animation:mc-water-fall 1s linear infinite!important;
-  }
-  .mc-card.on .mc-fan-blades,
-  .mc-card.lavora .mc-fan-blades{
-    animation:mc-fan-spin 1.1s linear infinite!important;
-  }
-  @keyframes mc-pulse{0%,100%{opacity:.6}50%{opacity:1}}
-  @keyframes mc-pulse-fast{0%,100%{opacity:.4}50%{opacity:1}}
-  @keyframes mc-schermo{0%,100%{opacity:1}50%{opacity:.82}}
-  @keyframes mc-lampada{0%,100%{opacity:.7}50%{opacity:1}}
-  @keyframes mc-fan-spin{to{transform:rotate(360deg)}}
-  @keyframes mc-steam-rise{0%{opacity:0;transform:translateY(18%)}40%{opacity:.9}100%{opacity:0;transform:translateY(-24%)}}
-  @keyframes mc-water-fall{0%{opacity:0;transform:translateY(-35%)}50%{opacity:.95}100%{opacity:0;transform:translateY(35%)}}
+  /* Le animazioni delle icone le decide la Mini Card, non il pannello: lei
+     distingue "accesa ma ferma" da "sta lavorando" (il microonde a 1 W non
+     deve girare). Un blocco che le riaccendeva su .on con !important e le
+     sue @keyframes con valori diversi e stato tolto in 0.99.19. */
 
   /* ======================== PHONE SPECIFIC STYLES ======================== */
   .fh-app.tel .fh-head{padding:14px 14px 6px}
@@ -10423,7 +10451,7 @@ window.fhConfirmAction = function(opts) {
   if (existing) existing.remove();
 
   const scrim = document.createElement("div");
-  scrim.className = "fh-conf-scrim";
+  scrim.className = "fh-conf-scrim" + (opts.chiaro ? " chiaro" : "");
   scrim.innerHTML = `
     <style>
       .fh-conf-scrim {
@@ -10465,6 +10493,11 @@ window.fhConfirmAction = function(opts) {
       .fh-conf-ok:hover { filter: brightness(1.08); }
       .fh-conf-btn:active { transform: scale(.96); }
       @keyframes fhConfIn { from { opacity: 0; transform: scale(.95); } to { opacity: 1; transform: scale(1); } }
+      /* Sta in document.body, fuori dal pannello: il tema chiaro lo riceve
+         come classe sua, perche .fh-app.chiaro qui non arriva. */
+      .fh-conf-scrim.chiaro .fh-conf-box { background: #ffffff; color: #12161c; border-color: rgba(15,23,42,.12);
+        box-shadow: 0 24px 60px rgba(15,23,42,.25); }
+      .fh-conf-scrim.chiaro .fh-conf-cancel { background: rgba(15,23,42,.06); border-color: rgba(15,23,42,.12); }
     </style>
     <div class="fh-conf-box">
       <div class="fh-conf-icon"><ha-icon icon="${opts.icon || 'mdi:alert-circle-outline'}"></ha-icon></div>
@@ -10581,6 +10614,20 @@ class FaberCancello extends HTMLElement {
 
       const q = s => this.querySelector(s);
       const bMain = q('[data-act="main"]');
+      // Aziona il cancello con lo script SCELTO nella configurazione (prima
+      // il nome era scritto fisso e l'impostazione non contava), oppure col
+      // pulsante. Poi fa partire il timer: e lui che fa dire alla card "in
+      // movimento", e nessuna automazione di casa lo avviava — la card
+      // restava sempre su "Pronto".
+      const aziona = () => {
+        const h = this._hass;
+        const scr = this._cfg.gate_script;
+        if (scr && h.states[scr]) h.callService("script", "turn_on", { entity_id: scr });
+        else if (this._cfg.gate_button) h.callService("button", "press", { entity_id: this._cfg.gate_button });
+        else return;
+        const tm = this._cfg.timer;
+        if (tm && h.states[tm] && h.states[tm].state !== "active") h.callService("timer", "start", { entity_id: tm });
+      };
       if (bMain) {
         bMain.onclick = () => {
           fhVibra(10);
@@ -10591,22 +10638,10 @@ class FaberCancello extends HTMLElement {
               icon: "mdi:gate",
               confirmText: "Aziona Cancello",
               cancelText: "Annulla",
-              onConfirm: () => {
-                fhVibra(15);
-                if (this._cfg.gate_script && this._hass.states[this._cfg.gate_script]) {
-                  this._hass.callService("script", "apri_cancello_timer", {});
-                } else if (this._cfg.gate_button) {
-                  this._hass.callService("button", "press", { entity_id: this._cfg.gate_button });
-                }
-              }
+              chiaro: !!this.closest(".fh-app.chiaro"),
+              onConfirm: () => { fhVibra(15); aziona(); }
             });
-          } else {
-            if (this._cfg.gate_script && this._hass.states[this._cfg.gate_script]) {
-              this._hass.callService("script", "apri_cancello_timer", {});
-            } else if (this._cfg.gate_button) {
-              this._hass.callService("button", "press", { entity_id: this._cfg.gate_button });
-            }
-          }
+          } else aziona();
         };
       }
       const bPed = q('[data-act="ped"]');
@@ -10620,6 +10655,7 @@ class FaberCancello extends HTMLElement {
               icon: "mdi:door-open",
               confirmText: "Apri Pedonale",
               cancelText: "Annulla",
+              chiaro: !!this.closest(".fh-app.chiaro"),
               onConfirm: () => {
                 fhVibra(12);
                 if (this._cfg.pedestrian_button) {
@@ -10659,7 +10695,7 @@ const FSP_CSS = `
     background:rgba(18,22,30,.95);border:1px solid rgba(255,255,255,.14);
     box-shadow:0 24px 64px rgba(0,0,0,.65);color:#eaf1f8;display:flex;flex-direction:column;
     gap:14px;padding:20px;box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}
-  .fh-app.chiaro .fsp-modal{background:rgba(255,255,255,.95);border-color:rgba(15,23,42,.12);
+  .fh-app.chiaro .fsp-modal,.fsp-scrim.chiaro .fsp-modal{background:rgba(255,255,255,.95);border-color:rgba(15,23,42,.12);
     color:#12161c;box-shadow:0 24px 64px rgba(20,26,40,.2)}
   .fsp-modal-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
   .fsp-modal-titlebox{display:flex;align-items:center;gap:10px}
@@ -10674,7 +10710,7 @@ const FSP_CSS = `
     transition:background .15s}
   .fsp-modal-close:hover{background:rgba(255,84,66,.2);color:#ff5442}
   .fsp-tabs{display:flex;gap:6px;background:rgba(255,255,255,.06);padding:3px;border-radius:12px}
-  .fh-app.chiaro .fsp-tabs{background:rgba(15,23,42,.06)}
+  .fh-app.chiaro .fsp-tabs,.fsp-scrim.chiaro .fsp-tabs{background:rgba(15,23,42,.06)}
   .fsp-tab{flex:1;padding:7px 10px;border:none;border-radius:9px;background:none;
     color:inherit;cursor:pointer;font:inherit;font-size:12px;font-weight:800;transition:all .15s ease}
   .fsp-tab.active{background:#ffb020;color:#1c1400;box-shadow:0 2px 8px rgba(255,176,32,.35)}
@@ -10682,7 +10718,7 @@ const FSP_CSS = `
   .fsp-input{flex:1;min-width:0;padding:12px 14px;border-radius:14px;border:1px solid rgba(255,255,255,.14);
     background:rgba(255,255,255,.06);color:inherit;font:inherit;font-size:13.5px;font-weight:600;
     outline:none;transition:border-color .2s,box-shadow .2s}
-  .fh-app.chiaro .fsp-input{background:rgba(15,23,42,.04);border-color:rgba(15,23,42,.12)}
+  .fh-app.chiaro .fsp-input,.fsp-scrim.chiaro .fsp-input{background:rgba(15,23,42,.04);border-color:rgba(15,23,42,.12)}
   .fsp-input:focus{border-color:#ffb020;box-shadow:0 0 0 3px rgba(255,176,32,.25)}
   .fsp-addbtn{width:44px;height:44px;border-radius:14px;border:none;background:#ffb020;color:#1c1400;
     display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:22px;flex:0 0 auto;
@@ -10694,7 +10730,7 @@ const FSP_CSS = `
   .fsp-list::-webkit-scrollbar-thumb{background:rgba(255,255,255,.2);border-radius:4px}
   .fsp-item{display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:14px;
     background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.06);transition:all .2s ease}
-  .fh-app.chiaro .fsp-item{background:rgba(15,23,42,.03);border-color:rgba(15,23,42,.06)}
+  .fh-app.chiaro .fsp-item,.fsp-scrim.chiaro .fsp-item{background:rgba(15,23,42,.03);border-color:rgba(15,23,42,.06)}
   .fsp-item:hover{background:rgba(255,255,255,.08)}
   .fsp-item.done{opacity:.55}
   .fsp-item.done .fsp-text{text-decoration:line-through}
@@ -10702,12 +10738,18 @@ const FSP_CSS = `
     background:none;cursor:pointer;display:flex;align-items:center;justify-content:center;
     padding:0;color:transparent;transition:all .2s cubic-bezier(.2,.8,.2,1);flex:0 0 auto}
   .fsp-item.done .fsp-check{background:#38e08a;border-color:#38e08a;color:#0b2b16}
+  /* Il popup sta in document.body, fuori dal pannello: di giorno riceve la
+     classe "chiaro" sua. Senza, restava nero su un pannello chiaro e i bordi
+     bianchi del cerchietto e della X sparivano sul bianco. */
+  .fsp-scrim.chiaro .fsp-check{border-color:rgba(15,23,42,.3)}
+  .fsp-scrim.chiaro .fsp-modal-close{background:rgba(15,23,42,.07)}
+  .fsp-scrim.chiaro .fsp-list::-webkit-scrollbar-thumb{background:rgba(15,23,42,.2)}
   .fsp-check ha-icon{--mdc-icon-size:14px}
   .fsp-text{flex:1;min-width:0;font-size:13.5px;font-weight:700;word-break:break-word}
   .fsp-del{width:28px;height:28px;border-radius:8px;border:none;background:none;
     color:rgba(255,255,255,.3);cursor:pointer;display:flex;align-items:center;justify-content:center;
     transition:all .15s ease}
-  .fh-app.chiaro .fsp-del{color:rgba(15,23,42,.3)}
+  .fh-app.chiaro .fsp-del,.fsp-scrim.chiaro .fsp-del{color:rgba(15,23,42,.3)}
   .fsp-del:hover{color:#ff5442;background:rgba(255,84,66,.15)}
   .fsp-empty{padding:26px 14px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:8px;opacity:.65}
   .fsp-empty ha-icon{--mdc-icon-size:42px;color:#ffb020}
@@ -10746,7 +10788,7 @@ const FSP_CSS = `
   @keyframes fspFadeIn{from{opacity:0;transform:scale(.97)}to{opacity:1;transform:scale(1)}}
 `;
 
-window.fhOpenSpesaModal = async function(hass, entityId = "todo.shopping_list") {
+window.fhOpenSpesaModal = async function(hass, entityId = "todo.shopping_list", opts = {}) {
   if (!hass) return;
   const existing = document.querySelector(".fsp-scrim");
   if (existing) existing.remove();
@@ -10755,7 +10797,7 @@ window.fhOpenSpesaModal = async function(hass, entityId = "todo.shopping_list") 
   let items = [];
 
   const scrim = document.createElement("div");
-  scrim.className = "fsp-scrim";
+  scrim.className = "fsp-scrim" + (opts && opts.chiaro ? " chiaro" : "");
   scrim.innerHTML = `
     <style>${FSP_CSS}</style>
     <div class="fsp-modal">
@@ -10976,7 +11018,7 @@ class FaberSpesa extends HTMLElement {
         c.onclick = (e) => {
           fhVibra(8);
           if (window.fhOpenSpesaModal) {
-            window.fhOpenSpesaModal(this._hass, this._cfg.entity);
+            window.fhOpenSpesaModal(this._hass, this._cfg.entity, { chiaro: !!this.closest(".fh-app.chiaro") });
           }
         };
       }
