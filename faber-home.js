@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.101.0";
+const FH_VERSION = "0.101.1";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -1031,6 +1031,13 @@ class FaberHome extends HTMLElement {
     const hass = this._hass;
     if (!hass) return 0;
     const ent = this._entitaDiPagina(id, ["climate", "switch", "entity"]);
+    // Il clima di una stanza sta nella sua pagina Clima (tasto nella barra),
+    // non piu fra le card della stanza: conta lo stesso, senno il riquadro
+    // della stanza non si accende col condizionatore acceso.
+    const pg = (this._cfg.pages || []).find(p => p.id === id);
+    (pg && pg.barra || []).filter(b => /^clima_/.test(b)).forEach(b => {
+      ent.push(...this._entitaDiPagina(b, ["climate", "entity"]));
+    });
     let n = 0;
     [...new Set(ent)].forEach(e => {
       const st = hass.states[e];
@@ -1596,8 +1603,10 @@ class FaberHome extends HTMLElement {
           tipo: "autoclave",
           target: swId,
           icon: isOn ? "mdi:water-pump" : "mdi:water-pump-off",
-          label: isPompa ? fhNumW(w) : (isOn ? "Pronta" : "Spenta"),
-          sotto: isPompa ? "Autoclave attiva" : "Autoclave",
+          // Il consumo si vede sempre, anche a pompa ferma: "0 W" dice che e
+          // accesa e pronta, e quando parte si vede subito quanto tira.
+          label: isOn ? fhNumW(w) : "Spenta",
+          sotto: isPompa ? "Pompa in funzione" : isOn ? "Autoclave pronta" : "Autoclave",
           on: isOn,
           accent: isPompa ? "warn" : "",
         });
@@ -11842,10 +11851,18 @@ class FaberPulsantiera extends HTMLElement {
       </div>`;
     this.querySelectorAll("[data-i]").forEach(b => b.addEventListener("click", () => {
       const t = c.tasti[+b.dataset.i];
-      this._manda(t);
-      fhVibra(t.principale ? 18 : 10);
-      b.classList.add("inviato");
-      setTimeout(() => b.classList.remove("inviato"), 450);
+      const fai = () => {
+        this._manda(t);
+        fhVibra(t.principale ? 18 : 10);
+        b.classList.add("inviato");
+        setTimeout(() => b.classList.remove("inviato"), 450);
+      };
+      // Un cancello o una porta si aprono solo dopo un si: il tasto sta a un
+      // dito dallo scorrimento della pagina.
+      if (t.conferma && window.fhConfirmAction) window.fhConfirmAction({ title: t.nome || c.name, message: t.conferma,
+        icon: t.icona || c.icona, confirmText: t.nome || "Conferma", cancelText: "Annulla",
+        chiaro: !!this.closest(".fh-app.chiaro"), onConfirm: fai });
+      else fai();
     }));
   }
   _manda(t) {
