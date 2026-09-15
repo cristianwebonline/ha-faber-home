@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.102.1";
+const FH_VERSION = "0.102.2";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -1559,19 +1559,11 @@ class FaberHome extends HTMLElement {
           sotto: "Umidit\u00e0",
         });
       }
-    } else {
-      const wEnt = h.weather && hass ? hass.states[h.weather] : null;
-      const tEnt = h.temperature && hass ? hass.states[h.temperature] : null;
-      const temp = tEnt ? tEnt.state : (wEnt && wEnt.attributes ? wEnt.attributes.temperature : null);
-      if (temp != null) {
-        out.push({
-          key: "meteo", tipo: "meteo",
-          icon: wEnt ? (FH_WEATHER_ICON[wEnt.state] || "mdi:weather-partly-cloudy") : "mdi:thermometer",
-          label: temp + "\u00b0",
-          sotto: wEnt ? (FH_WEATHER_IT[wEnt.state] || wEnt.state) : "",
-        });
-      }
     }
+    // Niente chip meteo nelle pagine senza sensori propri: univa la
+    // temperatura di un sensore di CASA (26,8) al cielo di FUORI ("Sereno"),
+    // mentre la card meteo accanto diceva 30 gradi. Cristian: "non ha senso".
+    // Il meteo sta nella sua card.
     (h.chips || []).forEach(chip => {
       if (chip.tipo === "spesa" || String(chip.entity || "").startsWith("todo.")) {
         const lista = String(chip.entity || "").startsWith("todo.") ? chip.entity : "todo.shopping_list";
