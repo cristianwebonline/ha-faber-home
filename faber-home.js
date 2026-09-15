@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.99.19";
+const FH_VERSION = "0.100.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -2763,6 +2763,7 @@ class FaberHome extends HTMLElement {
         soglia: 10, soglia_freddo: 18, soglia_caldo: 26, prezzo_kwh: 0.30, storico_giorni: 14 } },
       { g: "Faber", n: "Smart Card (tela)", i: "mdi:palette-swatch-outline", c: { type: "custom:smart-card", name: "Smart Card", canvas: { w: 100, h: 50 }, elements: [] } },
       { g: "Faber", n: "Cancello (con timer)", i: "mdi:gate", c: { type: "custom:faber-cancello", name: "Cancello" } },
+      { g: "Faber", n: "Fuori casa (automazione)", i: "mdi:shield-home", c: { type: "custom:faber-fuoricasa", name: "Fuori casa", entity: "" } },
       { g: "Faber", n: "Lista della Spesa", i: "mdi:cart-outline", c: { type: "custom:faber-spesa", name: "Lista della Spesa" } },
       { g: "Faber", n: "Meteo", i: "mdi:weather-partly-cloudy", c: { type: "custom:faber-weather", entity: "", days: 4 } },
       { g: "Faber", n: "Telecomando", i: "mdi:remote-tv", c: { type: "custom:faber-media", title: "Telecomando",
@@ -2817,6 +2818,7 @@ class FaberHome extends HTMLElement {
         lock: "", door_sensor: "", battery: "", sensors: "", alarm: "", cameras: "", mostra_allarme: false, mostra_porta: false, mostra_telecamere: true } },
       { g: "Home Assistant", n: "Tessera (tile)", i: "mdi:card-outline", c: { type: "tile", entity: "" } },
       { g: "Faber", n: "Cancello (con timer)", i: "mdi:gate", c: { type: "custom:faber-cancello", name: "Cancello" } },
+      { g: "Faber", n: "Fuori casa (automazione)", i: "mdi:shield-home", c: { type: "custom:faber-fuoricasa", name: "Fuori casa", entity: "" } },
       { g: "Faber", n: "Lista della Spesa", i: "mdi:cart-outline", c: { type: "custom:faber-spesa", name: "Lista della Spesa" } },
       { g: "Faber", n: "Meteo", i: "mdi:weather-partly-cloudy", c: { type: "custom:faber-weather", entity: "", days: 4 } },
       { g: "Faber", n: "Telecomando", i: "mdi:remote-tv", c: { type: "custom:faber-media", title: "Telecomando",
@@ -10685,6 +10687,401 @@ class FaberCancello extends HTMLElement {
 customElements.define("faber-cancello", FaberCancello);
 
 // ===========================================================================
+// FABER FUORI CASA — accende e spegne l'automazione "fuori casa"
+// La card legge le condizioni DALL'AUTOMAZIONE STESSA (sensori Wi-Fi, rete di
+// casa, gruppo della famiglia, allarme, porta, prese): e lei la fonte della
+// verita. La vecchia card della plancia telefono aveva i sensori scritti a
+// mano e uno non esisteva piu (s22_ultra_eva): diceva "tutti fuori" con Eva
+// in casa sul Wi-Fi. Qui non puo succedere, perche i nomi non li scrive
+// nessuno. Se l'utente non puo leggere le automazioni (non amministratore) la
+// card mostra solo acceso/spento e la famiglia; tutto si puo anche forzare
+// in configurazione (presenza, wifi, ssid_casa, allarme).
+// ===========================================================================
+const FFC_CSS = `
+  faber-fuoricasa{display:block}
+  .ffc-card{position:relative;overflow:hidden;border-radius:24px;padding:14px 14px 12px;
+    background-color:rgba(16,22,34,.78);border:1px solid rgba(255,255,255,.10);
+    backdrop-filter:blur(18px) saturate(140%);-webkit-backdrop-filter:blur(18px) saturate(140%);
+    color:#eaf1f8;box-shadow:0 10px 28px rgba(0,0,0,.3);transition:background .35s ease,border-color .35s ease;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+    display:flex;flex-direction:column;justify-content:space-between;gap:6px;min-height:142px;
+    box-sizing:border-box;user-select:none;cursor:pointer;
+    --ffc-c:#93a1b0;--ffc-t:rgba(147,161,176,0)}
+  .fh-app.chiaro .ffc-card{background-color:rgba(255,255,255,.78);border-color:rgba(15,23,42,.1);
+    color:#12161c;box-shadow:0 10px 28px rgba(20,26,40,.1)}
+  /* E la card a colorarsi del suo stato: la tinta si SOVRAPPONE al fondo,
+     non lo sostituisce, cosi resta leggibile sia sul cielo scuro sia sul chiaro. */
+  .ffc-card{background-image:linear-gradient(150deg,var(--ffc-t),transparent 75%)}
+  .ffc-card[data-tono="ambra"]{--ffc-c:#ffb020;--ffc-t:rgba(255,176,32,.20);border-color:rgba(255,176,32,.40)}
+  .ffc-card[data-tono="verde"]{--ffc-c:#4ade80;--ffc-t:rgba(74,222,128,.24);border-color:rgba(74,222,128,.50)}
+  .ffc-card[data-tono="arancio"]{--ffc-c:#ff8a3d;--ffc-t:rgba(255,138,61,.24);border-color:rgba(255,138,61,.55)}
+  .ffc-card[data-tono="grigio"]{--ffc-c:#93a1b0}
+  .fh-app.chiaro .ffc-card[data-tono="ambra"]{--ffc-c:#b37000}
+  .fh-app.chiaro .ffc-card[data-tono="verde"]{--ffc-c:#15803d}
+  .fh-app.chiaro .ffc-card[data-tono="arancio"]{--ffc-c:#c2410c}
+  .ffc-top{display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .ffc-icon{width:42px;height:42px;border-radius:14px;flex:0 0 auto;display:flex;align-items:center;justify-content:center;
+    color:var(--ffc-c);background:color-mix(in srgb,var(--ffc-c) 16%,transparent);transition:color .3s,background .3s}
+  .ffc-icon ha-icon{--mdc-icon-size:24px}
+  .ffc-card[data-tono="verde"] .ffc-icon{animation:ffcRespira 3.2s ease-in-out infinite}
+  .ffc-pill{padding:4px 9px;border-radius:999px;font-size:10px;font-weight:900;letter-spacing:.05em;
+    color:var(--ffc-c);background:color-mix(in srgb,var(--ffc-c) 16%,transparent)}
+  .ffc-testo{display:flex;flex-direction:column;gap:2px;min-width:0}
+  .ffc-title{font-size:15px;font-weight:850;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ffc-stato{font-size:12.5px;font-weight:850;color:var(--ffc-c)}
+  .ffc-sub{font-size:11px;font-weight:600;opacity:.72;line-height:1.25;
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .ffc-btn{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;padding:9px 12px;border-radius:14px;
+    border:1px solid transparent;font:inherit;font-size:12px;font-weight:850;letter-spacing:.02em;cursor:pointer;
+    box-sizing:border-box;transition:filter .15s,transform .12s}
+  .ffc-btn ha-icon{--mdc-icon-size:16px}
+  .ffc-btn.accendi{background:linear-gradient(135deg,#ffb020,#e09810);color:#1c1400;box-shadow:0 4px 14px rgba(255,176,32,.35)}
+  .ffc-btn.spegni{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.14);color:inherit}
+  .fh-app.chiaro .ffc-btn.spegni{background:rgba(15,23,42,.06);border-color:rgba(15,23,42,.12)}
+  .ffc-btn:active{transform:scale(.97)}
+  .ffc-btn:disabled{opacity:.5;cursor:default}
+  .ffc-cond{display:none;flex-wrap:wrap;gap:6px}
+  .ffc-c{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:9px;font-size:10.5px;font-weight:750;
+    background:rgba(255,255,255,.07);white-space:nowrap}
+  .fh-app.chiaro .ffc-c{background:rgba(15,23,42,.06)}
+  .ffc-c ha-icon{--mdc-icon-size:13px;opacity:.8}
+  .ffc-c.ok ha-icon{color:#4ade80}.ffc-c.no ha-icon{color:#ff8a3d}
+  /* LARGA: su una riga intera la card si stende in orizzontale e mostra anche
+     le condizioni, che stretta non ci stanno. Misurata con un osservatore e
+     non con container-type, che chiuderebbe i popup dentro la card. */
+  .ffc-card.largo{display:grid;grid-template-columns:auto 1fr auto;grid-template-areas:"icona testo bottone" "cond cond cond";
+    align-items:center;column-gap:12px;row-gap:10px;min-height:0;padding:14px 16px}
+  .ffc-card.largo .ffc-top{display:contents}
+  .ffc-card.largo .ffc-icon{grid-area:icona;width:48px;height:48px}
+  .ffc-card.largo .ffc-pill{display:none}
+  .ffc-card.largo .ffc-testo{grid-area:testo}
+  .ffc-card.largo .ffc-btn{grid-area:bottone;width:auto;padding:10px 16px}
+  .ffc-card.largo .ffc-cond{grid-area:cond;display:flex}
+  @keyframes ffcRespira{0%,100%{box-shadow:0 0 0 0 rgba(74,222,128,.0)}50%{box-shadow:0 0 0 6px rgba(74,222,128,.14)}}
+  @media (prefers-reduced-motion:reduce){.ffc-card[data-tono="verde"] .ffc-icon{animation:none}}
+
+  /* Il dettaglio: sta in document.body, quindi il tema chiaro arriva come classe sua. */
+  .ffc-scrim{position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+    z-index:999999;display:flex;align-items:flex-end;justify-content:center;animation:ffcIn .2s ease}
+  .ffc-sheet{width:100%;max-width:520px;max-height:86vh;overflow-y:auto;box-sizing:border-box;padding:18px 18px calc(22px + env(safe-area-inset-bottom,0px));
+    border-radius:26px 26px 0 0;background:#161c26;color:#eaf1f8;border:1px solid rgba(255,255,255,.14);border-bottom:none;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;display:flex;flex-direction:column;gap:14px}
+  .ffc-scrim.chiaro .ffc-sheet{background:#fff;color:#12161c;border-color:rgba(15,23,42,.12)}
+  .ffc-sh-head{display:flex;align-items:center;gap:10px}
+  .ffc-sh-head b{flex:1;font-size:17px;font-weight:900}
+  .ffc-x{width:32px;height:32px;border-radius:50%;border:none;background:rgba(255,255,255,.1);color:inherit;font-size:14px;cursor:pointer}
+  .ffc-scrim.chiaro .ffc-x{background:rgba(15,23,42,.07)}
+  .ffc-sez{display:flex;flex-direction:column;gap:6px}
+  .ffc-sez h4{margin:0;font-size:10.5px;font-weight:900;letter-spacing:.07em;text-transform:uppercase;opacity:.6}
+  .ffc-riga{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:13px;background:rgba(255,255,255,.05);font-size:13px}
+  .ffc-scrim.chiaro .ffc-riga{background:rgba(15,23,42,.04)}
+  .ffc-riga ha-icon{--mdc-icon-size:18px;opacity:.8;flex:0 0 auto}
+  .ffc-riga span{flex:1;min-width:0}
+  .ffc-riga i{font-style:normal;font-weight:800;text-align:right}
+  .ffc-riga i.ok{color:#4ade80}.ffc-riga i.no{color:#ff8a3d}
+  .ffc-scrim.chiaro .ffc-riga i.ok{color:#15803d}.ffc-scrim.chiaro .ffc-riga i.no{color:#c2410c}
+  .ffc-nota{font-size:11.5px;opacity:.65;line-height:1.4}
+  @keyframes ffcIn{from{opacity:0}to{opacity:1}}
+`;
+
+class FaberFuoriCasa extends HTMLElement {
+  setConfig(config) {
+    this._cfg = Object.assign({ name: "Fuori casa", entity: "" }, config || {});
+    this._built = false;
+    this._auto = null;
+    this._alias = null;
+  }
+  static getStubConfig(hass) {
+    const s = hass && hass.states ? hass.states : {};
+    const trovata = Object.keys(s).find(e => e.startsWith("automation.") &&
+      /fuori[\s_]*casa/i.test(e + " " + (s[e].attributes.friendly_name || "")));
+    return { type: "custom:faber-fuoricasa", name: "Fuori casa", entity: trovata || "" };
+  }
+  getCardSize() { return 2; }
+
+  connectedCallback() {
+    if (!this._ro && window.ResizeObserver) {
+      this._ro = new ResizeObserver(() => {
+        const c = this.querySelector("[data-card]");
+        if (c) c.classList.toggle("largo", this.clientWidth >= 330);
+      });
+      this._ro.observe(this);
+    }
+  }
+  disconnectedCallback() {
+    if (this._ro) { this._ro.disconnect(); this._ro = null; }
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+    this._leggiAutomazione();
+    this._update();
+  }
+
+  _entita() {
+    if (this._cfg.entity) return this._cfg.entity;
+    return FaberFuoriCasa.getStubConfig(this._hass).entity;
+  }
+
+  // Legge la configurazione vera dell'automazione e ne ricava cosa guarda e
+  // cosa fa. Si rilegge quando cambia il nome (le versioni V6.3, V6.4...).
+  async _leggiAutomazione() {
+    const h = this._hass;
+    const st = h && h.states[this._entita()];
+    if (!st || this._leggendo) return;
+    const alias = st.attributes.friendly_name || "";
+    if (this._auto && this._alias === alias) return;
+    this._leggendo = true;
+    this._alias = alias;
+    const a = { presenza: "", per: 0, wifi: [], ssid: "", allarme: "", porta: "", prese: [], avvisi: 0 };
+    try {
+      const cfg = await h.callApi("get", "config/automation/config/" + st.attributes.id);
+      const cond = JSON.stringify(cfg.conditions || cfg.condition || []);
+      const tutto = JSON.stringify(cfg);
+      const trig = [].concat(cfg.triggers || cfg.trigger || []);
+      const tp = trig.find(t => typeof t.entity_id === "string" && /^(group|person|zone)\./.test(t.entity_id));
+      if (tp) {
+        a.presenza = tp.entity_id;
+        const f = tp.for || {};
+        a.per = (Number(f.hours) || 0) * 3600 + (Number(f.minutes) || 0) * 60 + (Number(f.seconds) || 0);
+      }
+      a.wifi = [...new Set(cond.match(/sensor\.[a-z0-9_]*wi_?fi[a-z0-9_]*/g) || [])];
+      a.ssid = (cond.match(/!=\s*'([^']+)'/) || [])[1] || "";
+      a.allarme = (tutto.match(/alarm_control_panel\.[a-z0-9_]+/) || [])[0] || "";
+      a.porta = (tutto.match(/lock\.[a-z0-9_]+/) || [])[0] || "";
+      const gira = v => {
+        if (Array.isArray(v)) { v.forEach(gira); return; }
+        if (!v || typeof v !== "object") return;
+        const az = v.action || v.service;
+        if (az === "switch.turn_off") {
+          const t = (v.target && v.target.entity_id) || v.entity_id || (v.data && v.data.entity_id);
+          [].concat(t || []).forEach(e => { if (!a.prese.includes(e)) a.prese.push(e); });
+        }
+        if (typeof az === "string" && az.startsWith("notify.")) a.avvisi++;
+        Object.keys(v).forEach(k => gira(v[k]));
+      };
+      gira(cfg.actions || cfg.action || []);
+    } catch (e) {
+      // Non amministratore o automazione in YAML: si resta su acceso/spento.
+    }
+    this._auto = a;
+    this._leggendo = false;
+    this._update();
+  }
+
+  // Cosa guardare: prima la configurazione della card, poi l'automazione.
+  _regole() {
+    const a = this._auto || {};
+    const c = this._cfg;
+    const lista = v => Array.isArray(v) ? v : String(v || "").split(",").map(x => x.trim()).filter(Boolean);
+    return {
+      presenza: c.presenza || a.presenza || "",
+      wifi: c.wifi ? lista(c.wifi) : (a.wifi || []),
+      ssid: c.ssid_casa || a.ssid || "",
+      allarme: c.allarme || a.allarme || "",
+      porta: a.porta || "", prese: a.prese || [], avvisi: a.avvisi || 0, per: a.per || 0,
+    };
+  }
+
+  // Il nome di chi porta quel telefono: dal sensore si risale al dispositivo,
+  // e dal dispositivo alla persona che lo usa come localizzatore.
+  _chiTelefono(sensore) {
+    const h = this._hass;
+    const reg = h.entities || {};
+    const dev = (reg[sensore] || {}).device_id;
+    if (dev) {
+      for (const id of Object.keys(h.states)) {
+        if (!id.startsWith("person.")) continue;
+        const p = h.states[id];
+        if ((p.attributes.device_trackers || []).some(dt => (reg[dt] || {}).device_id === dev))
+          return p.attributes.friendly_name || id;
+      }
+      const d = (h.devices || {})[dev];
+      if (d) return d.name_by_user || d.name;
+    }
+    const st = h.states[sensore];
+    return (st && st.attributes.friendly_name) || sensore;
+  }
+
+  _situazione() {
+    const h = this._hass;
+    const st = h.states[this._entita()];
+    if (!st) return { tono: "grigio", pill: "?", icona: "mdi:shield-off-outline", stato: "Automazione non trovata",
+      sub: "Scegli l'automazione nella configurazione della card.", on: false, cond: [] };
+    const r = this._regole();
+    const on = st.state === "on";
+    const pres = r.presenza && h.states[r.presenza];
+    const fuori = pres ? pres.state !== "home" : null;
+    const telefoni = r.wifi.map(w => {
+      const s = h.states[w];
+      const v = s ? s.state : "";
+      const letto = s && !["unknown", "unavailable", ""].includes(v);
+      return { w, chi: this._chiTelefono(w), rete: v, letto, aCasa: letto && !!r.ssid && v === r.ssid };
+    });
+    const allarme = r.allarme && h.states[r.allarme];
+    const inserito = !!allarme && String(allarme.state).startsWith("armed");
+    const cond = [];
+    if (pres) cond.push({ ok: fuori, icona: fuori ? "mdi:account-arrow-right" : "mdi:home-account",
+      testo: fuori ? "Famiglia fuori" : "Famiglia a casa" });
+    telefoni.forEach(t => cond.push({ ok: t.letto && !t.aCasa, icona: t.aCasa ? "mdi:wifi" : (t.letto ? "mdi:wifi-off" : "mdi:wifi-alert"),
+      testo: t.chi + ": " + (!t.letto ? "Wi-Fi non letto" : t.aCasa ? "Wi-Fi di casa" : "fuori") }));
+    if (allarme) cond.push({ ok: inserito, icona: inserito ? "mdi:shield-lock" : "mdi:shield-outline",
+      testo: "Allarme " + (inserito ? "inserito" : "disinserito") });
+
+    const base = { on, cond, telefoni, fuori, inserito, pill: on ? "ATTIVA" : "SPENTA" };
+    if (!on) return Object.assign(base, { tono: "grigio", icona: "mdi:shield-off-outline", stato: "Spenta",
+      sub: "Uscendo non si chiude niente e l'allarme non si arma da solo." });
+    if (fuori === false || fuori === null) return Object.assign(base, { tono: "ambra", icona: "mdi:shield-home",
+      stato: "Pronta", sub: "Scatta da sola quando uscite tutti." });
+    // Allarme inserito e famiglia fuori: la casa e chiusa, qualunque cosa dica un telefono.
+    if (inserito) return Object.assign(base, { tono: "verde", icona: "mdi:shield-lock", stato: "Casa protetta",
+      sub: "Tutti fuori, allarme inserito." });
+    const aCasa = telefoni.filter(t => t.aCasa).map(t => t.chi);
+    if (aCasa.length) return Object.assign(base, { tono: "arancio", icona: "mdi:shield-alert",
+      stato: "Uscita parziale", sub: aCasa.join(" e ") + (aCasa.length > 1 ? " sono" : " è") + " ancora sul Wi-Fi di casa." });
+    const nonLetti = telefoni.filter(t => !t.letto).map(t => t.chi);
+    if (nonLetti.length) return Object.assign(base, { tono: "arancio", icona: "mdi:shield-alert",
+      stato: "Non scatta", sub: "Il Wi-Fi di " + nonLetti.join(" e ") + " non si legge: l'automazione aspetta." });
+    if (Number(st.attributes.current) > 0) return Object.assign(base, { tono: "verde", icona: "mdi:shield-sync",
+      stato: "Sta chiudendo casa", sub: "Porta, prese e allarme in corso." });
+    return Object.assign(base, { tono: "arancio", icona: "mdi:shield-alert", stato: "Tutti fuori",
+      sub: allarme ? "Ma l'allarme non è inserito." : "Siete tutti fuori casa." });
+  }
+
+  _update() {
+    const h = this._hass;
+    if (!h) return;
+    const s = this._situazione();
+    if (!this._built) {
+      this._built = true;
+      this.innerHTML = `<style>${FFC_CSS}</style>
+        <div class="ffc-card" data-card>
+          <div class="ffc-top">
+            <div class="ffc-icon"><ha-icon data-icona></ha-icon></div>
+            <span class="ffc-pill" data-pill></span>
+          </div>
+          <div class="ffc-testo">
+            <div class="ffc-title">${fhEsc(this._cfg.name || "Fuori casa")}</div>
+            <div class="ffc-stato" data-stato></div>
+            <div class="ffc-sub" data-sub></div>
+          </div>
+          <button type="button" class="ffc-btn" data-btn><ha-icon data-btnicona></ha-icon><span data-btntesto></span></button>
+          <div class="ffc-cond" data-cond></div>
+        </div>`;
+      const card = this.querySelector("[data-card]");
+      card.classList.toggle("largo", this.clientWidth >= 330);
+      card.addEventListener("click", e => {
+        if (e.target.closest("[data-btn]")) return;
+        fhVibra(8);
+        this._dettaglio();
+      });
+      this.querySelector("[data-btn]").addEventListener("click", e => {
+        e.stopPropagation();
+        this._premi();
+      });
+    }
+    const q = sel => this.querySelector(sel);
+    const card = q("[data-card]");
+    if (card.dataset.tono !== s.tono) card.dataset.tono = s.tono;
+    const metti = (sel, t) => { const el = q(sel); if (el && el.textContent !== t) el.textContent = t; };
+    metti("[data-pill]", s.pill);
+    metti("[data-stato]", s.stato);
+    metti("[data-sub]", s.sub);
+    const ic = q("[data-icona]");
+    if (ic.getAttribute("icon") !== s.icona) ic.setAttribute("icon", s.icona);
+    const btn = q("[data-btn]");
+    btn.className = "ffc-btn " + (s.on ? "spegni" : "accendi");
+    btn.disabled = !h.states[this._entita()];
+    metti("[data-btntesto]", s.on ? "Disattiva" : "Attiva");
+    const bi = q("[data-btnicona]");
+    const bIcon = s.on ? "mdi:shield-off-outline" : "mdi:shield-check";
+    if (bi.getAttribute("icon") !== bIcon) bi.setAttribute("icon", bIcon);
+    // Le condizioni si ridisegnano solo se sono cambiate: la card riceve lo
+    // stato di tutta la casa molte volte al secondo.
+    const condHTML = s.cond.map(c => `<span class="ffc-c ${c.ok ? "ok" : "no"}"><ha-icon icon="${c.icona}"></ha-icon>${fhEsc(c.testo)}</span>`).join("");
+    if (this._condHTML !== condHTML) { this._condHTML = condHTML; q("[data-cond]").innerHTML = condHTML; }
+  }
+
+  // Il servizio si decide AL MOMENTO del tocco, dallo stato vero. Nella card
+  // di Antigravity era deciso una volta sola alla nascita della card: dopo il
+  // primo cambio il tasto mandava sempre lo stesso comando.
+  _premi() {
+    const h = this._hass;
+    const ent = this._entita();
+    const st = h && h.states[ent];
+    if (!st) return;
+    const accesa = st.state === "on";
+    const fai = () => { fhVibra(12); h.callService("automation", accesa ? "turn_off" : "turn_on", { entity_id: ent }); };
+    if (!accesa) { fai(); return; }
+    // Spegnere toglie una protezione: si chiede. Accendere no.
+    if (window.fhConfirmAction) window.fhConfirmAction({
+      title: "Disattivare Fuori casa?",
+      message: "Uscendo non si chiuderà la porta, non si spegneranno le prese e l'allarme non si armerà da solo.",
+      icon: "mdi:shield-off-outline", confirmText: "Disattiva", cancelText: "Annulla",
+      chiaro: !!this.closest(".fh-app.chiaro"), onConfirm: fai,
+    });
+    else fai();
+  }
+
+  _quando(iso) {
+    if (!iso) return "mai";
+    const d = new Date(iso);
+    if (isNaN(d)) return "mai";
+    const ora = d.toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
+    const oggi = new Date(); oggi.setHours(0, 0, 0, 0);
+    const giorno = new Date(d); giorno.setHours(0, 0, 0, 0);
+    const diff = Math.round((oggi - giorno) / 86400000);
+    if (diff === 0) return "oggi alle " + ora;
+    if (diff === 1) return "ieri alle " + ora;
+    return d.toLocaleDateString("it-IT", { day: "numeric", month: "long" }) + " alle " + ora;
+  }
+
+  _dettaglio() {
+    const h = this._hass;
+    const ent = this._entita();
+    const st = h.states[ent];
+    if (!st) return;
+    const s = this._situazione();
+    const r = this._regole();
+    const nome = e => { const x = h.states[e]; return (x && x.attributes.friendly_name) || e; };
+    const riga = (icona, testo, valore, ok) => `<div class="ffc-riga"><ha-icon icon="${icona}"></ha-icon>
+      <span>${fhEsc(testo)}</span>${valore != null ? `<i class="${ok === true ? "ok" : ok === false ? "no" : ""}">${fhEsc(valore)}</i>` : ""}</div>`;
+    const quando = [];
+    if (r.presenza) quando.push(riga("mdi:account-group", "Tutti fuori" + (r.per ? " da " + r.per + " secondi" : ""), null));
+    if (r.allarme) quando.push(riga("mdi:shield-outline", "Allarme ancora disinserito", null));
+    if (r.wifi.length) quando.push(riga("mdi:wifi-off", "Nessun telefono sul Wi-Fi" + (r.ssid ? " «" + r.ssid + "»" : " di casa"), null));
+    const fa = [];
+    if (r.porta) fa.push(riga("mdi:lock", "Chiude " + nome(r.porta), null));
+    if (r.prese.length) fa.push(riga("mdi:power-socket-eu", "Spegne " + r.prese.length + (r.prese.length === 1 ? " presa" : " prese") + ": " + r.prese.map(nome).join(", "), null));
+    if (r.allarme) fa.push(riga("mdi:shield-lock", "Arma " + nome(r.allarme), null));
+    if (r.avvisi) fa.push(riga("mdi:cellphone-message", "Avvisa sul telefono", null));
+    const adesso = s.cond.map(c => riga(c.icona, c.testo, c.ok ? "ok" : "no", !!c.ok));
+
+    document.querySelectorAll(".ffc-scrim").forEach(x => x.remove());
+    const scrim = document.createElement("div");
+    scrim.className = "ffc-scrim" + (this.closest(".fh-app.chiaro") ? " chiaro" : "");
+    scrim.innerHTML = `<style>${FFC_CSS}</style>
+      <div class="ffc-sheet">
+        <div class="ffc-sh-head"><b>${fhEsc(this._cfg.name || "Fuori casa")} · ${fhEsc(s.stato)}</b>
+          <button type="button" class="ffc-x" data-x>✕</button></div>
+        <div class="ffc-sez"><h4>Adesso</h4>
+          ${riga(s.on ? "mdi:shield-check" : "mdi:shield-off-outline", "Automazione", s.on ? "attiva" : "spenta", s.on)}
+          ${adesso.join("")}
+          ${riga("mdi:history", "Ultima volta scattata", this._quando(st.attributes.last_triggered))}
+        </div>
+        ${quando.length ? `<div class="ffc-sez"><h4>Scatta quando</h4>${quando.join("")}</div>` : ""}
+        ${fa.length ? `<div class="ffc-sez"><h4>Cosa fa</h4>${fa.join("")}</div>` : ""}
+        ${!this._auto || (!r.presenza && !r.wifi.length) ? `<div class="ffc-nota">Le regole si leggono dall'automazione: serve un utente amministratore.</div>` : ""}
+      </div>`;
+    document.body.appendChild(scrim);
+    const chiudi = () => scrim.remove();
+    scrim.addEventListener("click", e => { if (e.target === scrim) chiudi(); });
+    scrim.querySelector("[data-x]").addEventListener("click", chiudi);
+  }
+}
+customElements.define("faber-fuoricasa", FaberFuoriCasa);
+
+// ===========================================================================
 // FABER SPESA (CARD VERTICALE CON POPUP MINI-APP)
 // ===========================================================================
 const FSP_CSS = `
@@ -11039,6 +11436,15 @@ if (!existingCards.includes("faber-cancello")) {
     type: "faber-cancello",
     name: "Faber Cancello",
     description: "Comando per cancello carrabile con timer animato e cancelletto pedonale.",
+    preview: true,
+    documentationURL: "https://github.com/cristianwebonline/ha-faber-home",
+  });
+}
+if (!existingCards.includes("faber-fuoricasa")) {
+  window.customCards.push({
+    type: "faber-fuoricasa",
+    name: "Faber Fuori casa",
+    description: "Attiva e disattiva l'automazione fuori casa, con le condizioni lette dall'automazione stessa.",
     preview: true,
     documentationURL: "https://github.com/cristianwebonline/ha-faber-home",
   });
