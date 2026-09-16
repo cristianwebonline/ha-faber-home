@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.107.0";
+const FH_VERSION = "0.108.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -7719,7 +7719,35 @@ customElements.define("faber-carichi-editor", FaberCarichiEditor);
 // il contrario, ed era il modo perfetto per far ribaltare la protezione.
 // ===========================================================================
 const PC_MAX = 20;
-const PC_DEFAULTS = { title: "Controllo Carichi" };
+// GLI HELPER DEL PACCHETTO CONTROLLO CARICHI.
+// Erano scritti dentro il codice: bastava rinominarne uno in Home Assistant e
+// la card smetteva di leggerlo, senza dire perche. Ora sono valori di
+// partenza sovrascrivibili dalla scheda della card.
+const PC_HELPER = {
+  totale: { e: "sensor.potenza_carichi_selezionato", t: "Potenza dei carichi seguiti" },
+  max_imm: { e: "sensor.potenza_massima_immediato", t: "Tetto calcolato - stacco immediato" },
+  max_rit: { e: "sensor.potenza_massima_ritardato", t: "Tetto calcolato - stacco ritardato" },
+  attivo: { e: "input_boolean.attiva_power_control", t: "Interruttore del controllo carichi" },
+  voce: { e: "input_boolean.controllo_carichi_avvisi_vocali", t: "Avvisi vocali" },
+  set_imm: { e: "input_number.potenza_massima_immediato", t: "Soglia stacco immediato" },
+  set_rit: { e: "input_number.potenza_massima_ritardato", t: "Soglia stacco ritardato" },
+  t_imm: { e: "input_number.tempo_stop_immediato", t: "Attesa prima dello stacco immediato" },
+  t_rit: { e: "input_number.tempo_stop_ritardato", t: "Attesa prima dello stacco ritardato" },
+  t_start: { e: "input_number.tempo_start", t: "Attesa prima di riaccendere" },
+  impegnata: { e: "input_number.controllo_carichi_potenza_impegnata", t: "Potenza impegnata del contatore" },
+  tolleranza: { e: "input_number.controllo_carichi_tolleranza_contatore", t: "Tolleranza del contatore" },
+  margine: { e: "input_number.controllo_carichi_margine_prima_del_picco", t: "Margine prima del picco" },
+  acceso: { e: "input_number.controllo_carichi_carico_acceso_sopra", t: "Un carico e acceso sopra" },
+};
+
+// Gli helper che esistono uno per ogni carico: {n} e il numero del carico.
+const PC_SCHEMI = {
+  schema_potenza: { e: "input_text.carico_{n}_potenza", t: "Sensore del carico numero {n}" },
+  schema_switch: { e: "input_text.carico_{n}_switch", t: "Interruttore del carico numero {n}" },
+  schema_sospesa: { e: "input_number.potenza_{n}_sospesa", t: "Potenza sospesa del carico {n}" },
+};
+
+const PC_DEFAULTS = { title: "Controllo Carichi", helper: {} };
 
 // Gli Shelly espongono un "_device_power" che misura LA PRESA, non il carico:
 // una riga piatta di mezzo watt. Ne avevamo uno sulla lavastoviglie e il
@@ -7748,14 +7776,22 @@ class FaberPC extends HTMLElement {
   _n(id) { const s = this._hass.states[id]; const v = s ? parseFloat(s.state) : NaN; return isNaN(v) ? null : v; }
   _s(id) { const s = this._hass.states[id]; return s ? s.state : ""; }
 
+  // Il nome di un helper: quello scelto nella scheda, se no quello standard.
+  _h(k) {
+    const scelto = (this._cfg.helper || {})[k];
+    return (scelto && String(scelto).trim()) || (PC_HELPER[k] || PC_SCHEMI[k] || {}).e || "";
+  }
+  // Lo stesso per gli helper numerati: _hn("schema_potenza", 3).
+  _hn(k, n) { return this._h(k).replace("{n}", n); }
+
   _lista() {
     const H = this._hass.states, out = [];
     for (let i = 1; i <= PC_MAX; i++) {
-      const t = H["input_text.carico_" + i + "_potenza"];
+      const t = H[this._hn("schema_potenza", i)];
       const id = t ? String(t.state || "").trim() : "";
       if (!id || ["Seleziona", "unknown", "unavailable"].includes(id)) continue;
-      const sw = (H["input_text.carico_" + i + "_switch"] || {}).state || "";
-      const st = H[id], so = H["input_number.potenza_" + i + "_sospesa"];
+      const sw = (H[this._hn("schema_switch", i)] || {}).state || "";
+      const st = H[id], so = H[this._hn("schema_sospesa", i)];
       out.push({
         pos: i, id, sw,
         nome: pcPulisci(st ? (st.attributes.friendly_name || id) : id),
@@ -7778,10 +7814,10 @@ class FaberPC extends HTMLElement {
       this._costruita = true;
     }
     const l = this._lista();
-    const tot = this._n("sensor.potenza_carichi_selezionato");
-    const imm = this._n("sensor.potenza_massima_immediato");
-    const rit = this._n("sensor.potenza_massima_ritardato");
-    const attivo = this._s("input_boolean.attiva_power_control") === "on";
+    const tot = this._n(this._h("totale"));
+    const imm = this._n(this._h("max_imm"));
+    const rit = this._n(this._h("max_rit"));
+    const attivo = this._s(this._h("attivo")) === "on";
     const ultimo = this._s("input_text.controllo_carichi_ultimo_sovraccarico");
     const sospesi = l.filter(x => x.sospesa > 0);
 
@@ -7852,19 +7888,19 @@ class FaberPC extends HTMLElement {
     const l = this._lista();
     this._bozza = {
       carichi: l.map(x => ({ id: x.id, sw: x.sw, nome: x.nome })),
-      imm: this._n("input_number.potenza_massima_immediato") || 0,
-      rit: this._n("input_number.potenza_massima_ritardato") || 0,
-      tImm: this._n("input_number.tempo_stop_immediato") || 0,
-      tRit: this._n("input_number.tempo_stop_ritardato") || 0,
-      tStart: this._n("input_number.tempo_start") || 0,
-      imp: this._n("input_number.controllo_carichi_potenza_impegnata") || 0,
-      tol: this._n("input_number.controllo_carichi_tolleranza_contatore") || 0,
-      mar: this._n("input_number.controllo_carichi_margine_prima_del_picco") || 0,
-      acceso: this._n("input_number.controllo_carichi_carico_acceso_sopra") || 0,
-      voce: this._s("input_boolean.controllo_carichi_avvisi_vocali") === "on",
+      imm: this._n(this._h("set_imm")) || 0,
+      rit: this._n(this._h("set_rit")) || 0,
+      tImm: this._n(this._h("t_imm")) || 0,
+      tRit: this._n(this._h("t_rit")) || 0,
+      tStart: this._n(this._h("t_start")) || 0,
+      imp: this._n(this._h("impegnata")) || 0,
+      tol: this._n(this._h("tolleranza")) || 0,
+      mar: this._n(this._h("margine")) || 0,
+      acceso: this._n(this._h("acceso")) || 0,
+      voce: this._s(this._h("voce")) === "on",
       dest: this._lista_testo("input_text.controllo_carichi_destinatari_avvisi"),
       alto: this._lista_testo("input_text.controllo_carichi_altoparlanti_avvisi"),
-      attivo: this._s("input_boolean.attiva_power_control") === "on",
+      attivo: this._s(this._h("attivo")) === "on",
     };
     this._partenza = JSON.stringify(this._bozza);
     this._cerca = ""; this._aggiungi = false;
@@ -8386,8 +8422,34 @@ class FaberPCEditor extends HTMLElement {
           <span class="fce-h">Soglie, ordine dei carichi e aggiunta si regolano dal tasto
           Impostazioni della card, non da qui. Le automazioni di PowerControl non vengono toccate.</span>
         </div>
+        <details class="fce-f">
+          <summary style="cursor:pointer;font-size:13px;font-weight:700;padding:6px 0">Helper del pacchetto (avanzate)</summary>
+          <span class="fce-h">Questi sono i nomi che la card va a leggere in Home Assistant. Si toccano solo
+          se hai rinominato un helper o se usi un pacchetto diverso da quello standard. Vuoto = nome standard.</span>
+          ${Object.keys(PC_HELPER).map(k => `<div class="fce-f">
+            <label>${fhEsc(PC_HELPER[k].t)}</label>
+            <input class="fce-in" data-hk="${k}" placeholder="${fhEsc(PC_HELPER[k].e)}"
+              value="${fhEsc(((this._cfg.helper || {})[k]) || "")}">
+          </div>`).join("")}
+          ${Object.keys(PC_SCHEMI).map(k => `<div class="fce-f">
+            <label>${fhEsc(PC_SCHEMI[k].t)}</label>
+            <input class="fce-in" data-hk="${k}" placeholder="${fhEsc(PC_SCHEMI[k].e)}"
+              value="${fhEsc(((this._cfg.helper || {})[k]) || "")}">
+          </div>`).join("")}
+          <button type="button" class="fce-in" id="pceReset" style="cursor:pointer;font-weight:700">Rimetti i nomi standard</button>
+        </details>
       </div>`;
     this.querySelector("#pceTit").addEventListener("input", e => this._set("title", e.target.value));
+    this.querySelectorAll("[data-hk]").forEach(el => el.addEventListener("change", () => {
+      const h = Object.assign({}, this._cfg.helper || {});
+      const v = el.value.trim();
+      if (v) h[el.dataset.hk] = v; else delete h[el.dataset.hk];
+      this._set("helper", h);
+    }));
+    this.querySelector("#pceReset").addEventListener("click", () => {
+      this.querySelectorAll("[data-hk]").forEach(el => { el.value = ""; });
+      this._set("helper", {});
+    });
   }
 }
 
