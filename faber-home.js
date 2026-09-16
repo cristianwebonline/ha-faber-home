@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.103.1";
+const FH_VERSION = "0.104.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -778,6 +778,7 @@ class FaberHome extends HTMLElement {
     // Le card figlie sono card HA vere: vogliono l'oggetto hass a ogni giro.
     this._cardEls.forEach(el => { el.hass = hass; });
     this._controllaAnomalie();
+    this._controllaNuoviApparecchi();
   }
 
   getCardSize() { return 20; }
@@ -1101,6 +1102,28 @@ class FaberHome extends HTMLElement {
   // PROPONE, e la proposta si vede scritta; la somma vera la decide Cristian.
   // =========================================================================
 
+  // L'ETICHETTA "Consumo apparecchio". Un apparecchio nuovo non si aggiunge a
+  // sei elenchi diversi: gli si mette UNA etichetta sul sensore che lo misura
+  // (una volta sola, con un tocco quando il pannello se ne accorge) e da li
+  // entra da solo nella sua stanza, nel totale di casa e nel "perche consumi
+  // di piu". La stanza e quella di Home Assistant: quella che si sceglie
+  // comunque quando si aggiunge un dispositivo. I gruppi di Home Assistant
+  // restano come sono, di scorta.
+  _etichettaConsumo() { return (this._cfg.consumo || {}).etichetta || "consumo_apparecchio"; }
+
+  _sensoriEtichettati() {
+    const reg = (this._hass && this._hass.entities) || {};
+    const l = this._etichettaConsumo();
+    return Object.keys(reg).filter(e => e.startsWith("sensor.") && (reg[e].labels || []).includes(l));
+  }
+
+  _areaEntita(e) {
+    const h = this._hass;
+    const r = (h.entities || {})[e] || {};
+    const d = (h.devices || {})[r.device_id] || {};
+    return r.area_id || d.area_id || null;
+  }
+
   _consumoCfg(pg) {
     const g = this._cfg.consumo || {};
     const c = pg.consumo || {};
@@ -1123,6 +1146,9 @@ class FaberHome extends HTMLElement {
   // proposta: se non c'e, non succede niente di male.
   _areaDiPagina(pg) {
     const aree = (this._hass && this._hass.areas) || {};
+    // Scelta a mano: il nome della pagina non sempre e il nome dell'area
+    // ("Sala" in Home Assistant e "Soggiorno", e c'e anche "Salotto" vuoto).
+    if (pg.area && aree[pg.area]) return pg.area;
     const t = fhNorm(pg.title);
     if (!t) return null;
     let esatta = null, simile = null;
@@ -1140,6 +1166,13 @@ class FaberHome extends HTMLElement {
   _proponiConsumo(pg) {
     const hass = this._hass;
     if (!hass) return [];
+    // Con l'etichetta la stanza si fa da sola: tutti gli apparecchi etichettati
+    // che stanno in quest'area, anche quelli senza una card nella pagina.
+    const etichettati = this._sensoriEtichettati();
+    if (etichettati.length) {
+      const a = this._areaDiPagina(pg);
+      return a ? etichettati.filter(e => hass.states[e] && this._areaEntita(e) === a) : [];
+    }
     const dallePagine = [...new Set(this._entitaDiPagina(pg.id, ["power"]))]
       .filter(e => e.startsWith("sensor.") && hass.states[e]);
     const area = this._areaDiPagina(pg);
@@ -1275,12 +1308,16 @@ class FaberHome extends HTMLElement {
     this._sheet("Chi consuma in " + (pg.title || "questa stanza"), box, false);
   }
 
-  // Tutto quello che si puo cambiare: quali sensori, da che soglia cambia
-  // colore, come si chiama, e se la fascia si vede o no.
+  // Tutto quello che si puo cambiare: la stanza di Home Assistant da cui
+  // arrivano gli apparecchi, quali sensori, da che soglia cambia colore, come
+  // si chiama, e se la fascia si vede o no.
   _modificaConsumo(pg) {
     const c = this._consumoCfg(pg);
     const stato = {
       attiva: c.attiva,
+      // "da solo": nessuna lista salvata, si guarda l'etichetta e la stanza.
+      auto: !c.entita,
+      area: pg.area || "",
       entita: (c.entita || this._proponiConsumo(pg)).slice(),
       attenzione: c.attenzione,
       alto: c.alto,
@@ -1292,7 +1329,21 @@ class FaberHome extends HTMLElement {
         <label class="fh-check"><input type="checkbox" data-attiva${stato.attiva ? " checked" : ""}>
           Mostra la fascia in cima a questa pagina</label>
 
-        <div class="fh-lab2" style="margin-top:16px">Sensori contati <small>la somma e questa</small></div>
+        <div class="fh-sfield" style="margin-top:14px"><label class="fh-slab">Stanza di Home Assistant</label>
+          <select class="fh-input" data-area>
+            <option value="">Automatica (dal nome della pagina)</option>
+            ${Object.keys((this._hass && this._hass.areas) || {}).map(a =>
+              `<option value="${fhEsc(a)}"${pg.area === a ? " selected" : ""}>${fhEsc(this._nomeArea(a))}</option>`).join("")}
+          </select>
+          <span class="fh-note">Da qui arrivano gli apparecchi contati in automatico: tutti quelli con l'etichetta
+          <b>Consumo apparecchio</b> che stanno in questa stanza.</span></div>
+
+        <label class="fh-check" style="margin-top:12px"><input type="checkbox" data-auto${stato.auto ? " checked" : ""}>
+          Conta da solo gli apparecchi di questa stanza</label>
+        <span class="fh-note">Con questo acceso non c'e nessun elenco da tenere aggiornato: entra da solo
+        ogni apparecchio nuovo con l'etichetta <b>Consumo apparecchio</b> assegnato a questa stanza.</span>
+
+        <div class="fh-lab2" style="margin-top:16px">${stato.auto ? "Apparecchi contati adesso" : "Sensori contati"} <small>la somma e questa</small></div>
         <div class="fh-tags">${stato.entita.length ? stato.entita.map((e, i) =>
           `<span class="fh-tag">${fhEsc(this._nomeEnt(e))}<button type="button" data-via="${i}">&times;</button></span>`
         ).join("") : `<div class="fh-note">Nessuno: la fascia segnerebbe sempre zero.</div>`}</div>
@@ -1333,6 +1384,20 @@ class FaberHome extends HTMLElement {
         draw();
       });
       box.querySelector("[data-attiva]").addEventListener("change", e => { stato.attiva = e.target.checked; });
+      box.querySelector("[data-auto]").addEventListener("change", e => {
+        stato.auto = e.target.checked;
+        if (stato.auto) { pg.area = stato.area || undefined; stato.entita = this._proponiConsumo(pg).slice(); }
+        draw();
+      });
+      const selArea = box.querySelector("[data-area]");
+      if (selArea) selArea.addEventListener("change", e => {
+        stato.area = e.target.value;
+        // La proposta dipende dalla stanza: si rifa subito, cosi si vede
+        // se e quella giusta prima di salvare.
+        pg.area = stato.area || undefined;
+        if (stato.auto) stato.entita = this._proponiConsumo(pg).slice();
+        draw();
+      });
       box.querySelector("[data-s1]").addEventListener("change", e => { stato.attenzione = Math.max(0, +e.target.value || 0); });
       box.querySelector("[data-s2]").addEventListener("change", e => { stato.alto = Math.max(1, +e.target.value || 1); });
       box.querySelector("[data-tit]").addEventListener("change", e => { stato.titolo = e.target.value.trim(); });
@@ -1341,8 +1406,11 @@ class FaberHome extends HTMLElement {
         // rimettono in ordine invece di salvare una cosa che non funziona.
         const s1 = Math.min(stato.attenzione, stato.alto);
         const s2 = Math.max(stato.attenzione, stato.alto);
-        pg.consumo = { attiva: stato.attiva, entita: stato.entita.slice(),
-          attenzione: s1, alto: s2, titolo: stato.titolo };
+        if (stato.area) pg.area = stato.area; else delete pg.area;
+        pg.consumo = { attiva: stato.attiva, attenzione: s1, alto: s2, titolo: stato.titolo };
+        // Con "da solo" non si salva nessun elenco: la lista si rifa ogni
+        // volta dall'etichetta e dalla stanza.
+        if (!stato.auto) pg.consumo.entita = stato.entita.slice();
         const scrim = this.querySelector(".fh-scrim");
         if (scrim) scrim.remove();
         await this._save(true);
@@ -4940,6 +5008,130 @@ class FaberHome extends HTMLElement {
     box.querySelector("[data-tutti]").addEventListener("click", () => this._popupOfflineDispositivi());
   }
 
+  // UN APPARECCHIO NUOVO. Si riconosce da solo: sensore di potenza vero (non
+  // un totale, non una stima), con una stanza, senza etichetta e mai scartato.
+  // Non si aggiunge da solo: un doppione della stessa presa falserebbe tutto,
+  // quindi il pannello chiede una volta sola.
+  _nuoviApparecchi() {
+    const h = this._hass;
+    if (!h) return [];
+    const reg = h.entities || {};
+    const lab = this._etichettaConsumo();
+    const ignora = new Set(((this._cfg.consumo || {}).ignora) || []);
+    const finti = new Set(["powercalc", "group", "min_max", "template", "integration", "utility_meter",
+      "statistics", "derivative", "filter", "threshold", "trend", "history_stats", "sql", "combine"]);
+    return Object.keys(reg).filter(e => {
+      if (!e.startsWith("sensor.") || ignora.has(e)) return false;
+      const r = reg[e];
+      if ((r.labels || []).includes(lab) || r.hidden || r.disabled_by) return false;
+      if (finti.has(r.platform)) return false;
+      if (/device_power|standby|_apparent|reactive|totale|generale/.test(e)) return false;
+      const st = h.states[e];
+      if (!st || st.attributes.device_class !== "power" || st.attributes.state_class !== "measurement") return false;
+      return !!this._areaEntita(e);
+    });
+  }
+
+  _controllaNuoviApparecchi() {
+    if (!this._hass || this._edit) return;
+    if (document.visibilityState === "hidden") return;
+    if (Date.now() - (this._nuoviTs || 0) < 300000) return;
+    if (this.querySelector(".fh-scrim")) return;
+    this._nuoviTs = Date.now();
+    const lista = this._nuoviApparecchi();
+    if (lista.length) this._mostraNuoviApparecchi(lista);
+  }
+
+  _nomeArea(id) {
+    const a = ((this._hass && this._hass.areas) || {})[id];
+    return (a && a.name) || "";
+  }
+
+  _mostraNuoviApparecchi(lista) {
+    const h = this._hass;
+    const box = document.createElement("div");
+    box.className = "fh-offbody";
+    const riga = e => {
+      const st = h.states[e];
+      const r = (h.entities || {})[e] || {};
+      const dev = (h.devices || {})[r.device_id] || {};
+      const nome = dev.name_by_user || dev.name || (st && st.attributes.friendly_name) || e;
+      return `<div class="fh-off-item" data-nuovo="${fhEsc(e)}">
+        <ha-icon icon="mdi:flash-outline"></ha-icon>
+        <div class="fh-off-info"><span class="fh-off-name">${fhEsc(nome)}</span>
+          <small class="fh-off-id">${fhEsc(this._nomeArea(this._areaEntita(e)) || "senza stanza")} · ${fhEsc(e)}</small></div>
+        <button type="button" class="fh-off-act pieno" data-aggiungi="${fhEsc(e)}">Aggiungi</button>
+        <button type="button" class="fh-off-act" data-scarta="${fhEsc(e)}">No</button></div>`;
+    };
+    box.innerHTML = `<div class="fh-off-head">
+        <b>${lista.length === 1 ? "Un apparecchio nuovo misura il consumo" : lista.length + " apparecchi nuovi misurano il consumo"}</b>
+        <small>Se lo aggiungo entra da solo nel consumo della sua stanza, nel totale di casa e nelle statistiche.
+        Se invece e un doppione o una stima, tocca <b>No</b> e non te lo chiedo piu.</small>
+      </div>
+      <div class="fh-off-list">${lista.slice(0, 6).map(riga).join("")}</div>`;
+    const scrim = this._sheet("Apparecchi nuovi", box, false);
+    const togli = e => {
+      const it = box.querySelector(`[data-nuovo="${e}"]`);
+      if (it) it.remove();
+      if (!box.querySelector("[data-nuovo]")) scrim.remove();
+    };
+    box.querySelectorAll("[data-aggiungi]").forEach(b => b.addEventListener("click", async () => {
+      const e = b.dataset.aggiungi;
+      b.textContent = "…";
+      const fatto = await this._aggiungiAiConsumi(e);
+      b.textContent = fatto ? "Fatto ✓" : "Errore";
+      setTimeout(() => togli(e), 900);
+    }));
+    box.querySelectorAll("[data-scarta]").forEach(b => b.addEventListener("click", async () => {
+      const e = b.dataset.scarta;
+      this._cfg.consumo = this._cfg.consumo || {};
+      this._cfg.consumo.ignora = ((this._cfg.consumo.ignora) || []).concat([e]);
+      await this._save(true);
+      togli(e);
+    }));
+  }
+
+  // Mette l'etichetta e, se l'apparecchio ha anche il contatore dei kWh,
+  // lo aggiunge alle statistiche Energia di Home Assistant.
+  async _aggiungiAiConsumi(e) {
+    const h = this._hass;
+    try {
+      const r = (h.entities || {})[e] || {};
+      const lab = this._etichettaConsumo();
+      await h.callWS({ type: "config/entity_registry/update", entity_id: e,
+        labels: [...new Set([...(r.labels || []), lab])] });
+      await this._aggiungiEnergia(e);
+      this._updateLive();
+      this._renderPage();
+      return true;
+    } catch (err) {
+      console.warn("[faber-home] aggiunta ai consumi:", err);
+      return false;
+    }
+  }
+
+  async _aggiungiEnergia(e) {
+    const h = this._hass;
+    const reg = h.entities || {};
+    const dev = (reg[e] || {}).device_id;
+    if (!dev) return "";
+    const kwh = Object.keys(reg).find(x => {
+      if (!x.startsWith("sensor.") || reg[x].device_id !== dev) return false;
+      const st = h.states[x];
+      return !!st && st.attributes.device_class === "energy" &&
+        ["total", "total_increasing"].includes(st.attributes.state_class);
+    });
+    if (!kwh) return "";
+    const prefs = await h.callWS({ type: "energy/get_prefs" });
+    const lista = (prefs && prefs.device_consumption) || [];
+    if (lista.some(d => d.stat_consumption === kwh)) return "";
+    const st = h.states[e];
+    const d = (h.devices || {})[dev] || {};
+    lista.push({ stat_consumption: kwh, name: d.name_by_user || d.name || (st && st.attributes.friendly_name) || kwh });
+    await h.callWS({ type: "energy/save_prefs", device_consumption: lista });
+    return kwh;
+  }
+
   _chipOffline() {
     return ((this._cfg.header || {}).chips || []).find(c => c.tipo === "dispositivi" || c.tipo === "offline") || null;
   }
@@ -6820,6 +7012,7 @@ class FaberCarichi extends HTMLElement {
     return Object.assign({}, FC_DEFAULTS, {
       totale: pot.find(id => /generale|totale|casa|contatore|main/i.test(id)) || "",
       gruppo: gruppo || "",
+      etichetta: "consumo_apparecchio",
     });
   }
 
@@ -6842,6 +7035,14 @@ class FaberCarichi extends HTMLElement {
 
   _membri() {
     const h = this._hass, c = this._cfg;
+    // L'ETICHETTA vince sul gruppo: un apparecchio nuovo entra da solo, senza
+    // che nessuno aggiorni un elenco. Il gruppo resta come riserva.
+    const lab = c.etichetta;
+    if (lab) {
+      const reg = h.entities || {};
+      const l = Object.keys(reg).filter(e => e.startsWith("sensor.") && (reg[e].labels || []).includes(lab) && h.states[e]);
+      if (l.length) return l;
+    }
     if (c.gruppo && h.states[c.gruppo]) {
       const m = h.states[c.gruppo].attributes.entity_id;
       if (Array.isArray(m) && m.length) return m;
