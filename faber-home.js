@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.105.0";
+const FH_VERSION = "0.106.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -12149,6 +12149,19 @@ const FRB_FOGLIO_CSS = `
   .frb-barra{height:6px;border-radius:99px;background:rgba(255,255,255,.1);overflow:hidden;margin-top:5px}
   .fhf-scrim.chiaro .frb-barra{background:rgba(15,23,42,.1)}
   .frb-barra i{display:block;height:100%;border-radius:99px;background:var(--r-c)}
+  .frb-acc{border:1px solid rgba(255,255,255,.1);border-radius:16px;overflow:hidden;background:rgba(255,255,255,.03)}
+  .frb-acch{display:flex;align-items:center;gap:10px;width:100%;padding:12px 13px;border:0;background:none;
+    color:inherit;font:inherit;font-size:14px;font-weight:800;cursor:pointer;text-align:left}
+  .frb-acch ha-icon{--mdc-icon-size:19px;opacity:.85;flex:none}
+  .frb-acch span{flex:1;min-width:0}
+  .frb-nota{font-size:11.5px;font-weight:700;opacity:.65;text-align:right;max-width:52%;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .frb-frec{transition:transform .18s ease;opacity:.55!important}
+  .frb-acc.on .frb-frec{transform:rotate(180deg)}
+  .frb-acc:not(.on) .frb-accc{display:none}
+  .frb-accc{padding:0 11px 11px}
+  .frb-accc>.fhf-sez{margin:0}
+  .fh-app.chiaro .frb-acc,.fhf-scrim.chiaro .frb-acc{border-color:rgba(0,0,0,.1);background:rgba(0,0,0,.02)}
   .frb-perche{color:#ffb98a!important;font-weight:700}
   .frb-ore{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:2px 2px 4px 58px;font-size:11px;font-weight:700;opacity:.9}
   .frb-ore .frb-chip{padding:5px 10px;font-size:11px}
@@ -12234,6 +12247,17 @@ function frbDisegno() {
         <path d="M0 -5V5M-5 0H5M-3.5 -3.5L3.5 3.5M-3.5 3.5L3.5 -3.5"/></g></g>
     </g></svg>`;
 }
+// Le sezioni del foglio che stanno in una tendina, nell'ordine in cui
+// compaiono. Quelle fuori da qui (stato, numeri, comandi) sono sempre aperte.
+const FRB_TENDINE = [
+  ["mappa", "Mappa e stanze", "mdi:map-outline"],
+  ["modi", "Come pulisce", "mdi:tune-variant"],
+  ["base", "Base di ricarica", "mdi:home-lightning-bolt-outline"],
+  ["scene", "Scene", "mdi:movie-open-play-outline"],
+  ["storia", "Pulizie", "mdi:history"],
+  ["ricambi", "Ricambi", "mdi:wrench-outline"],
+];
+
 class FaberRobot extends HTMLElement {
   setConfig(c) {
     this._cfg = Object.assign({ name: "", entity: "", mappa: "", ultima: "", stanze: null, scene: null,
@@ -12494,10 +12518,17 @@ class FaberRobot extends HTMLElement {
     this._sel = new Set();
     this._storica = null;
     const c = this._foglio.corpo;
+    // Le tendine restano come le ha lasciate l'ultima volta: di suo e aperta
+    // solo la mappa, che e il motivo per cui questo foglio si apre.
+    if (!this._aperte) this._aperte = new Set(["mappa"]);
     c.innerHTML = `<style>${FRB_FOGLIO_CSS}</style>
-      <div data-s="stato"></div><div data-s="mappa"></div><div data-s="dati"></div><div data-s="cmd"></div>
-      <div data-s="modi"></div><div data-s="base"></div><div data-s="scene"></div><div data-s="storia"></div>
-      <div data-s="ricambi"></div>
+      <div data-s="stato"></div><div data-s="dati"></div><div data-s="cmd"></div>
+      ${FRB_TENDINE.map(([n, t, i]) => `<section class="frb-acc${this._aperte.has(n) ? " on" : ""}" data-acc="${n}">
+        <button type="button" class="frb-acch" data-acco="${n}">
+          <ha-icon icon="${i}"></ha-icon><span>${fhEsc(t)}</span>
+          <b class="frb-nota" data-nota></b>
+          <ha-icon class="frb-frec" icon="mdi:chevron-down"></ha-icon></button>
+        <div class="frb-accc" data-s="${n}"></div></section>`).join("")}
       <button type="button" class="fhf-tasto" data-tutto style="align-self:flex-start">Tutte le impostazioni</button>`;
     c.addEventListener("click", e => this._clic(e));
     this._disegnaFoglio();
@@ -12510,9 +12541,18 @@ class FaberRobot extends HTMLElement {
 
   // Ogni pezzo del foglio si ridisegna solo se e cambiato: lo stato di casa
   // arriva molte volte al secondo, e un tocco a meta ridisegno si perde.
-  _sez(nome, html) {
+  _sez(nome, html, nota) {
     const el = this._foglio.corpo.querySelector(`[data-s="${nome}"]`);
-    if (!el || el.__f === html) return;
+    if (!el) return;
+    const box = el.closest("[data-acc]");
+    if (box) {
+      // Una tendina senza niente dentro non deve nemmeno comparire.
+      const vuota = !html || !String(html).trim();
+      box.style.display = vuota ? "none" : "";
+      const n = box.querySelector("[data-nota]");
+      if (n && n.textContent !== (nota || "")) n.textContent = nota || "";
+    }
+    if (el.__f === html) return;
     el.__f = html;
     el.innerHTML = html;
   }
@@ -12554,7 +12594,7 @@ class FaberRobot extends HTMLElement {
       mappa = `<div class="frb-mappa"><div class="frb-vuota">${frbDisegno()}
         <span>Pulisce tutta la casa: questo robot non dice a Home Assistant le sue stanze.</span></div></div>`;
     }
-    this._sez("mappa", mappa);
+    this._sez("mappa", mappa, stanze.length ? (stanze.length === 1 ? "1 stanza" : stanze.length + " stanze") : "");
     this._aggiornaMappa();
 
     // I numeri: batteria, da quanto non pulisce, com'e andata l'ultima volta.
@@ -12590,13 +12630,15 @@ class FaberRobot extends HTMLElement {
       <ha-icon icon="${x.i}"></ha-icon>${fhEsc(x.t)}</button>`).join("")}</div>`);
 
     // Come pulisce: solo le scelte che questo robot ha.
+    const scelto = [];
     this._sez("modi", FRB_SCELTE.map(s => {
       const k = this._k(s.k);
       const e = k && this._e(k), ss = k && this._st(k);
       if (!ss || !Array.isArray(ss.attributes.options)) return "";
+      scelto.push(s.o[ss.state] || ss.state);
       return `<div class="fhf-sez"><h4>${fhEsc(s.t)}</h4><div class="frb-chips">${ss.attributes.options.map(o =>
         `<button type="button" class="frb-chip${o === ss.state ? " sel" : ""}" data-opt-ent="${e}" data-opt="${fhEsc(o)}">${fhEsc(s.o[o] || o)}</button>`).join("")}</div></div>`;
-    }).join(""));
+    }).join(""), scelto.slice(0, 2).join(" · "));
 
     // La base: i tasti che fanno qualcosa subito e le abitudini fisse.
     const tasti = FRB_BASE.filter(b => this._k(b.k)).map(b => {
@@ -12609,7 +12651,7 @@ class FaberRobot extends HTMLElement {
       `<div class="fhf-riga" style="--r-c:${s.state === "on" ? "#ffb020" : "#93a1b0"}"><div class="fhf-rig-ic"><ha-icon icon="${x.i}"></ha-icon></div>
         <div class="fhf-rig-t"><b>${fhEsc(x.t)}</b>${x.s ? `<small>${fhEsc(x.s)}</small>` : ""}</div>
         <button type="button" class="fhf-sw${s.state === "on" ? " on" : ""}" data-sw="${s.entity_id}" aria-label="${fhEsc(x.t)}"></button></div>`);
-    this._sez("base", tasti.length || interr.length ? `<div class="fhf-sez"><h4>Base di ricarica</h4>
+    this._sez("base", tasti.length || interr.length ? `<div class="fhf-sez">
       ${tasti.length ? `<div class="frb-tasti">${tasti.join("")}</div>` : ""}${interr.join("")}</div>` : "");
 
     // Le scene: automazioni con l'interruttore, e le ore della regola "non
@@ -12629,7 +12671,8 @@ class FaberRobot extends HTMLElement {
       return riga + (conOre ? `<div class="frb-ore">Non se ha pulito nelle ultime ${[2, 4, 6, 12, 24].map(n =>
         `<button type="button" class="frb-chip${n === oreVal ? " sel" : ""}" data-ore="${n}">${n}</button>`).join("")} ore</div>` : "");
     });
-    this._sez("scene", scene.length ? `<div class="fhf-sez"><h4>Scene</h4>${scene.join("")}</div>` : "");
+    this._sez("scene", scene.length ? `<div class="fhf-sez">${scene.join("")}</div>` : "",
+      scene.length === 1 ? "1 scena" : scene.length + " scene");
 
     // Cosa ha fatto e cosa fara.
     const tutte = this._pulizie();
@@ -12660,14 +12703,18 @@ class FaberRobot extends HTMLElement {
       <div class="fhf-rig-ic"><ha-icon icon="mdi:calendar-clock"></ha-icon></div>
       <div class="fhf-rig-t"><b>${x.tutti ? "Ogni giorno" : "Alcuni giorni"} alle ${String(x.ora).padStart(2, "0")}:${String(x.min).padStart(2, "0")}</b>
         <small>Programmata dall'app Xiaomi · si cambia da lì</small></div><span class="fhf-val">${x.on ? "attiva" : "spenta"}</span></div>`);
-    this._sez("storia", storia.length || prog.length ? `<div class="fhf-sez"><h4>Pulizie</h4>${prog.join("")}${storia.join("")}</div>` : "");
+    const ultimaP = tutte[0];
+    this._sez("storia", storia.length || prog.length ? `<div class="fhf-sez">${prog.join("")}${storia.join("")}</div>` : "",
+      ultimaP ? fhQuando(ultimaP.t.toISOString()) + (ultimaP.ok === false ? " · non finita" : "") : "");
 
     // I ricambi: la barra si vede da lontano, le ore dicono quando.
     const ricambi = [];
+    const minimi = [];
     FRB_RICAMBI.forEach(r => (this._entita()[r.k] || []).forEach((e, i) => {
       const s = h.states[e];
       const n = s ? parseFloat(s.state) : NaN;
       if (isNaN(n)) return;
+      minimi.push(Math.round(n));
       const o = this._st(r.o, i);
       const c = n < 10 ? "#ff5c5c" : n < 25 ? "#ff8a3d" : "#4ade80";
       ricambi.push(`<div class="fhf-riga" style="--r-c:${c}"><div class="fhf-rig-ic"><ha-icon icon="${r.i}"></ha-icon></div>
@@ -12676,7 +12723,8 @@ class FaberRobot extends HTMLElement {
           <div class="frb-barra"><i style="width:${Math.max(3, Math.min(100, n))}%"></i></div></div>
         <span class="fhf-val">${Math.round(n)}%</span></div>`);
     }));
-    this._sez("ricambi", ricambi.length ? `<div class="fhf-sez"><h4>Ricambi</h4>${ricambi.join("")}</div>` : "");
+    this._sez("ricambi", ricambi.length ? `<div class="fhf-sez">${ricambi.join("")}</div>` : "",
+      ricambi.length ? "il più basso " + Math.min.apply(null, minimi) + "%" : "");
   }
 
   // La mappa si rinfresca da sola: ogni 5 secondi mentre pulisce, ogni
@@ -12696,6 +12744,15 @@ class FaberRobot extends HTMLElement {
   }
 
   _clic(e) {
+    const testa = e.target.closest("[data-acco]");
+    if (testa) {
+      fhVibra(6);
+      const n = testa.dataset.acco;
+      if (this._aperte.has(n)) this._aperte.delete(n); else this._aperte.add(n);
+      const box = testa.closest("[data-acc]");
+      if (box) box.classList.toggle("on", this._aperte.has(n));
+      return;
+    }
     const perche = e.target.closest("[data-perche]");
     if (perche) { fhVibra(8); this._perche(+perche.dataset.perche); return; }
     if (e.target.closest("[data-tutte]")) {
