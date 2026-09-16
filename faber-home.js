@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.104.1";
+const FH_VERSION = "0.105.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -12149,6 +12149,7 @@ const FRB_FOGLIO_CSS = `
   .frb-barra{height:6px;border-radius:99px;background:rgba(255,255,255,.1);overflow:hidden;margin-top:5px}
   .fhf-scrim.chiaro .frb-barra{background:rgba(15,23,42,.1)}
   .frb-barra i{display:block;height:100%;border-radius:99px;background:var(--r-c)}
+  .frb-perche{color:#ffb98a!important;font-weight:700}
   .frb-ore{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:2px 2px 4px 58px;font-size:11px;font-weight:700;opacity:.9}
   .frb-ore .frb-chip{padding:5px 10px;font-size:11px}
 `;
@@ -12322,13 +12323,65 @@ class FaberRobot extends HTMLElement {
         if (!v || typeof v !== "object" || !v.timestamp) return;
         const chiave = k.replace("-", "/");
         const img = Object.keys(foto).find(f => f.includes(chiave));
+        const panno = String(v.mop_pad || "");
         out.push({ sec: (parseInt(v.cleaning_time, 10) || 0) * 60, mq: parseInt(v.cleaned_area, 10) || 0,
-          t: new Date(v.timestamp * 1000), ok: v.completed !== false, img: img ? foto[img] : "" });
+          t: new Date(v.timestamp * 1000), ok: v.completed !== false, img: img ? foto[img] : "",
+          fase: panno ? (/^inst/i.test(panno) ? "lavaggio" : "aspirazione") : "",
+          metodo: /custom/i.test(String(v.cleanup_method || "")) ? "stanze scelte" : "" });
       });
       out.sort((a, b) => b.t - a.t);
     }
     return out;
   }
+  // CHI HA FERMATO LA PULIZIA. Il giro finito a meta non spiega niente da
+  // solo. Il registro di Home Assistant invece tiene, per ogni cambio di
+  // stato, il contesto di chi l'ha provocato: se e stata un'automazione ne
+  // esce il nome, se e stato qualcuno dall'app esce l'utente.
+  async _perche(i) {
+    const x = this._pulizie()[i];
+    if (!x) return;
+    const h = this._hass;
+    this._motivi = this._motivi || {};
+    const chiave = +x.t;
+    if (this._motivi[chiave] !== undefined) return;
+    this._motivi[chiave] = "cerco…";
+    this._disegnaFoglio();
+    const fine = new Date(x.t.getTime() + (x.sec || 0) * 1000);
+    let testo = "";
+    try {
+      const ev = await h.callWS({
+        type: "logbook/get_events",
+        start_time: new Date(fine.getTime() - 5 * 60000).toISOString(),
+        end_time: new Date(fine.getTime() + 5 * 60000).toISOString(),
+        entity_ids: [this._cfg.entity],
+      });
+      // Il primo ritorno alla base dopo la fine: e quello il momento buono.
+      const r = (ev || []).filter(e => ["returning", "docked", "idle", "paused"].includes(e.state))
+        .sort((a, b) => (a.when || 0) - (b.when || 0))[0];
+      const ora = r && r.when ? new Date(r.when * 1000).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" }) : "";
+      const nome = r && (r.context_entity_id_name || r.context_name || "");
+      if (r && r.context_entity_id && String(r.context_entity_id).startsWith("automation.")) {
+        testo = `l'ha richiamato l'automazione «${nome || r.context_entity_id}»${ora ? " alle " + ora : ""}`;
+      } else if (r && r.context_user_id) {
+        testo = `l'ha richiamato qualcuno dall'app${ora ? " alle " + ora : ""}`;
+      } else if (r && nome) {
+        testo = `rientrato per «${nome}»${ora ? " alle " + ora : ""}`;
+      }
+    } catch (e) {
+      testo = "";
+    }
+    if (!testo) {
+      // Niente contesto: guardo se si e fermato per conto suo.
+      const g = this._st("sensor:fault") || this._st("sensor:error");
+      const b = this._batteria(h.states[this._cfg.entity]);
+      if (g && !["no_error", "none", "0", "no_fault"].includes(String(g.state))) testo = "guasto: " + g.state;
+      else if (b != null && b < 20) testo = "e tornato a caricarsi, la batteria era agli sgoccioli";
+      else testo = "e tornato alla base prima di finire, ma nel registro non c'e chi l'ha mandato";
+    }
+    this._motivi[chiave] = testo;
+    this._disegnaFoglio();
+  }
+
   // Quando ha pulito l'ultima volta: l'helper che segna ogni partenza (tiene
   // conto anche della pulizia programmata dall'app), se no quello che dice lui.
   _ultima() {
@@ -12579,15 +12632,30 @@ class FaberRobot extends HTMLElement {
     this._sez("scene", scene.length ? `<div class="fhf-sez"><h4>Scene</h4>${scene.join("")}</div>` : "");
 
     // Cosa ha fatto e cosa fara.
-    const storia = this._pulizie().slice(0, 5).map(x => {
+    const tutte = this._pulizie();
+    const quante = this._tutteLePulizie ? tutte.length : 5;
+    const oreMin = t => t.toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
+    const storia = tutte.slice(0, quante).map((x, i) => {
       const q = fhQuando(x.t.toISOString());
       const vista = this._storica && this._storica.img === x.img;
+      const min = Math.round((x.sec || 0) / 60);
+      const fine = new Date(x.t.getTime() + (x.sec || 0) * 1000);
+      const motivo = (this._motivi || {})[+x.t];
+      const righe = [`dalle ${oreMin(x.t)} alle ${oreMin(fine)} · ${min} ${min === 1 ? "minuto" : "minuti"}`];
+      if (x.mq) righe.push(x.mq + " m²");
+      if (x.fase) righe.push(x.fase);
+      if (x.metodo) righe.push(x.metodo);
       return `<div class="fhf-riga${x.img ? " cliccabile" : ""}${vista ? " oggi" : ""}" style="--r-c:${x.ok === false ? "#ff8a3d" : "#5aa9ff"}"
         ${x.img ? `data-storia="${fhEsc(x.img)}" data-quando="${fhEsc(q)}"` : ""}>
         <div class="fhf-rig-ic"><ha-icon icon="${x.ok === false ? "mdi:alert-circle-outline" : "mdi:check-circle-outline"}"></ha-icon></div>
-        <div class="fhf-rig-t"><b>${fhEsc(q)}</b><small>${x.mq} m² in ${Math.round(x.sec / 60)} minuti${x.ok === false ? " · non finita" : ""}</small></div>
-        ${x.img ? `<span class="fhf-val">${vista ? "sulla mappa" : "vedi"}</span>` : ""}</div>`;
+        <div class="fhf-rig-t"><b>${fhEsc(q)}${x.ok === false ? ` <span style="color:#ff8a3d">· non finita</span>` : ""}</b>
+          <small>${fhEsc(righe.join(" · "))}</small>
+          ${motivo ? `<small class="frb-perche">${fhEsc(motivo)}</small>` : ""}</div>
+        ${x.ok === false && !motivo ? `<button type="button" class="frb-chip" data-perche="${i}">perché?</button>`
+          : x.img ? `<span class="fhf-val">${vista ? "sulla mappa" : "vedi"}</span>` : ""}</div>`;
     });
+    if (tutte.length > 5) storia.push(`<div class="frb-chips"><button type="button" class="frb-chip" data-tutte>${
+      this._tutteLePulizie ? "Mostra solo le ultime 5" : "Tutte le " + tutte.length + " pulizie"}</button></div>`);
     const prog = this._programmi().map(x => `<div class="fhf-riga" style="--r-c:${x.on ? "#ffb020" : "#93a1b0"}">
       <div class="fhf-rig-ic"><ha-icon icon="mdi:calendar-clock"></ha-icon></div>
       <div class="fhf-rig-t"><b>${x.tutti ? "Ogni giorno" : "Alcuni giorni"} alle ${String(x.ora).padStart(2, "0")}:${String(x.min).padStart(2, "0")}</b>
@@ -12628,6 +12696,14 @@ class FaberRobot extends HTMLElement {
   }
 
   _clic(e) {
+    const perche = e.target.closest("[data-perche]");
+    if (perche) { fhVibra(8); this._perche(+perche.dataset.perche); return; }
+    if (e.target.closest("[data-tutte]")) {
+      fhVibra(8);
+      this._tutteLePulizie = !this._tutteLePulizie;
+      this._disegnaFoglio();
+      return;
+    }
     const riga = e.target.closest("[data-storia]");
     if (riga) {
       fhVibra(8);
