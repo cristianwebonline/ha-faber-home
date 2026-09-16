@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.106.0";
+const FH_VERSION = "0.106.1";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -716,7 +716,11 @@ function fhWatt(st) {
   const n = parseFloat(st.state);
   if (isNaN(n)) return null;
   const u = String((st.attributes && st.attributes.unit_of_measurement) || "").toLowerCase();
-  return u === "kw" ? n * 1000 : n;
+  // Ma l'unita dichiarata a volte MENTE: l'autoclave (LocalTuya) scrive "Kw"
+  // e manda 676,8, che sono watt. Moltiplicando si arrivava a 676 kW, una
+  // potenza da capannone industriale. In casa nessun apparecchio singolo
+  // supera i 30 kW: sopra quella soglia il numero e gia in watt.
+  return u === "kw" && n <= 30 ? n * 1000 : n;
 }
 
 class FaberHome extends HTMLElement {
