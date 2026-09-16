@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.106.1";
+const FH_VERSION = "0.107.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -11138,6 +11138,7 @@ const FGC_CSS = `
 `;
 
 class FaberCancello extends HTMLElement {
+  static getConfigElement() { return document.createElement("faber-cancello-editor"); }
   setConfig(config) {
     this._cfg = Object.assign({
       name: "Cancello",
@@ -11359,6 +11360,7 @@ const FFC_CSS = `
 `;
 
 class FaberFuoriCasa extends HTMLElement {
+  static getConfigElement() { return document.createElement("faber-fuoricasa-editor"); }
   setConfig(config) {
     this._cfg = Object.assign({ name: "Fuori casa", entity: "" }, config || {});
     this._built = false;
@@ -11797,6 +11799,7 @@ function fhQuando(iso) {
 //         azione:"dominio.servizio", dati:{...}, tasto:"Ricarica" }
 // ===========================================================================
 class FaberAutomazioni extends HTMLElement {
+  static getConfigElement() { return document.createElement("faber-automazioni-editor"); }
   setConfig(c) {
     this._cfg = Object.assign({ name: "Automazioni", compatta: true, gruppi: [] }, c || {});
     this._built = false;
@@ -11985,6 +11988,7 @@ function frTipi(testo) {
 }
 
 class FaberRifiuti extends HTMLElement {
+  static getConfigElement() { return document.createElement("faber-rifiuti-editor"); }
   setConfig(c) {
     this._cfg = Object.assign({ name: "Rifiuti", calendario: {}, centro: null }, c || {});
     this._built = false;
@@ -12262,7 +12266,191 @@ const FRB_TENDINE = [
   ["ricambi", "Ricambi", "mdi:wrench-outline"],
 ];
 
+
+// ---------------------------------------------------------------------------
+// LE SCHEDE DI MODIFICA DELLE CARD CHE NON CE L'AVEVANO.
+//
+// Otto card su quattordici si potevano cambiare solo scrivendo YAML a mano, e
+// dal telefono non e una strada. Invece di scrivere otto schede quasi uguali,
+// qui c'e un motore solo: ogni card dichiara i suoi campi e la scheda si
+// costruisce da se. Aggiungere un campo domani vuol dire aggiungere una riga.
+//
+// Tipi di campo: testo, numero, si_no, entita (con elenco a discesa filtrato
+// per dominio), entita_liste (piu entita), json (per le parti strutturate:
+// gruppi, tasti, calendario).
+// ---------------------------------------------------------------------------
+const FH_CAMPI = {
+  "faber-automazioni": [
+    { k: "name", t: "Nome della card", tipo: "testo" },
+    { k: "compatta", t: "Vista compatta", tipo: "si_no", aiuto: "Righe strette: più automazioni nello stesso spazio." },
+    { k: "gruppi", t: "Gruppi e voci", tipo: "json",
+      aiuto: 'Elenco di gruppi. Esempio: [{"titolo":"Luci","voci":[{"entity":"automation.luci_sera"}]}]' },
+  ],
+  "faber-cancello": [
+    { k: "name", t: "Nome della card", tipo: "testo" },
+    { k: "gate_button", t: "Pulsante del cancello", tipo: "entita", dom: ["button.", "switch.", "script."] },
+    { k: "gate_script", t: "Script di apertura con timer", tipo: "entita", dom: ["script."] },
+    { k: "timer", t: "Timer del cancello", tipo: "entita", dom: ["timer."] },
+    { k: "pedestrian_button", t: "Pulsante del cancelletto", tipo: "entita", dom: ["button.", "switch.", "lock."] },
+    { k: "pedestrian_battery", t: "Batteria del cancelletto", tipo: "entita", dom: ["sensor."] },
+  ],
+  "faber-fuoricasa": [
+    { k: "name", t: "Nome della card", tipo: "testo" },
+    { k: "entity", t: "Automazione o allarme da comandare", tipo: "entita",
+      dom: ["automation.", "alarm_control_panel.", "input_boolean."] },
+  ],
+  "faber-player": [
+    { k: "name", t: "Nome della card", tipo: "testo" },
+    { k: "entity", t: "Lettore principale", tipo: "entita", dom: ["media_player."] },
+    { k: "entities", t: "Altri lettori fra cui scegliere", tipo: "entita_liste", dom: ["media_player."] },
+  ],
+  "faber-pulsantiera": [
+    { k: "name", t: "Nome della card", tipo: "testo" },
+    { k: "icona", t: "Icona", tipo: "testo", aiuto: "Nome di un'icona mdi, per esempio mdi:remote." },
+    { k: "remote", t: "Telecomando (remote)", tipo: "entita", dom: ["remote."] },
+    { k: "device", t: "Nome del dispositivo nel telecomando", tipo: "testo" },
+    { k: "colonne", t: "Tasti per riga", tipo: "numero", min: 1, max: 6 },
+    { k: "tasti", t: "I tasti", tipo: "json",
+      aiuto: 'Esempio: [{"t":"Accendi","c":"POWER","i":"mdi:power"}]' },
+  ],
+  "faber-rifiuti": [
+    { k: "name", t: "Nome della card", tipo: "testo" },
+    { k: "calendario", t: "Calendario della raccolta", tipo: "json",
+      aiuto: 'Giorni della settimana e cosa si porta fuori. Esempio: {"1":["Plastica"],"4":["Organico"]}' },
+    { k: "centro", t: "Centro di raccolta", tipo: "json", aiuto: 'Esempio: {"nome":"Isola ecologica","orari":"Sab 8-12"}' },
+  ],
+  "faber-robot": [
+    { k: "name", t: "Nome della card", tipo: "testo" },
+    { k: "entity", t: "Il robot", tipo: "entita", dom: ["vacuum."] },
+    { k: "mappa", t: "Mappa (camera o immagine)", tipo: "entita", dom: ["camera.", "image."],
+      aiuto: "Lasciando vuoto la cerca da sola fra le entità del robot." },
+    { k: "ultima", t: "Quando ha pulito l'ultima volta", tipo: "entita", dom: ["input_datetime."] },
+    { k: "ore", t: "Ore senza pulizia (per le scene)", tipo: "entita", dom: ["input_number."] },
+    { k: "scene", t: "Automazioni mostrate come scene", tipo: "json",
+      aiuto: 'Esempio: ["automation.robot_quando_uscite"]. Vuoto = le trova da sola fra quelle che iniziano con automation.robot_' },
+    { k: "stanze", t: "Nomi delle stanze", tipo: "json",
+      aiuto: 'Numero della stanza sul robot e come si chiama. Esempio: {"5":"Camera Leo","16":"Studio"}' },
+  ],
+  "faber-spesa": [
+    { k: "name", t: "Nome della card", tipo: "testo" },
+    { k: "entity", t: "Lista della spesa", tipo: "entita", dom: ["todo."] },
+  ],
+};
+
+function fhCampoHTML(c, val, stile) {
+  const id = "fc_" + c.k;
+  const aiuto = c.aiuto ? `<span style="font-size:11.5px;opacity:.7;line-height:1.35">${fhEsc(c.aiuto)}</span>` : "";
+  let campo;
+  if (c.tipo === "si_no") {
+    campo = `<label style="display:flex;gap:8px;align-items:center;font-size:14px">
+      <input type="checkbox" id="${id}"${val ? " checked" : ""}> Attiva</label>`;
+  } else if (c.tipo === "numero") {
+    campo = `<input type="number" id="${id}" min="${c.min ?? 0}" max="${c.max ?? 99}" value="${fhEsc(String(val ?? ""))}" style="${stile}">`;
+  } else if (c.tipo === "json") {
+    let testo = "";
+    if (val !== undefined && val !== null && val !== "") {
+      testo = JSON.stringify(val, null, 1);
+    }
+    campo = `<textarea id="${id}" rows="4" spellcheck="false" style="${stile};font-family:ui-monospace,Menlo,monospace;font-size:12.5px;resize:vertical">${fhEsc(testo)}</textarea>
+      <span id="${id}_esito" style="font-size:11.5px;font-weight:700"></span>`;
+  } else if (c.tipo === "entita_liste") {
+    campo = `<textarea id="${id}" rows="3" spellcheck="false" placeholder="un’entità per riga" style="${stile};font-family:ui-monospace,Menlo,monospace;font-size:12.5px;resize:vertical">${fhEsc((val || []).join("\n"))}</textarea>`;
+  } else if (c.tipo === "entita") {
+    campo = `<input id="${id}" list="${id}_l" value="${fhEsc(val || "")}" placeholder="scrivi per cercare" style="${stile}">
+      <datalist id="${id}_l"></datalist>`;
+  } else {
+    campo = `<input id="${id}" value="${fhEsc(val == null ? "" : String(val))}" style="${stile}">`;
+  }
+  return `<div style="display:flex;flex-direction:column;gap:5px">
+    <label for="${id}" style="font-size:13px;font-weight:700">${fhEsc(c.t)}</label>${aiuto}${campo}</div>`;
+}
+
+// Una classe sola, registrata con otto nomi diversi: ognuno si porta dietro
+// l'elenco dei suoi campi.
+function fhRegistraEditor(tag, campi) {
+  class FhEditorGenerico extends HTMLElement {
+    setConfig(config) {
+      this._cfg = Object.assign({}, config || {});
+      if (this._interno) { this._interno = false; return; }
+      this._render();
+    }
+    set hass(h) { this._hass = h; if (!this._fatto) { this._fatto = true; this._render(); } }
+    _emit() {
+      this._interno = true;
+      this.dispatchEvent(new CustomEvent("config-changed", { detail: { config: this._cfg }, bubbles: true, composed: true }));
+    }
+    _set(k, v) {
+      const n = Object.assign({}, this._cfg);
+      if (v === "" || v === undefined) delete n[k]; else n[k] = v;
+      this._cfg = n;
+      this._emit();
+    }
+    _render() {
+      if (!this._cfg || !this._hass) return;
+      const stile = "padding:9px 10px;border-radius:8px;font-size:14px;width:100%;box-sizing:border-box;" +
+        "border:1px solid var(--divider-color);background:var(--card-background-color);color:var(--primary-text-color)";
+      this.innerHTML = `<div style="display:flex;flex-direction:column;gap:14px;padding:6px 2px;font-family:inherit">
+        ${campi.map(c => fhCampoHTML(c, this._cfg[c.k], stile)).join("")}
+      </div>`;
+      const q = k => this.querySelector("#fc_" + k);
+      campi.forEach(c => {
+        const el = q(c.k);
+        if (!el) return;
+        if (c.tipo === "si_no") {
+          el.onchange = () => this._set(c.k, el.checked);
+        } else if (c.tipo === "numero") {
+          el.onchange = () => this._set(c.k, parseInt(el.value, 10) || undefined);
+        } else if (c.tipo === "json") {
+          const esito = this.querySelector("#fc_" + c.k + "_esito");
+          el.onchange = () => {
+            const t = el.value.trim();
+            if (!t) { esito.textContent = ""; esito.style.color = ""; this._set(c.k, undefined); return; }
+            // Scritto a mano si sbaglia: meglio dirlo subito invece di
+            // salvare una configurazione rotta.
+            let v = null, ok = true;
+            try { v = JSON.parse(t); } catch (e) { ok = false; }
+            if (!ok) {
+              esito.textContent = "Non è scritto bene: controlla parentesi e virgole.";
+              esito.style.color = "var(--error-color, #ff5c5c)";
+              return;
+            }
+            esito.textContent = "A posto.";
+            esito.style.color = "var(--success-color, #4ade80)";
+            this._set(c.k, v);
+          };
+        } else if (c.tipo === "entita_liste") {
+          el.onchange = () => {
+            const l = el.value.split("\n").map(x => x.trim()).filter(Boolean);
+            this._set(c.k, l.length ? l : undefined);
+          };
+        } else {
+          if (c.tipo === "entita") {
+            const dl = this.querySelector("#fc_" + c.k + "_l");
+            const dom = c.dom || [];
+            Object.keys(this._hass.states)
+              .filter(e => !dom.length || dom.some(d => e.startsWith(d)))
+              .sort()
+              .slice(0, 400)
+              .forEach(e => {
+                const o = document.createElement("option");
+                o.value = e;
+                const n = this._hass.states[e].attributes.friendly_name;
+                if (n) o.label = n;
+                dl.appendChild(o);
+              });
+          }
+          el.onchange = () => this._set(c.k, el.value.trim());
+        }
+      });
+    }
+  }
+  customElements.define(tag, FhEditorGenerico);
+}
+
+Object.keys(FH_CAMPI).forEach(t => fhRegistraEditor(t + "-editor", FH_CAMPI[t]));
+
 class FaberRobot extends HTMLElement {
+  static getConfigElement() { return document.createElement("faber-robot-editor"); }
   setConfig(c) {
     this._cfg = Object.assign({ name: "", entity: "", mappa: "", ultima: "", stanze: null, scene: null,
       ore: "input_number.robot_ore_senza_pulizia" }, c || {});
@@ -12866,6 +13054,7 @@ const FPL_CSS = `
   .fpl-src{display:flex;gap:6px;flex-wrap:wrap}
 `;
 class FaberPlayer extends HTMLElement {
+  static getConfigElement() { return document.createElement("faber-player-editor"); }
   setConfig(c) {
     this._cfg = Object.assign({ name: "", entity: "", entities: [] }, c || {});
     this._lista = [...new Set([this._cfg.entity, ...(this._cfg.entities || [])].filter(Boolean))];
@@ -12989,6 +13178,7 @@ const FPU_CSS = `
   .fpu-t.inviato{background:rgba(74,222,128,.25)}
 `;
 class FaberPulsantiera extends HTMLElement {
+  static getConfigElement() { return document.createElement("faber-pulsantiera-editor"); }
   setConfig(c) {
     this._cfg = Object.assign({ name: "Comandi", icona: "mdi:remote", remote: "", device: "", colonne: 3, tasti: [] }, c || {});
     this._built = false;
@@ -13340,6 +13530,7 @@ window.fhOpenSpesaModal = async function(hass, entityId = "todo.shopping_list", 
 };
 
 class FaberSpesa extends HTMLElement {
+  static getConfigElement() { return document.createElement("faber-spesa-editor"); }
   setConfig(config) {
     this._cfg = Object.assign({
       entity: "todo.shopping_list",
