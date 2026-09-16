@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.104.0";
+const FH_VERSION = "0.104.1";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -7040,7 +7040,13 @@ class FaberCarichi extends HTMLElement {
     const lab = c.etichetta;
     if (lab) {
       const reg = h.entities || {};
-      const l = Object.keys(reg).filter(e => e.startsWith("sensor.") && (reg[e].labels || []).includes(lab) && h.states[e]);
+      // Fuori dal contatore: il giardino e l'autoclave hanno una linea loro.
+      // Si vedono nel consumo della LORO stanza, ma qui no: il confronto e
+      // con il contatore di casa, che non li conta, e li dentro falserebbero
+      // il totale e il "quanto di piu di ieri".
+      const fuori = c.escludi_etichetta === undefined ? "fuori_dal_contatore" : c.escludi_etichetta;
+      const l = Object.keys(reg).filter(e => e.startsWith("sensor.") && h.states[e] &&
+        (reg[e].labels || []).includes(lab) && !(fuori && (reg[e].labels || []).includes(fuori)));
       if (l.length) return l;
     }
     if (c.gruppo && h.states[c.gruppo]) {
