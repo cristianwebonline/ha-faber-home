@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.111.0";
+const FH_VERSION = "0.111.1";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -6521,6 +6521,18 @@ const FW_SKIN = {
   exceptional:      { a: "#ffdcd2", b: "#f6b09b", ink: "#5c2415", soft: "rgba(255,255,255,.5)",  cap: "#8a4230", art: "sun",
                       na: "#4d2a20", nb: "#2b1712", nink: "#ffdccf", nsoft: "rgba(255,255,255,.11)", ncap: "#d9a08c" },
 };
+// Che condizione mostrare ADESSO. Alcuni servizi meteo (Open-Meteo) dicono
+// "sereno" anche di notte, senza distinguere "sereno notturno": senza questo
+// la card disegnava il sole alle otto di sera. Il sole sotto l'orizzonte lo
+// sa Home Assistant, e non dipende dal servizio meteo.
+function fwNotte(hass) {
+  const s = hass && hass.states && hass.states["sun.sun"];
+  return !!s && s.state === "below_horizon";
+}
+function fwStatoOra(hass, stato) {
+  return (stato === "sunny" && fwNotte(hass)) ? "clear-night" : stato;
+}
+
 function fwSkin(state) {
   const sk = FW_SKIN[state] || FW_SKIN.partlycloudy;
   return Object.assign({ cap: sk.ink }, sk);
@@ -6788,7 +6800,7 @@ class FaberWeather extends HTMLElement {
     const st = this._hass.states[this._cfg.entity];
     if (!st) { this.innerHTML = `<div style="padding:16px">Entita meteo non trovata.</div>`; return; }
     const a = st.attributes;
-    const sk = fwSkin(st.state);
+    const sk = fwSkin(fwStatoOra(this._hass, st.state));
     const unit = a.temperature_unit || "°C";
     const oggi = new Date().toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" });
     this.innerHTML = `
@@ -6873,7 +6885,7 @@ class FaberWeather extends HTMLElement {
 
   _openForecast() {
     const st = this._hass.states[this._cfg.entity];
-    const sk = fwSkin(st ? st.state : "");
+    const sk = fwSkin(st ? fwStatoOra(this._hass, st.state) : "");
     const fc = this._fc || [];
     const prev = this.querySelector(".fw-scrim");
     if (prev) prev.remove();
