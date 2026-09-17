@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.109.4";
+const FH_VERSION = "0.110.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -6741,6 +6741,21 @@ class FaberWeather extends HTMLElement {
       this._fc = (res && res.forecast) || [];
       this._paintDays();
     } catch (e) { this._fc = []; }
+    // Le orarie servono per umidita e pressione dei servizi che non le
+    // espongono fra gli attributi (Open-Meteo), e non costano una chiamata
+    // in piu che pesi: sono gia in casa e si aggiornano con le altre.
+    try {
+      const r2 = await this._hass.callWS({
+        type: "call_service", domain: "weather", service: "get_forecasts",
+        service_data: { type: "hourly" }, target: { entity_id: this._cfg.entity },
+        return_response: true,
+      });
+      const res2 = r2 && r2.response && r2.response[this._cfg.entity];
+      this._fcOre = (res2 && res2.forecast) || [];
+      const sb = this.querySelector("[data-stats]");
+      const st = this._hass.states[this._cfg.entity];
+      if (sb && st) sb.innerHTML = this._statsHTML(st.attributes);
+    } catch (e) { this._fcOre = []; }
     this._fcTimer = setTimeout(() => this._loadForecast(), 15 * 60 * 1000);
   }
   disconnectedCallback() { if (this._fcTimer) clearTimeout(this._fcTimer); }
@@ -6924,6 +6939,19 @@ class FaberWeather extends HTMLElement {
     this.appendChild(scrim);
   }
 
+  // La riga delle previsioni orarie che copre adesso.
+  _oraCorrente() {
+    const l = this._fcOre || [];
+    if (!l.length) return null;
+    const ora = Date.now();
+    let scelta = null;
+    l.forEach(x => {
+      const t = new Date(x.datetime).getTime();
+      if (t <= ora + 1800000 && (!scelta || t > new Date(scelta.datetime).getTime())) scelta = x;
+    });
+    return scelta || l[0];
+  }
+
   _statHTML(icon, label, value) {
     if (value == null || value === "") return "";
     return `<div class="fw-stat"><ha-icon icon="${icon}"></ha-icon>
@@ -6932,9 +6960,13 @@ class FaberWeather extends HTMLElement {
   }
 
   _statsHTML(a) {
+    // Se l'attributo non c'e, si guarda la previsione dell'ora in corso.
+    const ora = this._oraCorrente() || {};
+    const umid = a.humidity != null ? a.humidity : ora.humidity;
+    const pres = a.pressure != null ? a.pressure : ora.pressure;
     return [
-      this._statHTML("mdi:water-percent", "Umidita", a.humidity != null ? a.humidity + "%" : ""),
-      this._statHTML("mdi:gauge", "Pressione", a.pressure != null ? Math.round(a.pressure) + " hPa" : ""),
+      this._statHTML("mdi:water-percent", "Umidita", umid != null ? Math.round(umid) + "%" : ""),
+      this._statHTML("mdi:gauge", "Pressione", pres != null ? Math.round(pres) + " hPa" : ""),
       this._statHTML("mdi:weather-windy", "Vento", a.wind_speed != null ? Math.round(a.wind_speed) + " km/h" : ""),
       this._statHTML("mdi:compass-outline", "Direzione", fwDir(a.wind_bearing)),
     ].join("");
