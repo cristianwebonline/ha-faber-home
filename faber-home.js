@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.109.3";
+const FH_VERSION = "0.109.4";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -5643,7 +5643,17 @@ const FH_CSS = `
      un cielo chiaro invece si legge benissimo, si vede che e vetro, e non
      rompe niente. E' la stessa scelta di un paio di occhiali da sole. */
   .fh-app.vetro.chiaro .mc{--mc-panel:var(--fh-card-bg, rgba(255,255,255,.62))!important;--mc-ink:#12161c!important;--mc-muted:#4b5563!important}
-  .fh-app.vetro.chiaro .eca{--eca-panel:var(--fh-card-bg, rgba(255,255,255,.62))!important;--eca-ink:#12161c!important;--eca-muted:#4b5563!important;--eca-faint:#64748b!important}
+  .fh-app.vetro.chiaro .eca{--eca-panel:var(--fh-card-bg, rgba(255,255,255,.62))!important;--eca-ink:#12161c!important;--eca-muted:#4b5563!important;--eca-faint:#64748b!important;
+    --eca-solid:#fbfaf7!important;--eca-stroke:rgba(15,23,42,.14)!important}
+  /* Le finestre della card energia (mese, ora, giorno) prendono lo sfondo da
+     --eca-solid, che di giorno restava quello della notte: si aprivano nere
+     in pieno sole. Bordo e ombra sono scritti dentro la card in bianco, e su
+     fondo chiaro semplicemente non si vedono: li rifacciamo qui. */
+  .fh-app.vetro.chiaro .eca-modal{background:#fbfaf7!important;border-color:rgba(15,23,42,.14)!important;
+    box-shadow:0 24px 60px rgba(15,23,42,.22)!important;color:#12161c!important}
+  .fh-app.vetro.chiaro .eca-scrim{background:rgba(228,235,242,.72)!important}
+  .fh-app.vetro.chiaro .eca-mh{background:#fbfaf7!important}
+  .fh-app.vetro.chiaro .eca-chiedi{background:rgba(15,23,42,.05)!important;border-color:rgba(15,23,42,.14)!important;color:#12161c!important}
   .fh-app.vetro.chiaro .csc{--csc-panel:var(--fh-card-bg, rgba(255,255,255,.62))!important;--csc-ink:#12161c!important;--csc-muted:#4b5563!important}
   .fh-app.vetro.chiaro .cbc{--cbc-panel:var(--fh-card-bg, rgba(255,255,255,.62))!important;--cbc-ink:#12161c!important;--cbc-muted:#4b5563!important}
   .fh-app.vetro.chiaro .cec{--cec-panel:var(--fh-card-bg, rgba(255,255,255,.62))!important;--cec-ink:#12161c!important;--cec-muted:#4b5563!important}
