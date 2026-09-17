@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.111.2";
+const FH_VERSION = "0.113.1";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -6503,19 +6503,19 @@ const FW_SKIN = {
                       na: "#333a45", nb: "#20252e", nink: "#e4e9f0", nsoft: "rgba(255,255,255,.11)", ncap: "#a9b3c0" },
   rainy:            { a: "#cbdded", b: "#9fbdd6", ink: "#1e3245", soft: "rgba(255,255,255,.5)",  art: "rain", cap: "#3c5b75",
                       na: "#25384c", nb: "#152230", nink: "#dbe9f6", nsoft: "rgba(255,255,255,.10)", ncap: "#9dbcd4" },
-  pouring:          { a: "#b9d0e4", b: "#87a9c7", ink: "#16283a", soft: "rgba(255,255,255,.45)", art: "rain", cap: "#33506b",
+  pouring:          { a: "#b9d0e4", b: "#87a9c7", ink: "#16283a", soft: "rgba(255,255,255,.45)", art: "pour", cap: "#33506b",
                       na: "#1e3145", nb: "#101c28", nink: "#d3e6f5", nsoft: "rgba(255,255,255,.10)", ncap: "#8fb2cd" },
   snowy:            { a: "#eef5fb", b: "#d3e6f3", ink: "#23374b", soft: "rgba(255,255,255,.65)", cap: "#456079", art: "snow",
                       na: "#2e3d4d", nb: "#1b2530", nink: "#e9f3fb", nsoft: "rgba(255,255,255,.12)", ncap: "#b3c7d8" },
-  "snowy-rainy":    { a: "#e4eef7", b: "#c6dcec", ink: "#22364a", soft: "rgba(255,255,255,.6)",  cap: "#44607a", art: "snow",
+  "snowy-rainy":    { a: "#e4eef7", b: "#c6dcec", ink: "#22364a", soft: "rgba(255,255,255,.6)",  cap: "#44607a", art: "sleet",
                       na: "#2b3a4a", nb: "#19232e", nink: "#e5eff8", nsoft: "rgba(255,255,255,.11)", ncap: "#aec2d3" },
   fog:              { a: "#e9e7e1", b: "#cfccc4", ink: "#3a3830", soft: "rgba(255,255,255,.6)",  cap: "#5d5a50", art: "fog",
                       na: "#3a3833", nb: "#232220", nink: "#ece9e2", nsoft: "rgba(255,255,255,.11)", ncap: "#b5b0a5" },
-  hail:             { a: "#dce8f2", b: "#b6cddf", ink: "#1f3345", soft: "rgba(255,255,255,.5)",  cap: "#3e5a72", art: "snow",
+  hail:             { a: "#dce8f2", b: "#b6cddf", ink: "#1f3345", soft: "rgba(255,255,255,.5)",  cap: "#3e5a72", art: "hail",
                       na: "#27384a", nb: "#16222e", nink: "#dceaf6", nsoft: "rgba(255,255,255,.11)", ncap: "#9bb8cf" },
-  windy:            { a: "#e3ece9", b: "#c2d5cf", ink: "#263b36", soft: "rgba(255,255,255,.6)",  cap: "#476059", art: "cloud",
+  windy:            { a: "#e3ece9", b: "#c2d5cf", ink: "#263b36", soft: "rgba(255,255,255,.6)",  cap: "#476059", art: "wind",
                       na: "#2b3a36", nb: "#192421", nink: "#e2ede9", nsoft: "rgba(255,255,255,.11)", ncap: "#a7bdb6" },
-  "windy-variant":  { a: "#e3ece9", b: "#c2d5cf", ink: "#263b36", soft: "rgba(255,255,255,.6)",  cap: "#476059", art: "cloud",
+  "windy-variant":  { a: "#e3ece9", b: "#c2d5cf", ink: "#263b36", soft: "rgba(255,255,255,.6)",  cap: "#476059", art: "wind",
                       na: "#2b3a36", nb: "#192421", nink: "#e2ede9", nsoft: "rgba(255,255,255,.11)", ncap: "#a7bdb6" },
   lightning:        { a: "#ded4f2", b: "#b9a6e0", ink: "#2f2153", soft: "rgba(255,255,255,.5)",  cap: "#513c7d", art: "storm",
                       na: "#372a5c", nb: "#20183a", nink: "#e9deff", nsoft: "rgba(255,255,255,.11)", ncap: "#b7a4e0" },
@@ -6533,8 +6533,55 @@ function fwNotte(hass) {
   return !!s && s.state === "below_horizon";
 }
 const FW_NOTTE = { sunny: "clear-night", partlycloudy: "partlycloudy-night" };
+
+// Alba e tramonto di oggi, in ore decimali: per le prossime 24 ore spostano
+// di un minuto, quindi valgono anche per domani mattina.
+function fwOreLuce(hass) {
+  const s = hass && hass.states && hass.states["sun.sun"];
+  const a = s && s.attributes;
+  const oreDi = iso => { const d = new Date(iso); return isNaN(d) ? null : d.getHours() + d.getMinutes() / 60; };
+  const alba = a && (oreDi(a.next_rising) != null ? oreDi(a.next_rising) : null);
+  const tram = a && (oreDi(a.next_setting) != null ? oreDi(a.next_setting) : null);
+  return { alba: alba != null ? alba : 7, tramonto: tram != null ? tram : 19 };
+}
+
+function fwStatoOraData(stato, data, hass) {
+  if (!FW_NOTTE[stato]) return stato;
+  const l = fwOreLuce(hass);
+  const h = data.getHours() + data.getMinutes() / 60;
+  return (h < l.alba || h >= l.tramonto) ? FW_NOTTE[stato] : stato;
+}
 function fwStatoOra(hass, stato) {
   return (fwNotte(hass) && FW_NOTTE[stato]) ? FW_NOTTE[stato] : stato;
+}
+
+// IL RADAR DELLA PIOGGIA.
+// Niente librerie di mappe: una mappa a tasselli e aritmetica, e nove
+// immagini bastano a coprire lo schermo. Il fondo viene da CARTO, la pioggia
+// da RainViewer (gratis, senza chiave). Le stesse coordinate di casa che usa
+// Home Assistant, cosi il centro e casa tua e non una citta a caso.
+const FW_RADAR_Z = 7;              // quanto si vede intorno: ~200 km di lato
+const FW_RADAR_N = 3;              // tasselli per lato
+
+function fwTassello(lat, lon, z) {
+  const n = Math.pow(2, z);
+  const x = (lon + 180) / 360 * n;
+  const r = lat * Math.PI / 180;
+  const y = (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * n;
+  return { x, y };
+}
+
+// Le griglie di immagini: fondo e pioggia hanno la stessa disposizione.
+function fwGriglia(cx, cy, url) {
+  const mezzo = Math.floor(FW_RADAR_N / 2);
+  const out = [];
+  for (let dy = -mezzo; dy <= mezzo; dy++) {
+    for (let dx = -mezzo; dx <= mezzo; dx++) {
+      out.push(`<img src="${url(cx + dx, cy + dy)}" width="256" height="256" loading="lazy" alt=""
+        style="position:absolute;left:${(dx + mezzo) * 256}px;top:${(dy + mezzo) * 256}px">`);
+    }
+  }
+  return out.join("");
 }
 
 function fwSkin(state) {
@@ -6610,18 +6657,117 @@ function fwLunaPezzi(u, cx, cy, r, quando) {
   };
 }
 
+// LE NUVOLE. Una nuvola vera non e una sagoma piatta con il bordo a onde: e
+// un mucchio di gobbe, illuminate in cima e in ombra sotto. Qui sono cerchi
+// sovrapposti che condividono lo stesso sfumato: gradientUnits="userSpaceOnUse"
+// serve proprio a questo, altrimenti ogni cerchio avrebbe il suo e si
+// vedrebbero le cuciture fra una gobba e l'altra.
+const FW_NUBI = {
+  chiara: ["#ffffff", "#f0f5fa", "#d5dfec"],
+  media:  ["#f7fafd", "#d8e1ec", "#adbbcc"],
+  scura:  ["#e2e8f1", "#a6b3c5", "#738398"],
+};
+
+function fwNubeDefs(u) {
+  return Object.keys(FW_NUBI).map(t => {
+    const c = FW_NUBI[t];
+    return `<linearGradient id="${u}${t}" gradientUnits="userSpaceOnUse" x1="0" y1="14" x2="0" y2="66">
+      <stop offset="0%" stop-color="${c[0]}"/><stop offset="55%" stop-color="${c[1]}"/>
+      <stop offset="100%" stop-color="${c[2]}"/></linearGradient>`;
+  }).join("");
+}
+
+function fwNube(u, x, y, sc, klass, tono, op) {
+  const f = `url(#${u}${tono || "chiara"})`;
+  return `<g class="${klass || ""}" transform="translate(${x} ${y}) scale(${sc})"${op != null ? ` opacity="${op}"` : ""}>
+    <g class="fw-gonfia">
+      <circle cx="46" cy="37" r="20" fill="${f}"/>
+      <circle cx="27" cy="46" r="15" fill="${f}"/>
+      <circle cx="64" cy="44" r="14.5" fill="${f}"/>
+      <circle cx="75" cy="53" r="9" fill="${f}"/>
+      <rect x="13" y="46" width="66" height="16" rx="8" fill="${f}"/>
+      <ellipse cx="39" cy="26" rx="13" ry="6.5" fill="#ffffff" opacity=".42"/>
+      <ellipse cx="60" cy="33" rx="8" ry="4" fill="#ffffff" opacity=".28"/>
+    </g></g>`;
+}
+
+// L'ACQUA. Le gocce non sono tutte uguali ne cadono insieme: lunghezza,
+// velocita, trasparenza e ritardo cambiano da goccia a goccia, e in fondo
+// ogni tanto scoppia uno spruzzo. E' l'irregolarita a rendere credibile la
+// pioggia, non il numero di gocce.
+function fwAcquaDefs(u) {
+  return `<linearGradient id="${u}acqua" gradientUnits="userSpaceOnUse" x1="0" y1="54" x2="0" y2="94">
+      <stop offset="0%" stop-color="#cfe7fa" stop-opacity=".25"/>
+      <stop offset="40%" stop-color="#8dc0e9"/>
+      <stop offset="100%" stop-color="#5695d1"/></linearGradient>`;
+}
+
+function fwPioggia(u, n, forte) {
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const x = 16 + Math.round((i * 68) / Math.max(1, n - 1)) + (i % 2 ? 2 : -2);
+    const lung = (forte ? 15 : 10) + (i % 3) * 4;
+    const dur = (forte ? 0.85 : 1.55) + ((i * 7) % 5) * 0.17;
+    const rit = ((i * 13) % 17) / (forte ? 11 : 6.5);
+    const op = 0.48 + ((i * 5) % 3) * 0.18;
+    out.push(`<g class="fw-goccia" style="animation-duration:${dur.toFixed(2)}s;animation-delay:${rit.toFixed(2)}s">
+      <path d="M${x} 57 l-2.4 ${lung} a2.4 2.4 0 0 0 4.8 0 Z" fill="url(#${u}acqua)" opacity="${op.toFixed(2)}"
+        transform="rotate(8 ${x} 57)"/></g>`);
+  }
+  return out.join("");
+}
+
+function fwSpruzzi() {
+  return [28, 52, 74].map((x, i) => `<g transform="translate(${x} 92)">
+    <ellipse class="fw-spruzzo" cx="0" cy="0" rx="7" ry="2.4" fill="none" stroke="#d6eafc" stroke-width="1.6"
+      style="animation-delay:${(i * 0.8 + 0.4).toFixed(2)}s"/></g>`).join("");
+}
+
+// IL FIOCCO: sei braccia con le barbette, come quelli veri. Gira su se stesso
+// mentre scende e ondeggia, perche la neve non cade dritta.
+function fwFiocco(r) {
+  const b = [0, 60, 120].map(a => `<g transform="rotate(${a})">
+      <path d="M0 ${(-r).toFixed(1)} V${r.toFixed(1)}"/>
+      <path d="M0 ${(-r * 0.62).toFixed(1)} l${(r * 0.3).toFixed(1)} ${(r * 0.26).toFixed(1)}"/>
+      <path d="M0 ${(-r * 0.62).toFixed(1)} l${(-r * 0.3).toFixed(1)} ${(r * 0.26).toFixed(1)}"/>
+      <path d="M0 ${(r * 0.62).toFixed(1)} l${(r * 0.3).toFixed(1)} ${(-r * 0.26).toFixed(1)}"/>
+      <path d="M0 ${(r * 0.62).toFixed(1)} l${(-r * 0.3).toFixed(1)} ${(-r * 0.26).toFixed(1)}"/>
+    </g>`).join("");
+  return `<g fill="none" stroke-linecap="round">
+    <g stroke="rgba(86,130,166,.38)" stroke-width="${(r * 0.46).toFixed(2)}">${b}</g>
+    <g stroke="#ffffff" stroke-width="${(r * 0.26).toFixed(2)}">${b}</g>
+  </g>`;
+}
+
+function fwNeve(n) {
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const x = 18 + Math.round((i * 64) / Math.max(1, n - 1)) + (i % 3 - 1) * 3;
+    const r = 3.4 + (i % 3) * 1.3;
+    const dur = 4.2 + ((i * 11) % 6) * 0.55;
+    const rit = ((i * 17) % 23) / 4;
+    const giro = 7 + (i % 4) * 3;
+    out.push(`<g transform="translate(${x} 68)">
+      <g class="fw-fiocco" style="animation-duration:${dur.toFixed(2)}s;animation-delay:${rit.toFixed(2)}s">
+        <g class="fw-gira" style="animation-duration:${giro}s;animation-direction:${i % 2 ? "reverse" : "normal"}">
+          ${fwFiocco(r)}</g></g></g>`);
+  }
+  return out.join("");
+}
+
 function fwArt(kind, size, still, quando) {
   const s = size || 76;
   const cls = still ? "" : " fw-anim";
   const u = "fw" + (++FW_SEME);
   const S = v => `<svg class="fw-art-svg${cls}" viewBox="0 0 100 100" width="${s}" height="${s}" style="display:block;overflow:visible">${v}</svg>`;
-  const cloud = (x, y, sc, fill, klass) => `<g class="${klass || ""}" transform="translate(${x} ${y}) scale(${sc})">
-    <path d="M26 62 Q10 62 10 49 Q10 37 23 36 Q27 22 42 22 Q58 22 62 35 Q78 34 80 47 Q82 62 66 62 Z" fill="${fill}"/></g>`;
+  const cloud = (x, y, sc, klass, tono, op) => fwNube(u, x, y, sc, klass, tono, op);
+  const ND = `<defs>${fwNubeDefs(u)}</defs>`;
   switch (kind) {
     // Il sole di prima era un cerchio piatto con otto stecche uguali: una
     // icona, non un sole. Questo ha un disco che sfuma dal bianco caldo al
     // rame sul bordo, una corona che respira, e raggi affusolati lunghi e
-    // corti alternati: la stessa forma che si disegna a mano.
+    // corti alternati che pulsano sfalsati: la stessa forma che si disegna a
+    // mano, con la luce che non e mai ferma.
     case "sun": return S(`
       <defs>
         <radialGradient id="${u}d" cx="38%" cy="32%" r="72%">
@@ -6647,73 +6793,42 @@ function fwArt(kind, size, still, quando) {
             const lungo = i % 2 === 0;
             const punta = lungo ? 8 : 15;      // quanto arriva in alto
             const base = lungo ? 4.6 : 3.4;    // meta larghezza alla base
-            return `<path d="M50 ${punta} L${50 + base} 30 Q50 27.5 ${50 - base} 30 Z" fill="url(#${u}r)" transform="rotate(${d} 50 50)"/>`;
+            return `<path class="fw-raggio" d="M50 ${punta} L${50 + base} 30 Q50 27.5 ${50 - base} 30 Z"
+              fill="url(#${u}r)" transform="rotate(${d} 50 50)" style="animation-delay:${(i * 0.31).toFixed(2)}s"/>`;
           }).join("")}
         </g>
         <circle cx="50" cy="50" r="22.5" fill="url(#${u}d)"/>
         <path d="M36 41 Q44 32 57 33" fill="none" stroke="rgba(255,255,255,.55)" stroke-width="3" stroke-linecap="round"/>
       </g>`);
-    // La luna non e piu una falce sempre uguale: e quella di stanotte. Il
-    // confine fra luce e ombra e una mezza ellisse che si stringe fino a
-    // diventare una riga dritta al quarto e poi si riapre dall'altra parte;
-    // con la stessa forma si ritaglia il disco illuminato, cosi i crateri si
-    // vedono solo dove batte il sole. Nelle previsioni prende la data del
-    // giorno, quindi la luna di giovedi e davvero quella di giovedi.
+    // La luna non e una falce sempre uguale: e quella di stanotte, disegnata
+    // dal pezzo condiviso con il poco nuvoloso notturno.
     case "moon": {
-      const f = fwFaseLuna(quando);
-      const r = 26, cx = 50, cy = 50;
-      const d0 = Math.cos(2 * Math.PI * f.p);
-      const rx = (Math.abs(d0) * r).toFixed(2);
-      const cresce = f.p < 0.5;
-      const su = `${cx} ${cy - r}`, giu = `${cx} ${cy + r}`;
-      // Andando dal basso verso l'alto, sweep 0 curva a destra e 1 a sinistra.
-      const fuori = cresce ? 1 : 0;
-      const term = cresce ? (d0 > 0 ? 0 : 1) : (d0 < 0 ? 0 : 1);
-      const luce = `M ${su} A ${r} ${r} 0 0 ${fuori} ${giu} A ${rx} ${r} 0 0 ${term} ${su} Z`;
-      // A luna nuova non resta niente da illuminare: senza un filo di bordo
-      // sembrerebbe che il disegno non sia arrivato.
-      const nuova = f.k < 0.035;
-      return S(`
-        <defs>
-          <radialGradient id="${u}l" cx="36%" cy="30%" r="78%">
-            <stop offset="0%" stop-color="#fffdf3"/>
-            <stop offset="55%" stop-color="#ffeec4"/>
-            <stop offset="100%" stop-color="#e9c887"/>
-          </radialGradient>
-          <radialGradient id="${u}g" cx="50%" cy="50%" r="50%">
-            <stop offset="50%" stop-color="rgba(255,236,190,.26)"/>
-            <stop offset="100%" stop-color="rgba(255,236,190,0)"/>
-          </radialGradient>
-          <clipPath id="${u}c"><path d="${luce}"/></clipPath>
-        </defs>
-        <g>
-          <title>${fhEsc(f.nome)} · ${Math.round(f.k * 100)}% illuminata</title>
-          <circle class="fw-halo" cx="${cx}" cy="${cy}" r="42" fill="url(#${u}g)"/>
-          <circle cx="${cx}" cy="${cy}" r="${r}" fill="rgba(255,255,255,.06)"
-            stroke="rgba(255,246,222,${nuova ? ".40" : ".16"})" stroke-width="1"/>
-          ${nuova ? "" : `<path d="${luce}" fill="url(#${u}l)"/>
-          <g clip-path="url(#${u}c)" fill="#c2a26a" opacity=".26">
-            <circle cx="43" cy="41" r="6.2"/><circle cx="58" cy="58" r="4.6"/>
-            <circle cx="47" cy="63" r="3.1"/><circle cx="61" cy="39" r="2.7"/>
-            <circle cx="37" cy="55" r="2.3"/><circle cx="52" cy="48" r="1.9"/>
-          </g>`}
-          <circle class="fw-star fw-s1" cx="20" cy="22" r="2.4" fill="#fff5dd"/>
-          <circle class="fw-star fw-s2" cx="83" cy="28" r="1.8" fill="#fff5dd"/>
-          <circle class="fw-star fw-s3" cx="79" cy="76" r="2.1" fill="#fff5dd"/>
-        </g>`);
-    }
-    case "partlynight": {
-      const L = fwLunaPezzi(u, 36, 34, 16, quando);
+      const L = fwLunaPezzi(u, 50, 50, 26, quando);
       return S(`
         <defs>${L.defs}</defs>
         <g>
           <title>${fhEsc(L.fase.nome)} · ${Math.round(L.fase.k * 100)}% illuminata</title>
           ${L.disco}
-          ${cloud(4, 12, .92, "#ffffff", "fw-drift")}
+          <circle class="fw-star fw-s1" cx="20" cy="22" r="2.4" fill="#fff5dd"/>
+          <circle class="fw-star fw-s2" cx="83" cy="28" r="1.8" fill="#fff5dd"/>
+          <circle class="fw-star fw-s3" cx="79" cy="76" r="2.1" fill="#fff5dd"/>
+          <circle class="fw-star fw-s2" cx="14" cy="63" r="1.5" fill="#fff5dd"/>
+        </g>`);
+    }
+    case "partlynight": {
+      const L = fwLunaPezzi(u, 32, 28, 15, quando);
+      return S(`
+        <defs>${L.defs}${fwNubeDefs(u)}</defs>
+        <g>
+          <title>${fhEsc(L.fase.nome)} · ${Math.round(L.fase.k * 100)}% illuminata</title>
+          ${L.disco}
+          ${cloud(24, 34, .5, "fw-drift2", "media", .45)}
+          ${cloud(6, 22, .86, "fw-drift", "chiara")}
         </g>`);
     }
     case "partly": return S(`
       <defs>
+        ${fwNubeDefs(u)}
         <radialGradient id="${u}d" cx="38%" cy="32%" r="72%">
           <stop offset="0%" stop-color="#fffbe8"/>
           <stop offset="45%" stop-color="#ffdb7a"/>
@@ -6727,58 +6842,145 @@ function fwArt(kind, size, still, quando) {
       <g>
         <g class="fw-rays fw-rays-sm">
           ${[0,45,90,135,180,225,270,315].map((d, i) => {
-            const punta = i % 2 === 0 ? 9 : 14;
-            return `<path d="M36 ${punta} L39.2 25 Q36 23.2 32.8 25 Z" fill="url(#${u}r)" transform="rotate(${d} 36 34)"/>`;
+            const punta = i % 2 === 0 ? 3 : 8;
+            return `<path d="M32 ${punta} L35.2 19 Q32 17.2 28.8 19 Z" fill="url(#${u}r)" transform="rotate(${d} 32 28)"/>`;
           }).join("")}
         </g>
-        <circle cx="36" cy="34" r="16" fill="url(#${u}d)"/>
-        ${cloud(4, 12, .92, "#ffffff", "fw-drift")}
+        <circle cx="32" cy="28" r="15" fill="url(#${u}d)"/>
+        ${cloud(24, 34, .5, "fw-drift2", "media", .45)}
+        ${cloud(6, 22, .86, "fw-drift", "chiara")}
       </g>`);
-    case "cloud": return S(`<g>${cloud(2, 8, 1, "#ffffff", "fw-drift")}
-      <g opacity=".55">${cloud(14, 22, .7, "#ffffff", "fw-drift2")}</g></g>`);
-    case "rain": return S(`
-      <g>${cloud(2, 2, 1, "#ffffff", "fw-drift")}
-        ${[26, 46, 66].map((x, i) => `<rect class="fw-drop fw-d${i + 1}" x="${x}" y="66" width="6" height="17" rx="3" fill="#7fb2dd" transform="rotate(12 ${x} 66)"/>`).join("")}
+    // Tre nuvole a tre distanze, che scorrono a tre velocita diverse: e la
+    // profondita a far sembrare un cielo quello che altrimenti e un adesivo.
+    case "cloud": return S(`${ND}<g>
+      ${cloud(26, 30, .52, "fw-drift3", "media", .45)}
+      ${cloud(6, 18, .74, "fw-drift2", "media", .75)}
+      ${cloud(0, 4, 1, "fw-drift", "chiara")}
       </g>`);
-    case "snow": return S(`
-      <g>${cloud(2, 2, 1, "#ffffff", "fw-drift")}
-        ${[28, 50, 70].map((x, i) => `<circle class="fw-flake fw-d${i + 1}" cx="${x}" cy="72" r="4.5" fill="#ffffff"/>`).join("")}
+    case "rain":
+    case "pour": {
+      const forte = kind === "pour";
+      return S(`<defs>${fwNubeDefs(u)}${fwAcquaDefs(u)}</defs>
+        <g>
+          ${cloud(10, 6, .7, "fw-drift2", "media", .6)}
+          ${cloud(0, 0, 1, "fw-drift", forte ? "scura" : "media")}
+          ${fwPioggia(u, forte ? 13 : 8, forte)}
+          ${fwSpruzzi()}
+        </g>`);
+    }
+    case "snow": return S(`${ND}<g>
+      ${cloud(10, 4, .7, "fw-drift2", "media", .6)}
+      ${cloud(0, -2, 1, "fw-drift", "chiara")}
+      ${fwNeve(7)}
       </g>`);
+    // Nevischio: meta gocce e meta fiocchi, che e poi quello che scende.
+    case "sleet": return S(`<defs>${fwNubeDefs(u)}${fwAcquaDefs(u)}</defs>
+      <g>
+        ${cloud(0, 0, 1, "fw-drift", "media")}
+        ${fwPioggia(u, 4, false)}
+        ${fwNeve(3)}
+      </g>`);
+    // Grandine: chicchi tondi e duri, piu veloci della neve e senza ondeggiare.
+    // In fondo rimbalzano, perche il ghiaccio rimbalza.
+    case "hail": return S(`${ND}<g>
+      ${cloud(0, 0, 1, "fw-drift", "scura")}
+      ${[24, 40, 56, 72].map((x, i) => `<g transform="translate(${x} 70)">
+        <g class="fw-chicco" style="animation-duration:${(1 + (i % 3) * 0.2).toFixed(2)}s;animation-delay:${(i * 0.27).toFixed(2)}s">
+          <circle cx="0" cy="0" r="${3.2 + (i % 2) * 0.9}" fill="#eaf4fd" stroke="#b9d6ee" stroke-width=".8"/>
+        </g></g>`).join("")}
+      </g>`);
+    // Nebbia: banchi sfocati che passano a velocita diverse, non tre barrette.
     case "fog": return S(`
-      <g>${cloud(2, 0, 1, "#ffffff")}
-        ${[70, 80, 90].map((y, i) => `<rect class="fw-fog fw-d${i + 1}" x="${16 + i * 4}" y="${y}" width="${68 - i * 10}" height="6" rx="3" fill="#ffffff" opacity="${.75 - i * .18}"/>`).join("")}
+      <defs>${fwNubeDefs(u)}
+        <filter id="${u}f" x="-40%" y="-60%" width="180%" height="260%">
+          <feGaussianBlur stdDeviation="3.4"/></filter>
+      </defs>
+      <g>
+        ${cloud(4, -6, .95, "", "media", .5)}
+        <g filter="url(#${u}f)">
+          ${[[54, 10, 78, 7, .72, 9], [67, 4, 88, 9, .6, 13], [80, 16, 70, 8, .5, 11], [90, 8, 82, 6, .38, 16]]
+            .map((b, i) => `<rect class="fw-banco" x="${b[1]}" y="${b[0]}" width="${b[2]}" height="${b[3]}" rx="${b[3] / 2}"
+              fill="#ffffff" opacity="${b[4]}" style="animation-duration:${b[5]}s;animation-delay:${(i * 1.3).toFixed(1)}s;animation-direction:${i % 2 ? "reverse" : "normal"}"/>`).join("")}
+        </g>
       </g>`);
-    case "storm": return S(`
-      <g>${cloud(2, 2, 1, "#ffffff", "fw-drift")}
-        <path class="fw-bolt" d="M52 66 L38 90 L50 88 L44 100 L64 76 L52 78 Z" fill="#ffd54a"/>
+    // Vento: la nuvola viene spinta di lato e le raffiche le passano sotto.
+    case "wind": return S(`${ND}<g>
+      ${cloud(8, 6, .66, "fw-drift2", "media", .55)}
+      ${cloud(-2, -2, .96, "fw-spinta", "chiara")}
+      ${[[62, 0, 1.1], [74, .5, 1.4], [86, 1.1, 1]].map((r, i) => `<path class="fw-raffica"
+        d="M6 ${r[0]} q16 -7 32 0 t32 0" fill="none" stroke="#ffffff" stroke-width="${(r[2] * 2.6).toFixed(1)}"
+        stroke-linecap="round" opacity=".8" style="animation-delay:${r[1]}s;animation-duration:${(3 + i * 0.6).toFixed(1)}s"/>`).join("")}
       </g>`);
-    default: return S(`<circle cx="50" cy="50" r="24" fill="#ffffff"/>`);
+    // Temporale: il lampo illumina anche la nuvola, non solo se stesso, e
+    // arriva a scariche doppie come quelle vere.
+    case "storm": return S(`<defs>${fwNubeDefs(u)}${fwAcquaDefs(u)}
+        <radialGradient id="${u}b" cx="50%" cy="45%" r="55%">
+          <stop offset="0%" stop-color="rgba(255,240,180,.95)"/>
+          <stop offset="100%" stop-color="rgba(255,240,180,0)"/>
+        </radialGradient>
+      </defs>
+      <g>
+        <circle class="fw-lampo" cx="50" cy="44" r="46" fill="url(#${u}b)"/>
+        ${cloud(10, 4, .7, "fw-drift2", "scura", .7)}
+        ${cloud(0, 0, 1, "fw-drift", "scura")}
+        ${fwPioggia(u, 5, true)}
+        <path class="fw-fulmine" d="M52 62 L36 88 L49 86 L42 100 L64 73 L51 75 Z" fill="#ffd54a"
+          stroke="#fff3c4" stroke-width="1"/>
+      </g>`);
+    default: return S(`${ND}${cloud(0, 4, 1, "fw-drift", "chiara")}`);
   }
 }
 
 // Le animazioni stanno in un unico blocco riusato dalla card e dal popup.
+// Regola della casa: durate lunghe e movimenti piccoli. Questa card sta
+// accesa tutto il giorno davanti agli occhi, e un'animazione nervosa dopo
+// dieci minuti da fastidio. Le durate delle gocce e dei fiocchi arrivano
+// dallo stile in linea, cosi ognuno cade con il suo passo.
 const FW_ANIM_CSS = `
   @keyframes fwSpin{to{transform:rotate(360deg)}}
   @keyframes fwBreath{0%,100%{transform:scale(.94);opacity:.55}50%{transform:scale(1.06);opacity:1}}
+  @keyframes fwRaggio{0%,100%{opacity:.72}50%{opacity:1}}
   @keyframes fwDrift{0%,100%{transform:translateX(0)}50%{transform:translateX(5px)}}
-  @keyframes fwDrift2{0%,100%{transform:translateX(0)}50%{transform:translateX(-6px)}}
-  @keyframes fwFall{0%{transform:translateY(-6px);opacity:0}20%{opacity:1}100%{transform:translateY(24px);opacity:0}}
-  @keyframes fwSway{0%{transform:translate(0,-6px);opacity:0}25%{opacity:1}100%{transform:translate(6px,24px);opacity:0}}
-  @keyframes fwSlide{0%,100%{transform:translateX(0)}50%{transform:translateX(8px)}}
-  @keyframes fwFlash{0%,88%,100%{opacity:.25}90%,96%{opacity:1}}
+  @keyframes fwDrift2{0%,100%{transform:translateX(0)}50%{transform:translateX(-7px)}}
+  @keyframes fwDrift3{0%,100%{transform:translateX(0)}50%{transform:translateX(9px)}}
+  @keyframes fwGonfia{0%,100%{transform:scale(1)}50%{transform:scale(1.035)}}
+  @keyframes fwSpinta{0%,100%{transform:translateX(-3px)}55%{transform:translateX(7px)}}
+  @keyframes fwGoccia{0%{transform:translateY(-16px);opacity:0}14%{opacity:1}80%{opacity:1}
+    100%{transform:translateY(38px);opacity:0}}
+  @keyframes fwSpruzzo{0%,62%{transform:scale(.15);opacity:0}70%{opacity:.85}100%{transform:scale(1.5);opacity:0}}
+  @keyframes fwFiocco{0%{transform:translate(0,-14px);opacity:0}14%{opacity:1}
+    40%{transform:translate(6px,6px)}70%{transform:translate(-5px,20px)}88%{opacity:1}
+    100%{transform:translate(3px,36px);opacity:0}}
+  @keyframes fwGira{to{transform:rotate(360deg)}}
+  @keyframes fwChicco{0%{transform:translateY(-12px);opacity:0}12%{opacity:1}
+    72%{transform:translateY(30px);opacity:1}86%{transform:translateY(24px)}100%{transform:translateY(34px);opacity:0}}
+  @keyframes fwBanco{0%{transform:translateX(-16px);opacity:.12}50%{opacity:.7}100%{transform:translateX(16px);opacity:.12}}
+  @keyframes fwRaffica{0%{transform:translateX(-34px);opacity:0}22%{opacity:.85}68%{opacity:.85}
+    100%{transform:translateX(44px);opacity:0}}
+  @keyframes fwLampo{0%,90%,100%{opacity:0}91%{opacity:.9}92.5%{opacity:.08}94%{opacity:1}96%{opacity:0}}
+  @keyframes fwFulmine{0%,90%,100%{opacity:.16}91%,94%{opacity:1}92.5%{opacity:.25}96%{opacity:.16}}
   @keyframes fwTwinkle{0%,100%{opacity:.35}50%{opacity:1}}
   .fw-anim .fw-rays{transform-origin:50px 50px;animation:fwSpin 60s linear infinite}
-  .fw-anim .fw-rays-sm{transform-origin:36px 34px}
+  .fw-anim .fw-rays-sm{transform-origin:32px 28px}
+  .fw-anim .fw-raggio{animation:fwRaggio 4s ease-in-out infinite}
   .fw-anim .fw-halo{transform-origin:50px 50px;animation:fwBreath 6s ease-in-out infinite}
   .fw-anim .fw-drift{animation:fwDrift 7s ease-in-out infinite}
-  .fw-anim .fw-drift2{animation:fwDrift2 9s ease-in-out infinite}
-  /* La pioggia scendeva in 1,4 secondi: da guardare era un tamburello, e su
-     una card che sta li tutto il giorno stanca. Rallentata a 2,6 e resa piu
-     discreta, con le tre gocce piu distanziate fra loro. */
-  .fw-anim .fw-drop{animation:fwFall 2.6s linear infinite;opacity:.8}
-  .fw-anim .fw-flake{animation:fwSway 5s linear infinite}
-  .fw-anim .fw-fog{animation:fwSlide 6s ease-in-out infinite}
-  .fw-anim .fw-bolt{animation:fwFlash 6s ease-in-out infinite}
+  .fw-anim .fw-drift2{animation:fwDrift2 11s ease-in-out infinite}
+  .fw-anim .fw-drift3{animation:fwDrift3 16s ease-in-out infinite}
+  .fw-anim .fw-spinta{animation:fwSpinta 4.5s ease-in-out infinite}
+  .fw-anim .fw-gonfia{transform-box:fill-box;transform-origin:center;animation:fwGonfia 9s ease-in-out infinite}
+  .fw-anim .fw-goccia{animation-name:fwGoccia;animation-timing-function:cubic-bezier(.35,.1,.7,1);
+    animation-iteration-count:infinite}
+  .fw-anim .fw-spruzzo{transform-box:fill-box;transform-origin:center;animation:fwSpruzzo 2.4s ease-out infinite}
+  .fw-anim .fw-fiocco{animation-name:fwFiocco;animation-timing-function:linear;animation-iteration-count:infinite}
+  .fw-anim .fw-gira{transform-box:fill-box;transform-origin:center;animation-name:fwGira;
+    animation-timing-function:linear;animation-iteration-count:infinite}
+  .fw-anim .fw-chicco{animation-name:fwChicco;animation-timing-function:cubic-bezier(.4,0,.8,1);
+    animation-iteration-count:infinite}
+  .fw-anim .fw-banco{animation-name:fwBanco;animation-timing-function:ease-in-out;animation-iteration-count:infinite}
+  .fw-anim .fw-raffica{animation-name:fwRaffica;animation-timing-function:ease-in-out;animation-iteration-count:infinite}
+  .fw-anim .fw-lampo{animation:fwLampo 7s linear infinite}
+  .fw-anim .fw-fulmine{animation:fwFulmine 7s linear infinite}
   .fw-anim .fw-star{animation:fwTwinkle 3s ease-in-out infinite}
   .fw-anim .fw-d1{animation-delay:0s}
   .fw-anim .fw-d2{animation-delay:.85s}
@@ -6931,6 +7133,105 @@ class FaberWeather extends HTMLElement {
     return pezzi.length ? `<div class="fw-astrorow">${pezzi.join("")}</div>` : "";
   }
 
+  // L'ora per ora: le prossime 24 ore, con quanta pioggia e quanto vento.
+  _oreHTML() {
+    const ore = (this._fcOre || []).filter(x => new Date(x.datetime).getTime() > Date.now() - 3600000).slice(0, 24);
+    if (!ore.length) return `<div class="fw-mempty">Previsioni orarie non disponibili per questo servizio meteo.</div>`;
+    const mx = Math.max.apply(null, ore.map(x => x.temperature != null ? x.temperature : -99));
+    const mn = Math.min.apply(null, ore.map(x => x.temperature != null ? x.temperature : 99));
+    const span = Math.max(1, mx - mn);
+    return `<div class="fw-ore">${ore.map(x => {
+      const d = new Date(x.datetime);
+      const sk = fwSkin(fwStatoOraData(x.condition, d, this._hass));
+      const t = x.temperature;
+      const alt = t != null ? Math.round(18 + 58 * (t - mn) / span) : 40;
+      const pio = x.precipitation != null && x.precipitation > 0 ? x.precipitation : null;
+      const prob = x.precipitation_probability;
+      return `<div class="fw-ora">
+        <div class="fw-oraT">${t != null ? Math.round(t) + "\u00b0" : "–"}</div>
+        <div class="fw-orabarra"><i style="height:${alt}%"></i></div>
+        <div class="fw-oraart">${fwArt(sk.art, 26, true, d)}</div>
+        <div class="fw-orapio">${pio != null ? this._mm(pio) : (prob != null && prob > 5 ? Math.round(prob) + "%" : "")}</div>
+        <div class="fw-orah">${d.getHours().toString().padStart(2, "0")}</div>
+      </div>`;
+    }).join("")}</div>
+    <div class="fw-mnota">Colonna alta = piu caldo. Sotto, la pioggia prevista in quell'ora.</div>`;
+  }
+
+  _mm(v) { return (Math.round(v * 10) / 10).toLocaleString("it-IT") + " mm"; }
+
+  // Il radar: fondo mappa + strati di pioggia, uno per fotogramma.
+  async _radarHTML(box) {
+    const h = this._hass;
+    const zona = h.states["zone.home"];
+    const lat = zona ? zona.attributes.latitude : 41.9;
+    const lon = zona ? zona.attributes.longitude : 12.5;
+    const t = fwTassello(lat, lon, FW_RADAR_Z);
+    const cx = Math.floor(t.x), cy = Math.floor(t.y);
+    const mezzo = Math.floor(FW_RADAR_N / 2);
+    // Lo scarto dentro il tassello, per mettere casa esattamente al centro.
+    const offX = (t.x - cx) * 256 + mezzo * 256;
+    const offY = (t.y - cy) * 256 + mezzo * 256;
+    const scuro = !this.closest(".fh-app.chiaro");
+    const stile = scuro ? "dark_all" : "light_all";
+    const fondo = fwGriglia(cx, cy, (x, y) => `https://basemaps.cartocdn.com/${stile}/${FW_RADAR_Z}/${x}/${y}.png`);
+    let mappe = null;
+    try {
+      const r = await fetch("https://api.rainviewer.com/public/weather-maps.json", { cache: "no-store" });
+      mappe = await r.json();
+    } catch (e) { mappe = null; }
+    if (!mappe || !mappe.radar) {
+      box.innerHTML = `<div class="fw-mempty">Il radar non risponde. Serve internet: il fondo mappa e le immagini
+        della pioggia arrivano da fuori casa.</div>`;
+      return;
+    }
+    const host = mappe.host || "https://tilecache.rainviewer.com";
+    const frame = (mappe.radar.past || []).slice(-8).concat((mappe.radar.nowcast || []).slice(0, 3));
+    if (!frame.length) { box.innerHTML = `<div class="fw-mempty">Nessuna immagine radar disponibile adesso.</div>`; return; }
+    const strati = frame.map((f, i) => `<div class="fw-rlayer" data-f="${i}" data-ora="${f.time}"
+      style="opacity:${i === frame.length - 1 ? 1 : 0}">${fwGriglia(cx, cy, (x, y) => `${host}${f.path}/256/${FW_RADAR_Z}/${x}/${y}/4/1_1.png`)}</div>`).join("");
+    const lato = FW_RADAR_N * 256;
+    box.innerHTML = `
+      <div class="fw-radar">
+        <div class="fw-rvista">
+          <div class="fw-rmondo" style="width:${lato}px;height:${lato}px;transform:translate(calc(50% - ${offX}px), calc(50% - ${offY}px))">
+            <div class="fw-rbase">${fondo}</div>
+            ${strati}
+            <div class="fw-rcasa" style="left:${offX}px;top:${offY}px"></div>
+          </div>
+        </div>
+        <div class="fw-rbarra">
+          <button type="button" class="fw-rplay" data-play><ha-icon icon="mdi:pause"></ha-icon></button>
+          <div class="fw-rora" data-rora></div>
+          <div class="fw-rlegenda"><span></span><span></span><span></span><span></span> pioggia</div>
+        </div>
+      </div>`;
+    // L'animazione: un fotogramma ogni mezzo secondo, con una pausa in fondo.
+    let i = frame.length - 1, vivo = true;
+    const strato = n => box.querySelector(`[data-f="${n}"]`);
+    const etichetta = box.querySelector("[data-rora]");
+    const mostra = n => {
+      frame.forEach((f, k) => { const el = strato(k); if (el) el.style.opacity = k === n ? 1 : 0; });
+      const d = new Date(frame[n].time * 1000);
+      const futuro = n >= (frame.length - (mappe.radar.nowcast || []).slice(0, 3).length);
+      etichetta.textContent = (futuro ? "fra poco · " : "") + d.toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
+    };
+    mostra(i);
+    const passo = () => {
+      if (!vivo || !box.isConnected) return;
+      i = (i + 1) % frame.length;
+      mostra(i);
+      this._rTimer = setTimeout(passo, i === frame.length - 1 ? 1600 : 520);
+    };
+    this._rTimer = setTimeout(passo, 1200);
+    const tasto = box.querySelector("[data-play]");
+    tasto.onclick = () => {
+      vivo = !vivo;
+      tasto.querySelector("ha-icon").setAttribute("icon", vivo ? "mdi:pause" : "mdi:play");
+      if (vivo) passo(); else clearTimeout(this._rTimer);
+    };
+  }
+
   _openForecast() {
     const st = this._hass.states[this._cfg.entity];
     const sk = fwSkin(st ? fwStatoOra(this._hass, st.state) : "");
@@ -6942,10 +7243,17 @@ class FaberWeather extends HTMLElement {
     scrim.innerHTML = `
       <div class="fw-modal">
         <div class="fw-mhead">
-          <div class="fw-mtitle">Prossimi giorni</div>
+          <div class="fw-mtitle" data-mtitolo>Ora per ora</div>
           <button type="button" class="fw-mclose" data-close><ha-icon icon="mdi:close"></ha-icon></button>
         </div>
-        <div class="fw-mlist">
+        <div class="fw-mtabs">
+          <button type="button" class="fw-mtab sel" data-tab="ore">Ora per ora</button>
+          <button type="button" class="fw-mtab" data-tab="giorni">Prossimi giorni</button>
+          <button type="button" class="fw-mtab" data-tab="radar">Radar</button>
+        </div>
+        <div class="fw-mpane" data-pane="ore">${this._oreHTML()}${this._astroHTML()}</div>
+        <div class="fw-mpane" data-pane="radar" hidden></div>
+        <div class="fw-mlist" data-pane="giorni" hidden>
           ${fc.length ? fc.map(d => {
             const dd = new Date(d.datetime);
             const nome = dd.toLocaleDateString("it-IT", { weekday: "long" });
@@ -6970,9 +7278,28 @@ class FaberWeather extends HTMLElement {
           ${this._astroHTML()}
         </div>
       </div>`;
+    const vaiA = nome => {
+      scrim.querySelectorAll("[data-pane]").forEach(p => { p.hidden = p.dataset.pane !== nome; });
+      scrim.querySelectorAll("[data-tab]").forEach(t => t.classList.toggle("sel", t.dataset.tab === nome));
+      const tit = scrim.querySelector("[data-mtitolo]");
+      if (tit) tit.textContent = { ore: "Ora per ora", giorni: "Prossimi giorni", radar: "Radar pioggia" }[nome] || "";
+      if (nome === "radar") {
+        const box = scrim.querySelector('[data-pane="radar"]');
+        // Si carica alla prima apertura: sono un centinaio di immagini e non
+        // ha senso scaricarle a chi guarda solo le temperature.
+        if (box && !box.dataset.pronto) {
+          box.dataset.pronto = "1";
+          box.innerHTML = `<div class="fw-mempty">Sto chiedendo le immagini del radar…</div>`;
+          this._radarHTML(box);
+        }
+      } else { clearTimeout(this._rTimer); }
+    };
+    setTimeout(() => {
+      scrim.querySelectorAll("[data-tab]").forEach(t => t.onclick = () => vaiA(t.dataset.tab));
+    }, 0);
     const style = document.createElement("style");
     style.textContent = `
-      .fw-scrim{position:fixed;inset:0;z-index:30;background:rgba(6,9,14,.6);backdrop-filter:blur(6px);
+      .fw-scrim{position:fixed;inset:0;z-index:2147483000;background:rgba(6,9,14,.6);backdrop-filter:blur(6px);
         display:flex;align-items:flex-end;justify-content:center;
         font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}
       /* Stessa doppia veste della card: il foglio delle previsioni non puo
@@ -7014,6 +7341,47 @@ class FaberWeather extends HTMLElement {
       .fw-mmax{font-size:19px;font-weight:800;font-variant-numeric:tabular-nums}
       .fw-mmin{font-size:12.5px;font-weight:700;opacity:.55;font-variant-numeric:tabular-nums}
       .fw-mempty{padding:24px;text-align:center;opacity:.7;font-size:13px}
+      .fw-mtabs{display:flex;gap:6px;padding:0 14px 10px}
+      .fw-mtab{flex:1;padding:8px 6px;border-radius:12px;border:1px solid var(--fw-soft);background:transparent;
+        color:inherit;font:inherit;font-size:11.5px;font-weight:800;cursor:pointer;opacity:.7}
+      .fw-mtab.sel{background:var(--fw-soft);opacity:1}
+      .fw-mpane{padding:0 14px 14px}
+      .fw-mnota{font-size:10.5px;opacity:.6;margin-top:8px;line-height:1.4}
+
+      /* ORA PER ORA: una colonna per ora, che scorre di lato. L'altezza della
+         barretta e la temperatura, cosi la giornata si legge come un profilo
+         invece che come una fila di numeri. */
+      .fw-ore{display:flex;gap:2px;overflow-x:auto;padding:4px 0 6px;scrollbar-width:none}
+      .fw-ore::-webkit-scrollbar{display:none}
+      .fw-ora{flex:0 0 46px;display:flex;flex-direction:column;align-items:center;gap:3px}
+      .fw-oraT{font-size:12px;font-weight:800;font-variant-numeric:tabular-nums}
+      .fw-orabarra{width:100%;height:78px;display:flex;align-items:flex-end;justify-content:center}
+      .fw-orabarra i{display:block;width:12px;border-radius:7px;background:linear-gradient(180deg,currentColor,transparent);opacity:.32}
+      .fw-oraart{height:26px}
+      .fw-orapio{font-size:9.5px;font-weight:800;opacity:.75;min-height:12px;white-space:nowrap}
+      .fw-orah{font-size:10.5px;font-weight:800;opacity:.6;font-variant-numeric:tabular-nums}
+
+      /* RADAR: una mappa a tasselli, senza librerie. */
+      .fw-radar{display:flex;flex-direction:column;gap:8px}
+      .fw-rvista{position:relative;width:100%;height:300px;border-radius:16px;overflow:hidden;
+        border:1px solid var(--fw-soft);background:#0d1117}
+      .fw-rmondo{position:absolute;left:0;top:0;will-change:transform}
+      .fw-rbase,.fw-rlayer{position:absolute;inset:0}
+      .fw-rbase{opacity:.85}
+      .fw-rlayer{transition:opacity .22s linear;mix-blend-mode:screen}
+      .fw-rcasa{position:absolute;width:14px;height:14px;margin:-7px 0 0 -7px;border-radius:50%;
+        background:#ffb020;box-shadow:0 0 0 3px rgba(255,176,32,.35),0 0 12px rgba(255,176,32,.8)}
+      .fw-rbarra{display:flex;align-items:center;gap:10px}
+      .fw-rplay{width:36px;height:36px;border-radius:12px;border:1px solid var(--fw-soft);background:var(--fw-soft);
+        color:inherit;cursor:pointer;display:grid;place-items:center}
+      .fw-rplay ha-icon{--mdc-icon-size:20px}
+      .fw-rora{font-size:13px;font-weight:800;font-variant-numeric:tabular-nums}
+      .fw-rlegenda{margin-left:auto;display:flex;align-items:center;gap:3px;font-size:10px;font-weight:800;opacity:.65}
+      .fw-rlegenda span{width:12px;height:8px;border-radius:2px}
+      .fw-rlegenda span:nth-child(1){background:#5ad2ff}
+      .fw-rlegenda span:nth-child(2){background:#3cc46a}
+      .fw-rlegenda span:nth-child(3){background:#ffcf3d}
+      .fw-rlegenda span:nth-child(4){background:#ff5c5c}
       ${FW_ANIM_CSS}`;
     scrim.appendChild(style);
     scrim.addEventListener("click", e => { if (e.target === scrim) scrim.remove(); });
