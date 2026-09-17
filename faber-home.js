@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.109.0";
+const FH_VERSION = "0.109.1";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -5276,7 +5276,9 @@ class FaberHome extends HTMLElement {
       const el = document.createElement("mini-card");
       // Fuori dallo schermo ma DISEGNATA: con display:none il suo foglio,
       // che e figlio della card, non comparirebbe.
-      el.style.cssText = "position:fixed;left:-10000px;top:0;width:220px";
+      // Sopra a tutto: il pannello Faber Home ha le sue sovrapposizioni, e
+      // senza questo le chip restavano disegnate DAVANTI al foglio.
+      el.style.cssText = "position:fixed;left:-10000px;top:0;width:220px;z-index:2147483000";
       document.body.appendChild(el);
       this._mcOspite = el;
     }
@@ -5287,6 +5289,15 @@ class FaberHome extends HTMLElement {
     el.setConfig(cfg);
     el.hass = h;
     if (el._openImmersive) el._openImmersive();
+    // Il velo della Mini Card e pensato per stare sopra una dashboard chiara.
+    // Qui sotto c'e il pannello a schermo intero, e a quel punto si vedeva
+    // tutto in trasparenza: aperto da una chip il velo va coperto di piu.
+    const velo = el.querySelector(".mc-scrim");
+    if (velo) {
+      velo.style.background = "rgba(6,8,12,.95)";
+      velo.style.backdropFilter = "blur(14px)";
+      velo.style.webkitBackdropFilter = "blur(14px)";
+    }
   }
 
   // Il sensore di potenza di un'entita: quello del suo stesso dispositivo.
