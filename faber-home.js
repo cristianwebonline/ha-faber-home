@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.108.0";
+const FH_VERSION = "0.109.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -1429,13 +1429,15 @@ class FaberHome extends HTMLElement {
 
   _chipHTML(d) {
     const tag = d.tipo === "meteo" ? "div" : "button";
-    const attr = d.tipo === "meteo" ? "" :
+    let attr = d.tipo === "meteo" ? "" :
       d.tipo === "link" ? ` type="button" data-chip-link="${fhEsc(d.target)}"`
       : d.tipo === "pagina" ? ` type="button" data-chip-page="${fhEsc(d.target)}"`
       : d.tipo === "offline_devs" ? ` type="button" data-chip-offline="true"`
       : d.tipo === "spesa" ? ` type="button" data-chip-spesa="${fhEsc(d.target)}"`
       : d.tipo === "autoclave" ? ` type="button" data-chip-autoclave="${fhEsc(d.target)}"`
       : ` type="button" data-chip-entity="${fhEsc(d.target || "")}"`;
+    // Il sensore di potenza scelto nella chip serve al foglio dei consumi.
+    if (d.power) attr += ` data-power="${fhEsc(d.power)}"`;
     const accClass = d.accent ? " " + d.accent : "";
     const tocco = d.tocco ? ` data-tocco="${fhEsc(d.tocco)}" data-vai="${fhEsc(d.vai || "")}"` : "";
     return `<${tag} class="fh-chip${d.on ? " on" : ""}${accClass}" data-key="${fhEsc(d.key)}"${attr}${tocco}>
@@ -1673,7 +1675,7 @@ class FaberHome extends HTMLElement {
           key: "autoclave",
           tipo: "autoclave",
           target: swId,
-          tocco: chip.tocco || "info", vai: chip.vai || "",
+          tocco: chip.tocco || "info", vai: chip.vai || "", power: chip.power || pwId,
           icon: isOn ? "mdi:water-pump" : "mdi:water-pump-off",
           // Il consumo si vede sempre, anche a pompa ferma: "0 W" dice che e
           // accesa e pronta, e quando parte si vede subito quanto tira.
@@ -4617,9 +4619,11 @@ class FaberHome extends HTMLElement {
               || String(c.entity || "").startsWith("todo.") ? "" : `<div class="fh-srow">
               <div class="fh-sfield"><label class="fh-slab">Al tocco</label>
                 <select class="fh-input" data-sel="tocco">
-                  ${[["info", "Mostra le informazioni"], ["comando", "Comanda (accende/spegne, apre/chiude)"], ["pagina", "Apre una pagina"], ["nulla", "Niente"]]
+                  ${[["info", "Mostra le informazioni"], ["consumi", "Apre consumi e domande"], ["comando", "Comanda (accende/spegne, apre/chiude)"], ["pagina", "Apre una pagina"], ["nulla", "Niente"]]
                     .map(([v, t]) => `<option value="${v}"${(c.tocco || "info") === v ? " selected" : ""}>${t}</option>`).join("")}
                 </select></div>
+              ${(c.tocco || "info") === "consumi" ? `<div class="fh-sfield"><label class="fh-slab">Sensore di potenza</label>
+                ${this._entityListHTML("stChipPw" + i, c.power, "sensor.", "sensor.…")}</div>` : ""}
               ${(c.tocco || "info") === "pagina" ? `<div class="fh-sfield"><label class="fh-slab">Pagina</label>
                 <select class="fh-input" data-sel="vai">
                   <option value="">Scegli…</option>
@@ -5252,6 +5256,50 @@ class FaberHome extends HTMLElement {
   // sta in una riga che si scorre col dito, e un tocco sbagliato e facile.
   // Ora di serie mostra le informazioni; comandare si sceglie in Impostazioni
   // (Chip > Al tocco), e la serratura chiede comunque conferma.
+  // CONSUMI E DOMANDE DA UNA CHIP.
+  // Il foglio con lo storico e l'intervista e quello della Mini Card: invece
+  // di riscriverlo qui (e di ritrovarsi due versioni che divergono), si
+  // costruisce una Mini Card fuori dallo schermo e le si chiede di aprire il
+  // suo foglio. Se la Mini Card non e installata si ripiega sulle
+  // informazioni di Home Assistant, senza lasciare la chip morta.
+  _apriConsumi(btn, ent) {
+    const MC = customElements.get("mini-card");
+    const h = this._hass;
+    if (!MC || !h) {
+      this.dispatchEvent(new CustomEvent("hass-more-info", { bubbles: true, composed: true, detail: { entityId: ent } }));
+      return;
+    }
+    const st = h.states[ent];
+    const nome = btn.dataset.nome || (st && st.attributes.friendly_name) || ent;
+    const potenza = btn.dataset.power || this._potenzaDi(ent);
+    if (!this._mcOspite) {
+      const el = document.createElement("mini-card");
+      // Fuori dallo schermo ma DISEGNATA: con display:none il suo foglio,
+      // che e figlio della card, non comparirebbe.
+      el.style.cssText = "position:fixed;left:-10000px;top:0;width:220px";
+      document.body.appendChild(el);
+      this._mcOspite = el;
+    }
+    const el = this._mcOspite;
+    const cfg = { type: "custom:mini-card", name: nome, power: potenza || "" };
+    const dom = ent.split(".")[0];
+    if (["switch", "light", "input_boolean", "fan"].includes(dom)) cfg.switch = ent;
+    el.setConfig(cfg);
+    el.hass = h;
+    if (el._openImmersive) el._openImmersive();
+  }
+
+  // Il sensore di potenza di un'entita: quello del suo stesso dispositivo.
+  _potenzaDi(ent) {
+    const h = this._hass;
+    const reg = (h && h.entities) || {};
+    const dev = (reg[ent] || {}).device_id;
+    if (!dev) return "";
+    return Object.keys(reg).find(e => e.startsWith("sensor.") && reg[e].device_id === dev &&
+      h.states[e] && h.states[e].attributes.device_class === "power" &&
+      h.states[e].attributes.state_class === "measurement") || "";
+  }
+
   _toccoChip(btn, ent) {
     const h = this._hass;
     if (!ent || !h) return;
@@ -5265,6 +5313,7 @@ class FaberHome extends HTMLElement {
     }
     const st = h.states[ent];
     const dom = ent.split(".")[0];
+    if (tocco === "consumi") { this._apriConsumi(btn, ent); return; }
     const comandabile = ["switch", "light", "fan", "input_boolean", "automation", "lock", "cover"].includes(dom);
     if (tocco !== "comando" || !st || !comandabile) {
       this.dispatchEvent(new CustomEvent("hass-more-info", { bubbles: true, composed: true, detail: { entityId: ent } }));
