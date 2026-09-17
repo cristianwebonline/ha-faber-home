@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.111.1";
+const FH_VERSION = "0.111.2";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -123,6 +123,7 @@ function fhEsc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, c => ({
 function fhUid(p) { return (p || "id") + Math.random().toString(36).slice(2, 8); }
 
 const FH_WEATHER_IT = {
+  "partlycloudy-night": "Poco nuvoloso",
   "sunny": "Sereno", "clear-night": "Sereno", "cloudy": "Nuvoloso",
   "partlycloudy": "Poco nuvoloso", "rainy": "Pioggia", "pouring": "Pioggia forte",
   "snowy": "Neve", "snowy-rainy": "Nevischio", "fog": "Nebbia", "hail": "Grandine",
@@ -6496,6 +6497,8 @@ const FW_SKIN = {
                       na: "#39406f", nb: "#232a52", nink: "#f0eeff", nsoft: "rgba(255,255,255,.12)", ncap: "#bdb8e6" },
   partlycloudy:     { a: "#dfe9f5", b: "#bcd0e6", ink: "#2b3a4d", soft: "rgba(255,255,255,.6)",  cap: "#4d6076", art: "partly",
                       na: "#33405c", nb: "#1f2740", nink: "#e6eefb", nsoft: "rgba(255,255,255,.11)", ncap: "#adbfd6" },
+  "partlycloudy-night": { a: "#39406f", b: "#232a52", ink: "#f0eeff", soft: "rgba(255,255,255,.12)", cap: "#bdb8e6", art: "partlynight",
+                      na: "#39406f", nb: "#232a52", nink: "#f0eeff", nsoft: "rgba(255,255,255,.12)", ncap: "#bdb8e6" },
   cloudy:           { a: "#e2e7ee", b: "#c3ccd8", ink: "#2f3946", soft: "rgba(255,255,255,.6)",  cap: "#525f6e", art: "cloud",
                       na: "#333a45", nb: "#20252e", nink: "#e4e9f0", nsoft: "rgba(255,255,255,.11)", ncap: "#a9b3c0" },
   rainy:            { a: "#cbdded", b: "#9fbdd6", ink: "#1e3245", soft: "rgba(255,255,255,.5)",  art: "rain", cap: "#3c5b75",
@@ -6529,8 +6532,9 @@ function fwNotte(hass) {
   const s = hass && hass.states && hass.states["sun.sun"];
   return !!s && s.state === "below_horizon";
 }
+const FW_NOTTE = { sunny: "clear-night", partlycloudy: "partlycloudy-night" };
 function fwStatoOra(hass, stato) {
-  return (stato === "sunny" && fwNotte(hass)) ? "clear-night" : stato;
+  return (fwNotte(hass) && FW_NOTTE[stato]) ? FW_NOTTE[stato] : stato;
 }
 
 function fwSkin(state) {
@@ -6571,6 +6575,40 @@ function fwNomeFase(p) {
 // card e in ogni riga delle previsioni, e due <defs> con lo stesso id nella
 // stessa pagina si sovrascrivono a vicenda.
 let FW_SEME = 0;
+
+// IL DISCO DELLA LUNA, con la fase di quel momento. Restituisce i pezzi da
+// infilare in un disegno piu grande: cosi la luna di "sereno di notte" e
+// quella dietro la nuvola di "poco nuvoloso di notte" sono la stessa luna.
+function fwLunaPezzi(u, cx, cy, r, quando) {
+  const f = fwFaseLuna(quando);
+  const d0 = Math.cos(2 * Math.PI * f.p);
+  const rx = (Math.abs(d0) * r).toFixed(2);
+  const cresce = f.p < 0.5;
+  const su = cx + " " + (cy - r), giu = cx + " " + (cy + r);
+  const fuori = cresce ? 1 : 0;
+  const term = cresce ? (d0 > 0 ? 0 : 1) : (d0 < 0 ? 0 : 1);
+  const luce = `M ${su} A ${r} ${r} 0 0 ${fuori} ${giu} A ${rx} ${r} 0 0 ${term} ${su} Z`;
+  const nuova = f.k < 0.035;
+  const k = r / 26;      // i crateri seguono la scala del disco
+  const cr = (x, y, rr) => `<circle cx="${(cx + (x - 50) * k).toFixed(1)}" cy="${(cy + (y - 50) * k).toFixed(1)}" r="${(rr * k).toFixed(1)}"/>`;
+  return {
+    fase: f,
+    defs: `<radialGradient id="${u}l" cx="36%" cy="30%" r="78%">
+        <stop offset="0%" stop-color="#fffdf3"/><stop offset="55%" stop-color="#ffeec4"/>
+        <stop offset="100%" stop-color="#e9c887"/></radialGradient>
+      <radialGradient id="${u}g" cx="50%" cy="50%" r="50%">
+        <stop offset="50%" stop-color="rgba(255,236,190,.26)"/>
+        <stop offset="100%" stop-color="rgba(255,236,190,0)"/></radialGradient>
+      <clipPath id="${u}c"><path d="${luce}"/></clipPath>`,
+    disco: `<circle class="fw-halo" cx="${cx}" cy="${cy}" r="${(r * 1.62).toFixed(1)}" fill="url(#${u}g)"/>
+      <circle cx="${cx}" cy="${cy}" r="${r}" fill="rgba(255,255,255,.06)"
+        stroke="rgba(255,246,222,${nuova ? ".40" : ".16"})" stroke-width="1"/>
+      ${nuova ? "" : `<path d="${luce}" fill="url(#${u}l)"/>
+      <g clip-path="url(#${u}c)" fill="#c2a26a" opacity=".26">
+        ${cr(43, 41, 6.2)}${cr(58, 58, 4.6)}${cr(47, 63, 3.1)}${cr(61, 39, 2.7)}${cr(37, 55, 2.3)}${cr(52, 48, 1.9)}
+      </g>`}`,
+  };
+}
 
 function fwArt(kind, size, still, quando) {
   const s = size || 76;
@@ -6662,6 +6700,16 @@ function fwArt(kind, size, still, quando) {
           <circle class="fw-star fw-s1" cx="20" cy="22" r="2.4" fill="#fff5dd"/>
           <circle class="fw-star fw-s2" cx="83" cy="28" r="1.8" fill="#fff5dd"/>
           <circle class="fw-star fw-s3" cx="79" cy="76" r="2.1" fill="#fff5dd"/>
+        </g>`);
+    }
+    case "partlynight": {
+      const L = fwLunaPezzi(u, 36, 34, 16, quando);
+      return S(`
+        <defs>${L.defs}</defs>
+        <g>
+          <title>${fhEsc(L.fase.nome)} · ${Math.round(L.fase.k * 100)}% illuminata</title>
+          ${L.disco}
+          ${cloud(4, 12, .92, "#ffffff", "fw-drift")}
         </g>`);
     }
     case "partly": return S(`
