@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.110.0";
+const FH_VERSION = "0.111.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -711,6 +711,30 @@ function fhNorm(s) {
 // I watt di un sensore, qualunque unita dichiari. Alcune integrazioni danno
 // kW (l'autoclave scrive "Kw", con la maiuscola a meta): senza conversione
 // 0,8 kW diventava "1 W". Null se il sensore non c'e o non e un numero.
+// LE FASI DELLA LUNA. Nome e disegno, gli stessi che usa Home Assistant.
+const FH_FASI_LUNA = {
+  new_moon: ["Luna nuova", "mdi:moon-new"],
+  waxing_crescent: ["Luna crescente", "mdi:moon-waxing-crescent"],
+  first_quarter: ["Primo quarto", "mdi:moon-first-quarter"],
+  waxing_gibbous: ["Gibbosa crescente", "mdi:moon-waxing-gibbous"],
+  full_moon: ["Luna piena", "mdi:moon-full"],
+  waning_gibbous: ["Gibbosa calante", "mdi:moon-waning-gibbous"],
+  last_quarter: ["Ultimo quarto", "mdi:moon-last-quarter"],
+  waning_crescent: ["Luna calante", "mdi:moon-waning-crescent"],
+};
+
+// La luna di stanotte: si cerca da se il sensore delle fasi (l'integrazione
+// Luna di Home Assistant ne fa uno solo). Se non c'e, resta la mezzaluna
+// generica di sempre, che non e sbagliata: e solo generica.
+function fhLunaOra(hass, scelto) {
+  const st = hass && hass.states;
+  if (!st) return { nome: "Notte", icona: "mdi:weather-night" };
+  const id = (scelto && st[scelto]) ? scelto
+    : Object.keys(st).find(e => e.startsWith("sensor.") && FH_FASI_LUNA[st[e].state]);
+  const f = id && FH_FASI_LUNA[st[id].state];
+  return f ? { nome: f[0], icona: f[1] } : { nome: "Notte", icona: "mdi:weather-night" };
+}
+
 function fhWatt(st) {
   if (!st) return null;
   const n = parseFloat(st.state);
@@ -956,7 +980,7 @@ class FaberHome extends HTMLElement {
             <button type="button" class="fh-ic" data-act="edit" title="Modifica"><ha-icon icon="mdi:pencil"></ha-icon></button>
             <button type="button" class="fh-ic" data-act="tema" data-tema="${fhEsc(this._cfg.appearance.temaFisso || "auto")}"
               title="${fhTitoloTema(this._cfg.appearance.temaFisso, this._isDark())}">
-              <ha-icon icon="${this._isDark() ? "mdi:weather-night" : "mdi:white-balance-sunny"}"></ha-icon></button>
+              <ha-icon icon="${this._isDark() ? fhLunaOra(this._hass, this._cfg.luna).icona : "mdi:white-balance-sunny"}"></ha-icon></button>
             <button type="button" class="fh-ic" data-act="reload" title="Ricarica"><ha-icon icon="mdi:refresh"></ha-icon></button>
             </div>
           </div>
@@ -1008,7 +1032,7 @@ class FaberHome extends HTMLElement {
         b.dataset.tema = ap.temaFisso;
         b.title = fhTitoloTema(ap.temaFisso, scuro);
         const ic = b.querySelector("ha-icon");
-        if (ic) ic.setAttribute("icon", scuro ? "mdi:weather-night" : "mdi:white-balance-sunny");
+        if (ic) ic.setAttribute("icon", scuro ? fhLunaOra(this._hass, this._cfg.luna).icona : "mdi:white-balance-sunny");
         this._save(true);
       }
       else if (b.dataset.act === "reload") location.reload();
@@ -6835,11 +6859,9 @@ class FaberWeather extends HTMLElement {
   _astroHTML() {
     const h = this._hass;
     const sun = h.states["sun.sun"];
-    const FASI = { new_moon: ["Luna nuova", "mdi:moon-new"], waxing_crescent: ["Luna crescente", "mdi:moon-waxing-crescent"],
-      first_quarter: ["Primo quarto", "mdi:moon-first-quarter"], waxing_gibbous: ["Gibbosa crescente", "mdi:moon-waxing-gibbous"],
-      full_moon: ["Luna piena", "mdi:moon-full"], waning_gibbous: ["Gibbosa calante", "mdi:moon-waning-gibbous"],
-      last_quarter: ["Ultimo quarto", "mdi:moon-last-quarter"], waning_crescent: ["Luna calante", "mdi:moon-waning-crescent"] };
-    const lunaId = this._cfg.luna || Object.keys(h.states).find(e => e.startsWith("sensor.") && FASI[h.states[e].state]);
+    const FASI = FH_FASI_LUNA;
+    const lunaId = (this._cfg.luna && h.states[this._cfg.luna]) ? this._cfg.luna
+      : Object.keys(h.states).find(e => e.startsWith("sensor.") && FASI[h.states[e].state]);
     const luna = lunaId && FASI[h.states[lunaId].state];
     const ora = iso => iso ? new Date(iso).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" }) : "–";
     const pezzi = [];
