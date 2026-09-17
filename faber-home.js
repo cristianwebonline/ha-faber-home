@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.109.1";
+const FH_VERSION = "0.109.3";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -5279,7 +5279,11 @@ class FaberHome extends HTMLElement {
       // Sopra a tutto: il pannello Faber Home ha le sue sovrapposizioni, e
       // senza questo le chip restavano disegnate DAVANTI al foglio.
       el.style.cssText = "position:fixed;left:-10000px;top:0;width:220px;z-index:2147483000";
-      document.body.appendChild(el);
+      // DENTRO il pannello, non nel corpo della pagina: Faber Home veste gia
+      // il foglio della Mini Card per il giorno (.fh-app.vetro.chiaro .mc-modal
+      // e compagnia). Appeso fuori, quelle regole non lo raggiungevano e
+      // restava notte in pieno giorno.
+      (this.querySelector(".fh-app") || document.body).appendChild(el);
       this._mcOspite = el;
     }
     const el = this._mcOspite;
@@ -5288,13 +5292,16 @@ class FaberHome extends HTMLElement {
     if (["switch", "light", "input_boolean", "fan"].includes(dom)) cfg.switch = ent;
     el.setConfig(cfg);
     el.hass = h;
+    // Il tema lo eredita da se: stando dentro .fh-app, la Mini Card trova il
+    // pannello con closest() e si mette in chiaro quando e giorno.
+    const chiaro = !!this.querySelector(".fh-app.chiaro");
     if (el._openImmersive) el._openImmersive();
-    // Il velo della Mini Card e pensato per stare sopra una dashboard chiara.
-    // Qui sotto c'e il pannello a schermo intero, e a quel punto si vedeva
-    // tutto in trasparenza: aperto da una chip il velo va coperto di piu.
+    // Il velo invece resta scoperto: Faber Home non ha una regola per
+    // .mc-scrim, e sopra il pannello a schermo intero il 62% di suo lasciava
+    // vedere tutto. Lo copriamo noi, del colore dell'ora.
     const velo = el.querySelector(".mc-scrim");
     if (velo) {
-      velo.style.background = "rgba(6,8,12,.95)";
+      velo.style.background = chiaro ? "rgba(226,234,241,.95)" : "rgba(6,8,12,.95)";
       velo.style.backdropFilter = "blur(14px)";
       velo.style.webkitBackdropFilter = "blur(14px)";
     }
