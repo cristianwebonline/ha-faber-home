@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.115.0";
+const FH_VERSION = "0.116.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -12864,10 +12864,18 @@ function frbFa(d) {
   if (ore < 36) return Math.round(ore) + (Math.round(ore) === 1 ? " ora" : " ore");
   return Math.round(ore / 24) + " giorni";
 }
+const FRB_FASI = {
+  sweeping: "sta aspirando", mopping: "sta lavando", sweeping_and_mopping: "aspira e lava insieme",
+  washing: "lava i panni in base", drying: "asciuga i panni", returning: "torna in base",
+  back_home: "torna in base", paused: "in pausa", building: "sta facendo la mappa",
+};
+
 const FRB_SCELTE = [
   { k: ["select:sweep_mop_type", "select:cleaning_mode"], t: "Cosa fa", o: { "Sweep": "Aspira", "Mop": "Lava", "Sweep Mop": "Aspira e lava",
     "Sweep Before Mopping": "Prima aspira, poi lava", sweeping: "Aspira", mopping: "Lava", sweeping_and_mopping: "Aspira e lava",
-    mopping_after_sweeping: "Prima aspira, poi lava" } },
+    mopping_after_sweeping: "Prima aspira, poi lava",
+    "Sweeping": "Aspira", "Mopping": "Lava", "Sweeping and mopping": "Aspira e lava",
+    "Mopping after sweeping": "Prima aspira, poi lava" } },
   { k: ["select:mode", "select:suction_level"], t: "Forza aspirazione", o: { "Silent": "Silenziosa", "Basic": "Normale", "Strong": "Forte",
     "Full Speed": "Massima", quiet: "Silenziosa", standard: "Normale", strong: "Forte", turbo: "Massima" } },
   { k: ["select:mop_water_output_level", "select:mop_pad_humidity"], t: "Acqua sul panno", o: { "Off": "Niente", "Level1": "Poca",
@@ -13168,6 +13176,24 @@ class FaberRobot extends HTMLElement {
     const s = id && this._hass && this._hass.states[id];
     return s ? { id, inCorso: s.state === "on" } : null;
   }
+  // IL PROGRAMMA E LA FASE.
+  // "Prima aspira, poi lava" e un'IMPOSTAZIONE del robot, non un comando:
+  // senza vederla scritta non si capisce se e attiva. Mentre il robot lavora
+  // la scelta diventa "non disponibile" — la blocca lui — e allora il nome si
+  // legge dall'attributo del vacuum, che resta buono.
+  _programma() {
+    const st = this._hass.states[this._cfg.entity];
+    const k = this._k(["select:cleaning_mode", "select:sweep_mop_type"]);
+    const sel = k && this._st(k);
+    const nomi = FRB_SCELTE[0].o;
+    let grezzo = sel && !["unavailable", "unknown"].includes(sel.state) ? sel.state : "";
+    if (!grezzo && st) grezzo = st.attributes.cleaning_mode || "";
+    const testo = grezzo ? (nomi[grezzo] || grezzo) : "";
+    const fs = this._st("sensor:state");
+    const fase = fs ? (FRB_FASI[fs.state] || "") : "";
+    return { testo, fase, doppio: /after_sweeping|Before Mopping|after sweeping/i.test(grezzo) };
+  }
+
   // Quanto ha pulito finora: Xiaomi Home da i secondi, Dreame i minuti.
   _adesso() {
     const a = this._st("sensor:cleaning_area") || this._st("sensor:cleaned_area");
@@ -13345,6 +13371,13 @@ class FaberRobot extends HTMLElement {
       const u = this._ultima();
       if (u && frbFa(u)) sub = "Ultima pulizia " + frbFa(u) + " fa";
     }
+    // Il programma davanti a tutto: e la risposta alla domanda "adesso cosa
+    // fa se parte?". Mentre lavora, al posto del programma si legge la fase.
+    const pr = this._programma();
+    if (pr.testo) {
+      const testa = pulisce && pr.fase ? pr.testo + " · " + pr.fase : pr.testo;
+      sub = testa + (sub ? " · " + sub : "");
+    }
     if (dp && dp.inCorso) sub = "Prima aspira, poi lava" + (sub ? " · " + sub : "");
     if (!sub && st) sub = st.attributes.fan_speed ? "Aspirazione: " + st.attributes.fan_speed : st.attributes.status || "";
     const firma = [stato, bat, sub, tasti.map(x => x.k).join()].join("|");
@@ -13445,6 +13478,8 @@ class FaberRobot extends HTMLElement {
     if (stato === "error" && guasto) extra = guasto.attributes.description || "codice " + guasto.state;
     const asciuga = this._st("sensor:dry_left_time");
     if (asciuga && +asciuga.state > 0) extra = (extra ? extra + " · " : "") + "asciuga i panni";
+    const fase = this._programma();
+    if (fase.fase && stato === "cleaning") extra = fase.fase + (extra ? " · " + extra : "");
     this._sez("stato", `<div class="frb-stato" style="color:${col}"><i></i>${fhEsc(FRB_STATI[stato] || stato)}${extra ? `<span style="opacity:.7;font-weight:700">· ${fhEsc(extra)}</span>` : ""}</div>`);
 
     // La mappa: l'immagine vera se c'e, altrimenti le stanze fanno da mappa.
@@ -13510,9 +13545,11 @@ class FaberRobot extends HTMLElement {
       const e = k && this._e(k), ss = k && this._st(k);
       if (!ss || !Array.isArray(ss.attributes.options)) return "";
       scelto.push(s.o[ss.state] || ss.state);
-      return `<div class="fhf-sez"><h4>${fhEsc(s.t)}</h4><div class="frb-chips">${ss.attributes.options.map(o =>
-        `<button type="button" class="frb-chip${o === ss.state ? " sel" : ""}" data-opt-ent="${e}" data-opt="${fhEsc(o)}">${fhEsc(s.o[o] || o)}</button>`).join("")}</div></div>`;
-    }).join(""), scelto.slice(0, 2).join(" · "));
+      return `<div class="fhf-sez"><h4>${fhEsc(s.t)}</h4>${["unavailable", "unknown"].includes(ss.state)
+        ? `<div class="fh-note">Mentre il robot lavora questa scelta la blocca lui: si cambia a robot fermo.</div>`
+        : `<div class="frb-chips">${ss.attributes.options.map(o =>
+        `<button type="button" class="frb-chip${o === ss.state ? " sel" : ""}" data-opt-ent="${e}" data-opt="${fhEsc(o)}">${fhEsc(s.o[o] || o)}</button>`).join("")}</div>`}</div>`;
+    }).join(""), [fase.testo || scelto[0], fase.fase && stato === "cleaning" ? fase.fase : scelto[1]].filter(Boolean).join(" · "));
 
     // La base: i tasti che fanno qualcosa subito e le abitudini fisse.
     const tasti = FRB_BASE.filter(b => this._k(b.k)).map(b => {
