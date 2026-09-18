@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.114.1";
+const FH_VERSION = "0.115.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -13118,7 +13118,7 @@ class FaberRobot extends HTMLElement {
   static getConfigElement() { return document.createElement("faber-robot-editor"); }
   setConfig(c) {
     this._cfg = Object.assign({ name: "", entity: "", mappa: "", ultima: "", stanze: null, scene: null,
-      ore: "input_number.robot_ore_senza_pulizia" }, c || {});
+      ore: "input_number.robot_ore_senza_pulizia", doppia: "" }, c || {});
     this._built = false;
   }
   static getStubConfig(hass) {
@@ -13159,6 +13159,15 @@ class FaberRobot extends HTMLElement {
   // Dreame Vacuum: stanze, mappa e comando per stanza sono suoi.
   _dreame() { const r = (this._hass.entities || {})[this._cfg.entity]; return !!(r && r.platform === "dreame_vacuum"); }
   _mappaId() { return this._cfg.mappa || this._e("camera:map"); }
+
+  // Il tasto "Aspira e poi lava" ha senso solo se lo script esiste e non e
+  // gia in corso: premuto due volte non deve far niente di strano, e mentre
+  // gira il robot sta gia facendo proprio quello.
+  _doppia() {
+    const id = this._cfg.doppia;
+    const s = id && this._hass && this._hass.states[id];
+    return s ? { id, inCorso: s.state === "on" } : null;
+  }
   // Quanto ha pulito finora: Xiaomi Home da i secondi, Dreame i minuti.
   _adesso() {
     const a = this._st("sensor:cleaning_area") || this._st("sensor:cleaned_area");
@@ -13322,6 +13331,8 @@ class FaberRobot extends HTMLElement {
     const pulisce = stato === "cleaning";
     const tasti = [];
     if (st && !pulisce && (f & 8192)) tasti.push({ k: "start", i: "mdi:play", t: stato === "paused" ? "Riprendi" : "Avvia", pieno: true });
+    const dp = this._doppia();
+    if (st && dp && !dp.inCorso && stato === "docked") tasti.push({ k: "doppia", i: "mdi:water-plus", t: "Aspira + lava" });
     if (pulisce && (f & 4)) tasti.push({ k: "pause", i: "mdi:pause", t: "Pausa", pieno: true });
     else if (pulisce && (f & 8)) tasti.push({ k: "stop", i: "mdi:stop", t: "Ferma", pieno: true });
     if (st && stato !== "docked" && (f & 16)) tasti.push({ k: "return_to_base", i: "mdi:home-import-outline", t: "Base" });
@@ -13334,6 +13345,7 @@ class FaberRobot extends HTMLElement {
       const u = this._ultima();
       if (u && frbFa(u)) sub = "Ultima pulizia " + frbFa(u) + " fa";
     }
+    if (dp && dp.inCorso) sub = "Prima aspira, poi lava" + (sub ? " · " + sub : "");
     if (!sub && st) sub = st.attributes.fan_speed ? "Aspirazione: " + st.attributes.fan_speed : st.attributes.status || "";
     const firma = [stato, bat, sub, tasti.map(x => x.k).join()].join("|");
     if (!this._built) {
@@ -13364,7 +13376,10 @@ class FaberRobot extends HTMLElement {
     box.querySelectorAll("[data-k]").forEach(b => b.addEventListener("click", e => {
       e.stopPropagation();
       fhVibra(10);
-      this._hass.callService("vacuum", b.dataset.k, { entity_id: this._cfg.entity });
+      // script.turn_on e non script.<nome>: lo script aspetta la fine del giro,
+      // e il tocco non deve restare appeso per un'ora.
+      if (b.dataset.k === "doppia") this._hass.callService("script", "turn_on", { entity_id: this._cfg.doppia });
+      else this._hass.callService("vacuum", b.dataset.k, { entity_id: this._cfg.entity });
     }));
   }
 
@@ -13478,6 +13493,8 @@ class FaberRobot extends HTMLElement {
     if (st && !pulisce && (f & 8192)) {
       if (nStanze && stato !== "paused") cmd.push({ c: "stanze", i: "mdi:floor-plan", t: nStanze === 1 ? "Pulisci la stanza" : "Pulisci " + nStanze + " stanze", pieno: true });
       else cmd.push({ c: "start", i: "mdi:play", t: stato === "paused" ? "Riprendi" : "Pulisci tutto", pieno: true });
+      const dp = this._doppia();
+      if (dp && !dp.inCorso && stato === "docked") cmd.push({ c: "doppia", i: "mdi:water-plus", t: "Aspira e poi lava", pieno: true });
     }
     if (pulisce && (f & 4)) cmd.push({ c: "pause", i: "mdi:pause", t: "Pausa", pieno: true });
     else if (pulisce && (f & 8)) cmd.push({ c: "stop", i: "mdi:stop", t: "Ferma", pieno: true });
@@ -13658,6 +13675,10 @@ class FaberRobot extends HTMLElement {
       this._sel.clear();
       fatto();
       this._disegnaFoglio();
+    } else if (b.dataset.cmd === "doppia") {
+      if (!this._cfg.doppia) return;
+      h.callService("script", "turn_on", { entity_id: this._cfg.doppia });
+      fatto();
     } else if (b.dataset.cmd) {
       h.callService("vacuum", b.dataset.cmd, { entity_id: ent });
       fatto();
