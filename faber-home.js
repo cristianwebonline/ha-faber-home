@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.113.1";
+const FH_VERSION = "0.114.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -879,9 +879,17 @@ class FaberHome extends HTMLElement {
     return Math.max(0, Math.min(100, v == null ? 70 : v)) / 100;
   }
 
+  _meteoAdesso() {
+    const h = this._cfg.header || {};
+    const hs = this._hass && this._hass.states;
+    const a = h.weather_attuale && hs ? hs[h.weather_attuale] : null;
+    if (a && !["unknown", "unavailable"].includes(a.state)) return h.weather_attuale;
+    return h.weather;
+  }
+
   _weatherMode() {
     if (!this._cfg.appearance.weatherAnimation) return null;
-    const w = this._cfg.header.weather;
+    const w = this._meteoAdesso();
     const st = w && this._hass ? this._hass.states[w] : null;
     const dark = this._isDark();
     if (!st) return dark ? "stars" : "motes";
@@ -906,7 +914,7 @@ class FaberHome extends HTMLElement {
     const base = `radial-gradient(140% 110% at 20% -20%,${from},${mid} 45%,${to})`;
     // L'alone del tempo sta SOPRA il cielo: cosi la pagina cambia con il
     // meteo senza perdere la differenza fra giorno e notte.
-    const w = this._cfg.header.weather;
+    const w = this._meteoAdesso();
     const st = w && this._hass ? this._hass.states[w] : null;
     const glow = st ? fhGlowLayer(st.state, this._isDark()) : "";
     return glow ? `${glow},${base}` : base;
@@ -4624,7 +4632,11 @@ class FaberHome extends HTMLElement {
           <span class="fh-note">Torna come prima quando esci da Faber Home. Da nascosta si riapre dal bordo sinistro dello schermo.</span>
         </div>
 
-        ${this._entityListHTML("stWeather", h.weather, "weather.", "Meteo")}
+        ${this._entityListHTML("stWeather", h.weather, "weather.", "Meteo (previsioni)")}
+        ${this._entityListHTML("stWeatherNow", h.weather_attuale || "", "weather.", "Cielo di adesso (vuoto: come sopra)")}
+        <span class="fh-note">I servizi a modello (met.no, Open-Meteo) sono buoni per i prossimi giorni ma
+          non vedono il temporale che c'e adesso. Per il cielo di adesso meglio uno che osserva, come
+          OpenWeatherMap in modalita <b>current</b>. Se quello tace, si torna al primo.</span>
         ${this._entityListHTML("stTemp", h.temperature, "sensor.", "Temperatura mostrata", "temperature")}
         <label class="fh-check"><input type="checkbox" id="stSec"${h.seconds ? " checked" : ""}>
           Mostra anche i secondi nell'orologio</label>
@@ -4729,6 +4741,7 @@ class FaberHome extends HTMLElement {
       const col = q("#stColor");
       if (col) col.addEventListener("input", e => { ap.pageBackground.color = e.target.value; apply(); });
       q("#stWeather").addEventListener("change", e => { h.weather = e.target.value.trim(); apply(); });
+      q("#stWeatherNow").addEventListener("change", e => { h.weather_attuale = e.target.value.trim(); apply(); });
       q("#stTemp").addEventListener("change", e => { h.temperature = e.target.value.trim(); this._updateLive(); });
       q("#stSec").addEventListener("change", e => { h.seconds = e.target.checked; this._startClock(); });
       q("#stAddChip").addEventListener("click", () => {
@@ -4853,7 +4866,7 @@ class FaberHome extends HTMLElement {
     // senno alle sette del mattino resterebbe un vetro nero su cielo azzurro.
     this._segnaFascia();
     // Se cambia la condizione meteo cambia anche la tinta della pagina.
-    const w = this._cfg.header.weather;
+    const w = this._meteoAdesso();
     const cond = w && this._hass && this._hass.states[w] ? this._hass.states[w].state : "";
     if (cond !== this._lastCond) {
       this._lastCond = cond;
@@ -6996,10 +7009,21 @@ class FaberWeather extends HTMLElement {
     this._cfg = Object.assign({ days: 4 }, config);
     this._built = false;
   }
+  // Lo stesso discorso del pannello: il cielo di adesso da un servizio che
+  // osserva (`attuale`), le previsioni dal modello (`entity`). Se quello che
+  // osserva non risponde, si ripiega sul modello senza lasciare la card vuota.
+  _stOra() {
+    const h = this._hass;
+    if (!h) return null;
+    const a = this._cfg.attuale ? h.states[this._cfg.attuale] : null;
+    if (a && !["unknown", "unavailable"].includes(a.state)) return a;
+    return h.states[this._cfg.entity];
+  }
+
   set hass(hass) {
     this._hass = hass;
-    const st = hass.states[this._cfg.entity];
-    const cond = st ? st.state : "";
+    const st = this._stOra();
+    const cond = st ? st.entity_id + ":" + st.state : "";
     if (!this._built || cond !== this._cond) {
       this._cond = cond; this._built = true;
       this._render();
@@ -7039,7 +7063,7 @@ class FaberWeather extends HTMLElement {
       const res2 = r2 && r2.response && r2.response[this._cfg.entity];
       this._fcOre = (res2 && res2.forecast) || [];
       const sb = this.querySelector("[data-stats]");
-      const st = this._hass.states[this._cfg.entity];
+      const st = this._stOra();
       if (sb && st) sb.innerHTML = this._statsHTML(st.attributes);
     } catch (e) { this._fcOre = []; }
     this._fcTimer = setTimeout(() => this._loadForecast(), 15 * 60 * 1000);
@@ -7047,7 +7071,7 @@ class FaberWeather extends HTMLElement {
   disconnectedCallback() { if (this._fcTimer) clearTimeout(this._fcTimer); }
 
   _render() {
-    const st = this._hass.states[this._cfg.entity];
+    const st = this._stOra();
     if (!st) { this.innerHTML = `<div style="padding:16px">Entita meteo non trovata.</div>`; return; }
     const a = st.attributes;
     const sk = fwSkin(fwStatoOra(this._hass, st.state));
@@ -7233,7 +7257,7 @@ class FaberWeather extends HTMLElement {
   }
 
   _openForecast() {
-    const st = this._hass.states[this._cfg.entity];
+    const st = this._stOra();
     const sk = fwSkin(st ? fwStatoOra(this._hass, st.state) : "");
     const fc = this._fc || [];
     const prev = this.querySelector(".fw-scrim");
@@ -7428,7 +7452,7 @@ class FaberWeather extends HTMLElement {
   }
 
   _patch() {
-    const st = this._hass.states[this._cfg.entity];
+    const st = this._stOra();
     if (!st) return;
     const a = st.attributes;
     const t = this.querySelector("[data-temp]");
@@ -7460,6 +7484,14 @@ class FaberWeatherEditor extends HTMLElement {
       <select id="fwEnt" style="${inp}">
         ${w.map(e => `<option value="${e}"${e === this._cfg.entity ? " selected" : ""}>${fhEsc((this._hass.states[e].attributes.friendly_name) || e)}</option>`).join("")}
       </select>
+      <label style="font-size:13px;font-weight:600">Cielo di adesso da</label>
+      <select id="fwNow" style="${inp}">
+        <option value=""${!this._cfg.attuale ? " selected" : ""}>Lo stesso servizio delle previsioni</option>
+        ${w.map(e => `<option value="${e}"${e === this._cfg.attuale ? " selected" : ""}>${fhEsc((this._hass.states[e].attributes.friendly_name) || e)}</option>`).join("")}
+      </select>
+      <span style="font-size:11.5px;opacity:.7;line-height:1.4">met.no e Open-Meteo prevedono bene i giorni ma non
+        vedono il temporale di adesso. Per il cielo di adesso scegli un servizio che osserva, come
+        OpenWeatherMap in modalita "current".</span>
       <label style="font-size:13px;font-weight:600">Nome mostrato (facoltativo)</label>
       <input id="fwName" value="${fhEsc(this._cfg.name || "")}" style="${inp}">
       <label style="font-size:13px;font-weight:600">Giorni di previsione</label>
@@ -7467,6 +7499,12 @@ class FaberWeatherEditor extends HTMLElement {
     </div>`;
     const q = id => this.querySelector(id);
     q("#fwEnt").addEventListener("change", e => { this._cfg = Object.assign({}, this._cfg, { entity: e.target.value }); this._emit(); });
+    q("#fwNow").addEventListener("change", e => {
+      const v = e.target.value;
+      const c = Object.assign({}, this._cfg);
+      if (v) c.attuale = v; else delete c.attuale;
+      this._cfg = c; this._emit();
+    });
     q("#fwName").addEventListener("input", e => { this._cfg = Object.assign({}, this._cfg, { name: e.target.value }); this._emit(); });
     q("#fwDays").addEventListener("change", e => { this._cfg = Object.assign({}, this._cfg, { days: parseInt(e.target.value) || 0 }); this._emit(); });
   }
