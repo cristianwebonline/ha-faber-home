@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.114.0";
+const FH_VERSION = "0.114.1";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -6573,8 +6573,10 @@ function fwStatoOra(hass, stato) {
 // immagini bastano a coprire lo schermo. Il fondo viene da CARTO, la pioggia
 // da RainViewer (gratis, senza chiave). Le stesse coordinate di casa che usa
 // Home Assistant, cosi il centro e casa tua e non una citta a caso.
-const FW_RADAR_Z = 7;              // quanto si vede intorno: ~200 km di lato
-const FW_RADAR_N = 3;              // tasselli per lato
+// A questo ingrandimento un tassello da 256 px copre circa 230 km: su un
+// telefono si vedono ~300 km intorno a casa. RainViewer gratis non va oltre.
+const FW_RADAR_Z = 7;
+const FW_RADAR_N = 3;              // tasselli per lato (5 se lo schermo e largo)
 
 function fwTassello(lat, lon, z) {
   const n = Math.pow(2, z);
@@ -6585,8 +6587,8 @@ function fwTassello(lat, lon, z) {
 }
 
 // Le griglie di immagini: fondo e pioggia hanno la stessa disposizione.
-function fwGriglia(cx, cy, url) {
-  const mezzo = Math.floor(FW_RADAR_N / 2);
+function fwGriglia(cx, cy, url, n) {
+  const mezzo = Math.floor((n || FW_RADAR_N) / 2);
   const out = [];
   for (let dy = -mezzo; dy <= mezzo; dy++) {
     for (let dx = -mezzo; dx <= mezzo; dx++) {
@@ -7192,13 +7194,17 @@ class FaberWeather extends HTMLElement {
     const lon = zona ? zona.attributes.longitude : 12.5;
     const t = fwTassello(lat, lon, FW_RADAR_Z);
     const cx = Math.floor(t.x), cy = Math.floor(t.y);
-    const mezzo = Math.floor(FW_RADAR_N / 2);
+    // Su un tablet la finestra e larga piu di due tasselli: con tre soli per
+    // lato ai bordi resterebbe il vuoto. Se serve se ne mettono cinque.
+    const larg = box.clientWidth || 360;
+    const nT = larg / 2 > 250 ? 5 : FW_RADAR_N;
+    const mezzo = Math.floor(nT / 2);
     // Lo scarto dentro il tassello, per mettere casa esattamente al centro.
     const offX = (t.x - cx) * 256 + mezzo * 256;
     const offY = (t.y - cy) * 256 + mezzo * 256;
     const scuro = !this.closest(".fh-app.chiaro");
     const stile = scuro ? "dark_all" : "light_all";
-    const fondo = fwGriglia(cx, cy, (x, y) => `https://basemaps.cartocdn.com/${stile}/${FW_RADAR_Z}/${x}/${y}.png`);
+    const fondo = fwGriglia(cx, cy, (x, y) => `https://basemaps.cartocdn.com/${stile}/${FW_RADAR_Z}/${x}/${y}.png`, nT);
     let mappe = null;
     try {
       const r = await fetch("https://api.rainviewer.com/public/weather-maps.json", { cache: "no-store" });
@@ -7213,12 +7219,12 @@ class FaberWeather extends HTMLElement {
     const frame = (mappe.radar.past || []).slice(-8).concat((mappe.radar.nowcast || []).slice(0, 3));
     if (!frame.length) { box.innerHTML = `<div class="fw-mempty">Nessuna immagine radar disponibile adesso.</div>`; return; }
     const strati = frame.map((f, i) => `<div class="fw-rlayer" data-f="${i}" data-ora="${f.time}"
-      style="opacity:${i === frame.length - 1 ? 1 : 0}">${fwGriglia(cx, cy, (x, y) => `${host}${f.path}/256/${FW_RADAR_Z}/${x}/${y}/4/1_1.png`)}</div>`).join("");
-    const lato = FW_RADAR_N * 256;
+      style="opacity:${i === frame.length - 1 ? 1 : 0}">${fwGriglia(cx, cy, (x, y) => `${host}${f.path}/256/${FW_RADAR_Z}/${x}/${y}/4/1_1.png`, nT)}</div>`).join("");
+    const lato = nT * 256;
     box.innerHTML = `
       <div class="fw-radar">
         <div class="fw-rvista">
-          <div class="fw-rmondo" style="width:${lato}px;height:${lato}px;transform:translate(calc(50% - ${offX}px), calc(50% - ${offY}px))">
+          <div class="fw-rmondo" style="width:${lato}px;height:${lato}px;left:calc(50% - ${offX}px);top:calc(50% - ${offY}px)">
             <div class="fw-rbase">${fondo}</div>
             ${strati}
             <div class="fw-rcasa" style="left:${offX}px;top:${offY}px"></div>
