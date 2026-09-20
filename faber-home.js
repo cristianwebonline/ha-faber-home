@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.121.0";
+const FH_VERSION = "0.121.1";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -6212,18 +6212,30 @@ const FH_CSS = `
   .fh-slot.quadra .fht{height:100%!important;width:100%!important;min-height:0!important;
     box-sizing:border-box!important;overflow:hidden!important;
     padding:clamp(9px,7%,16px)!important;gap:clamp(3px,2%,6px)!important;justify-content:space-between!important}
-  .fh-slot.quadra .fht-ic{width:clamp(28px,25%,42px)!important;height:clamp(28px,25%,42px)!important;
-    border-radius:clamp(9px,8%,14px)!important}
-  .fh-slot.quadra .fht-ic ha-icon{--mdc-icon-size:clamp(16px,14%,24px)!important}
-  .fh-slot.quadra .fht-pill{padding:3px 7px!important;font-size:clamp(8px,5%,10px)!important}
+  /* Le misure si prendono dal LATO della card, non dalla pagina: la stessa
+     tessera a mezza riga sul telefono o larga su un monitor resta se stessa,
+     solo piu piccola o piu grande. Le percentuali normali non andavano bene:
+     in altezza si riferiscono a una scatola che non ha un'altezza propria, e
+     il browser le butta via. Qui la scatola e la card (container-type) e le
+     misure sono in cqw, centesimi del suo lato.
+     Prima di ogni regola in cqw ce n'e una in pixel: se un telefono vecchio
+     non capisce le container query, la tessera resta comunque leggibile. */
+  .fh-slot.quadra{container-type:inline-size}
+  .fh-slot.quadra .fht-ic{width:54px;height:54px;border-radius:17px!important}
+  .fh-slot.quadra .fht-ic{width:clamp(38px,31cqw,88px)!important;height:auto!important;
+    aspect-ratio:1!important;border-radius:26%!important}
+  .fh-slot.quadra .fht-ic ha-icon{--mdc-icon-size:30px}
+  .fh-slot.quadra .fht-ic ha-icon{--mdc-icon-size:clamp(21px,18cqw,50px)}
+  .fh-slot.quadra .fht-pill{padding:3px 8px!important;font-size:10px}
+  .fh-slot.quadra .fht-pill{font-size:clamp(8.5px,5.2cqw,12px)}
   .fh-slot.quadra .fht-testo{min-height:0!important;gap:1px!important}
-  .fh-slot.quadra .fht-title{font-size:clamp(12px,8.5%,15px)!important}
-  .fh-slot.quadra .fht-stato{font-size:clamp(10.5px,7.5%,12.5px)!important}
-  .fh-slot.quadra .fht-sub{font-size:clamp(9px,6.5%,11px)!important;-webkit-line-clamp:2}
-  .fh-slot.quadra .fht-btns{margin-top:clamp(4px,3%,8px)!important}
-  .fh-slot.quadra .fht-btn{padding:clamp(5px,4%,8px) 4px!important;font-size:clamp(9.5px,6.5%,11.5px)!important;
-    border-radius:clamp(9px,8%,13px)!important}
-  .fh-slot.quadra .fht-btn ha-icon{--mdc-icon-size:clamp(14px,11%,17px)!important}
+  .fh-slot.quadra .fht-title{font-size:clamp(12px,8.2cqw,17px)!important}
+  .fh-slot.quadra .fht-stato{font-size:clamp(10.5px,7.2cqw,14px)!important}
+  .fh-slot.quadra .fht-sub{font-size:clamp(9px,6.2cqw,12px)!important;-webkit-line-clamp:2}
+  .fh-slot.quadra .fht-btns{margin-top:clamp(4px,3cqw,10px)!important}
+  .fh-slot.quadra .fht-btn{padding:clamp(5px,4cqw,10px) 4px!important;font-size:clamp(9.5px,6.2cqw,13px)!important;
+    border-radius:clamp(9px,7cqw,15px)!important}
+  .fh-slot.quadra .fht-btn ha-icon{--mdc-icon-size:clamp(14px,10cqw,20px)!important}
   .fh-slot.quadra .fp{aspect-ratio:1 / 1!important;height:100%!important;width:100%!important;
     box-sizing:border-box!important;display:flex!important;flex-direction:column!important;border-radius:24px!important;overflow:hidden!important}
   .fh-slot.quadra .fp-body{height:100%!important;width:100%!important;min-height:0!important;box-sizing:border-box!important;
