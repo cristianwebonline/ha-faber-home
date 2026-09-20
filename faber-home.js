@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.120.0";
+const FH_VERSION = "0.120.1";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -1071,7 +1071,6 @@ class FaberHome extends HTMLElement {
             <div class="fh-clockbox">
               <div class="fh-clock" data-clock>${this._timeText()}</div>
               <div class="fh-date" data-date>${this._dateText()}</div>
-              <div class="fh-saluto" data-saluto></div>
             </div>
             <div class="fh-headicons">
             <button type="button" class="fh-ic" data-act="cfg" title="Impostazioni"><ha-icon icon="mdi:cog-outline"></ha-icon></button>
@@ -1082,6 +1081,7 @@ class FaberHome extends HTMLElement {
             <button type="button" class="fh-ic" data-act="reload" title="Ricarica"><ha-icon icon="mdi:refresh"></ha-icon></button>
             </div>
           </div>
+          <div class="fh-saluto" data-saluto></div>
           <div class="fh-chips" data-chips>${this._chipsHTML()}</div>
         </header>
         <main class="fh-main" data-main></main>
@@ -1476,7 +1476,7 @@ class FaberHome extends HTMLElement {
       const g = this._dispositiviOffline();
       const n = (g.offline || []).length;
       if (n) out.push({
-        key: "off", colore: "rosso", icona: "mdi:lan-disconnect", ent: "", vai: "",
+        key: "off", colore: "rosso", icona: "mdi:lan-disconnect", ent: "", vai: "", azione: "offline",
         testo: n === 1 ? (g.offline[0].nome + " non risponde") : (n + " dispositivi non rispondono"),
       });
     }
@@ -1505,12 +1505,16 @@ class FaberHome extends HTMLElement {
     }
     el.hidden = false;
     el.innerHTML = `<div class="fh-attriga">${voci.map(v =>
-      `<button type="button" class="fh-attpill ${fhEsc(v.colore)}" data-att-ent="${fhEsc(v.ent)}" data-att-vai="${fhEsc(v.vai)}">
+      `<button type="button" class="fh-attpill ${fhEsc(v.colore)}" data-att-ent="${fhEsc(v.ent)}" data-att-vai="${fhEsc(v.vai)}" data-att-az="${fhEsc(v.azione || "")}">
         <ha-icon icon="${fhEsc(v.icona)}"></ha-icon><span>${fhEsc(v.testo)}</span>
       </button>`).join("")}</div>`;
     el.querySelectorAll("[data-att-ent]").forEach(b => b.addEventListener("click", () => {
       fhVibra(8);
       const vai = b.dataset.attVai, ent = b.dataset.attEnt;
+      // "Dieci dispositivi non rispondono" senza dire QUALI non si puo
+      // risolvere: il tocco apre l'elenco, con il tasto Ignora per quelli
+      // staccati apposta.
+      if (b.dataset.attAz === "offline") { this._popupOfflineDispositivi(); return; }
       if (vai) {
         if (vai.startsWith("/")) {
           history.pushState(null, "", vai);
@@ -6072,8 +6076,8 @@ const FH_CSS = `
   .fh-clockbox{flex:1;min-width:0}
   /* Il saluto: due righe al massimo, tono sommesso. Non deve rubare la scena
      all'orologio, deve solo essere li quando lo guardi. */
-  .fh-saluto{margin-top:5px;font-size:12px;font-weight:600;line-height:1.35;color:var(--fh-muted,#93a1b0);
-    max-width:min(560px,92%);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .fh-saluto{margin:8px 0 2px;font-size:12.5px;font-weight:600;line-height:1.4;color:var(--fh-muted,#93a1b0);
+    display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
   .fh-clock{font-size:clamp(34px,9vw,52px);font-weight:800;line-height:1;letter-spacing:-.02em;
     font-variant-numeric:tabular-nums}
   .fh-date{margin-top:4px;font-size:12.5px;font-weight:600;color:var(--fh-muted,#93a1b0);text-transform:capitalize}
