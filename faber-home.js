@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.127.0";
+const FH_VERSION = "0.128.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -1018,6 +1018,22 @@ class FaberHome extends HTMLElement {
     };
   }
 
+  // Le card robot che ci sono nel pannello: servono per sapere quali robot
+  // guardare senza chiederlo di nuovo.
+  _cardRobot() {
+    const out = [];
+    const gira = v => {
+      if (!v) return;
+      if (Array.isArray(v)) { v.forEach(gira); return; }
+      if (typeof v === "object") {
+        if (v.type === "custom:faber-robot" && v.entity) out.push(v);
+        Object.keys(v).forEach(k => gira(v[k]));
+      }
+    };
+    gira(this._cfg.pages);
+    return out;
+  }
+
   _rifiutiSaluto() {
     let conf = null;
     const gira = v => {
@@ -1410,6 +1426,7 @@ class FaberHome extends HTMLElement {
       tuttoOk: a.tuttoOk !== false,       // la riga verde quando non c'e niente
       batterie: !!a.batterie,
       sogliaBatteria: Number(a.sogliaBatteria != null ? a.sogliaBatteria : 15),
+      robot: a.robot !== false,
       ignoraBatterie: Array.isArray(a.ignoraBatterie) ? a.ignoraBatterie : [],
       offline: !!a.offline,
       voci: Array.isArray(a.voci) ? a.voci : [],
@@ -1502,6 +1519,17 @@ class FaberHome extends HTMLElement {
         icona: "mdi:battery-alert-variant-outline", colore: "ambra", ent: b.e, vai: "",
       }));
     }
+    // I ROBOT. Le card dei robot sanno gia queste cose, ma stanno in fondo a
+    // una pagina: se i panni restano bagnati in base non se ne accorge
+    // nessuno finche non si sente l'odore. Qui salgono in cima alla Home, col
+    // tasto per rimediare subito.
+    if (cfg.robot) {
+      this._cardRobot().forEach(c => frbGuai(hass, c.entity, c.name).forEach((g, i) => out.push({
+        key: "rb:" + c.entity + i, testo: g.testo, icona: g.icona, colore: g.colore,
+        ent: g.asciuga ? "" : g.ent, vai: "", azione: g.asciuga ? "asciuga" : "",
+        premi: g.asciuga || "",
+      })));
+    }
     if (cfg.offline) {
       const g = this._dispositiviOffline();
       const n = (g.offline || []).length;
@@ -1535,8 +1563,8 @@ class FaberHome extends HTMLElement {
     }
     el.hidden = false;
     el.innerHTML = `<div class="fh-attriga">${voci.map(v =>
-      `<button type="button" class="fh-attpill ${fhEsc(v.colore)}" data-att-ent="${fhEsc(v.ent)}" data-att-vai="${fhEsc(v.vai)}" data-att-az="${fhEsc(v.azione || "")}">
-        <ha-icon icon="${fhEsc(v.icona)}"></ha-icon><span>${fhEsc(v.testo)}</span>
+      `<button type="button" class="fh-attpill ${fhEsc(v.colore)}" data-att-ent="${fhEsc(v.ent)}" data-att-vai="${fhEsc(v.vai)}" data-att-az="${fhEsc(v.azione || "")}" data-att-premi="${fhEsc(v.premi || "")}">
+        <ha-icon icon="${fhEsc(v.icona)}"></ha-icon><span>${fhEsc(v.testo)}${v.azione === "asciuga" ? " \u00b7 asciugali" : ""}</span>
       </button>`).join("")}</div>`;
     el.querySelectorAll("[data-att-ent]").forEach(b => b.addEventListener("click", () => {
       fhVibra(8);
@@ -1545,6 +1573,13 @@ class FaberHome extends HTMLElement {
       // risolvere: il tocco apre l'elenco, con il tasto Ignora per quelli
       // staccati apposta.
       if (b.dataset.attAz === "offline") { this._popupOfflineDispositivi(); return; }
+      // "Asciugali adesso": la pillola non racconta il problema, lo risolve.
+      if (b.dataset.attAz === "asciuga" && b.dataset.attPremi) {
+        this._hass.callService("button", "press", { entity_id: b.dataset.attPremi });
+        const s = b.querySelector("span");
+        if (s) { const v = s.textContent; s.textContent = "Li sto asciugando \u2713"; setTimeout(() => { s.textContent = v; }, 2500); }
+        return;
+      }
       if (vai) {
         if (vai.startsWith("/")) {
           history.pushState(null, "", vai);
@@ -5209,6 +5244,8 @@ class FaberHome extends HTMLElement {
             : `<div class="fh-note">Nessuna esclusa.</div>`}</div>
           ${this._entityListHTML("attBatIgn", "", "sensor.", "Escludi una batteria", "battery")}
           <button type="button" class="fh-btn" id="attBatAdd" style="margin-bottom:6px">Escludi questa</button>` : ""}
+        <label class="fh-check"><input type="checkbox" id="attRob"${att.robot ? " checked" : ""}>
+          Robot: panni bagnati, sacchetto pieno, guasti</label>
         <label class="fh-check"><input type="checkbox" id="attOff"${att.offline ? " checked" : ""}>
           Dispositivi che non rispondono</label>
 
@@ -5426,6 +5463,7 @@ class FaberHome extends HTMLElement {
       const bs = q("#attBatS");
       if (bs) bs.addEventListener("change", e => { A().sogliaBatteria = Math.max(1, parseInt(e.target.value, 10) || 15); apply(); });
       q("#attOff").addEventListener("change", e => { A().offline = e.target.checked; apply(); });
+      q("#attRob").addEventListener("change", e => { A().robot = e.target.checked; apply(); });
       const bAdd = q("#attBatAdd");
       if (bAdd) bAdd.addEventListener("click", () => {
         const v = (q("#attBatIgn").value || "").trim();
@@ -13304,7 +13342,14 @@ const FHT_CSS = `
   .fhf-rig-ic ha-icon{--mdc-icon-size:20px}
   .fhf-rig-t{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
   .fhf-rig-t b{font-size:13px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .fhf-rig-t small{font-size:11px;font-weight:600;opacity:.65;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* La riga sotto al titolo andava su UNA riga sola e il resto spariva nei
+     tre puntini: "dall'ultimo lavaggio non risulta asc..." — proprio la parte
+     che serviva leggere (Cristian: "non si legge tutto"). Adesso va a capo,
+     fino a tre righe. */
+  .fhf-rig-t small{font-size:11px;font-weight:600;opacity:.65;line-height:1.35;
+    white-space:normal;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+  .fhf-riga{align-items:flex-start}
+  .fhf-rig-ic{margin-top:1px}
   .fhf-riga.oggi{outline:2px solid var(--r-c);outline-offset:-2px}
   .fhf-val{font-weight:850;font-size:12.5px;color:var(--r-c);white-space:nowrap}
   .fhf-tasto{padding:7px 12px;border-radius:11px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.08);
@@ -13732,6 +13777,19 @@ const FRB_FOGLIO_CSS = `
   .fhf-scrim.chiaro .frb-chip{background:rgba(15,23,42,.05);border-color:rgba(15,23,42,.14)}
   .frb-chip.sel,.fhf-scrim.chiaro .frb-chip.sel{background:#ffb020;border-color:transparent;color:#1c1400}
   .frb-tasti{display:flex;flex-wrap:wrap;gap:6px}
+  /* LA CHAT COL ROBOT. Le stesse bolle della Mini Card, cosi chiedere a un
+     apparecchio e sempre la stessa cosa in tutta la casa. */
+  .frb-chat{display:flex;flex-direction:column;gap:8px;max-height:280px;overflow-y:auto;padding:4px 2px;margin-bottom:10px}
+  .frb-bolla{max-width:86%;padding:9px 12px;border-radius:16px;font-size:13px;font-weight:600;line-height:1.45}
+  .frb-bolla b{font-weight:900}
+  .frb-mia{align-self:flex-end;background:rgba(90,169,255,.22);border-bottom-right-radius:5px}
+  .frb-sua{align-self:flex-start;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);border-bottom-left-radius:5px}
+  .fhf-scrim.chiaro .frb-mia{background:rgba(52,140,205,.18)}
+  .fhf-scrim.chiaro .frb-sua{background:rgba(15,30,45,.06);border-color:rgba(15,30,45,.12)}
+  .frb-riga-chiedi{display:flex;gap:8px;margin-top:4px}
+  .frb-riga-chiedi input{flex:1;min-width:0;padding:11px 13px;border-radius:14px;font:inherit;font-size:14px;font-weight:600;
+    border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.06);color:inherit;outline:none}
+  .fhf-scrim.chiaro .frb-riga-chiedi input{background:rgba(15,23,42,.04);border-color:rgba(15,23,42,.14)}
   .frb-barra{height:6px;border-radius:99px;background:rgba(255,255,255,.1);overflow:hidden;margin-top:5px}
   .fhf-scrim.chiaro .frb-barra{background:rgba(15,23,42,.1)}
   .frb-barra i{display:block;height:100%;border-radius:99px;background:var(--r-c)}
@@ -13766,6 +13824,55 @@ function frbChiave(eid, pref) {
   else k = k.replace(/^xiaomi_[a-z]{2}_\d+_[a-z0-9]+_/, "");
   return eid.slice(0, i) + ":" + k.replace(/_[pae]_\d+_\d+$/, "");
 }
+// COSA NON VA NEL ROBOT, detto da fuori.
+// La card lo sa gia, ma quando la card non e aperta non lo sa nessuno: la
+// riga "Serve qualcosa?" in cima alla Home deve poterlo chiedere senza
+// montare la card. Qui dentro ci sono solo i segnali che si leggono al volo,
+// senza andare a prendere lo storico: gli eventi della base (i panni lavati
+// dopo l'ultima asciugatura), il sacchetto, l'acqua, il guasto.
+function frbGuai(hass, entityId, nome) {
+  const out = [];
+  if (!hass || !entityId) return out;
+  const reg = hass.entities || {};
+  const dev = (reg[entityId] || {}).device_id;
+  if (!dev) return out;
+  const pref = String(entityId).split(".")[1] || "";
+  const m = {};
+  Object.keys(reg).forEach(e => {
+    if (reg[e].device_id !== dev) return;
+    const k = frbChiave(e, pref);
+    (m[k] = m[k] || []).push(e);
+  });
+  const st = k => { const e = (m[k] || [])[0]; const s = e ? hass.states[e] : null;
+    return s && !["unavailable", "unknown"].includes(s.state) ? s : null; };
+  const quando = k => { const s = st(k); const ms = s ? Date.parse(s.state) : NaN; return isFinite(ms) ? ms : null; };
+  const chi = nome || "Robot";
+
+  // Panni lavati e mai asciugati: dopo tre ore e il momento di dirlo.
+  const lavato = quando("event:mop_wash_complete");
+  const asciutto = quando("event:dry_complete");
+  if (lavato && (!asciutto || asciutto < lavato) && (Date.now() - lavato) > 3 * 3600000) {
+    out.push({ testo: chi + ": panni lavati " + frbDa(lavato) + " e mai asciugati",
+      icona: "mdi:weather-windy", colore: "ambra", ent: (m["event:dry_complete"] || [])[0] || entityId,
+      asciuga: (m["button:start_dry"] || m["button:manual_drying"] || [])[0] || "" });
+  }
+  const sac = st("sensor:dust_bag_life_level");
+  if (sac && isFinite(+sac.state) && +sac.state < 15) {
+    out.push({ testo: chi + ": sacchetto della polvere al " + Math.round(+sac.state) + "%",
+      icona: "mdi:sack", colore: "ambra", ent: sac.entity_id });
+  }
+  const acqua = st("sensor:low_water_warning");
+  if (acqua && !/no_warning|no warning|none/i.test(acqua.state)) {
+    out.push({ testo: chi + ": manca l'acqua", icona: "mdi:water-alert-outline", colore: "ambra", ent: acqua.entity_id });
+  }
+  const g = st("sensor:fault") || st("sensor:error");
+  if (g && !/^(no_error|none|0|no_fault|nessun)/i.test(String(g.state))) {
+    out.push({ testo: chi + ": " + (g.attributes.description || "segnala il guasto " + g.state),
+      icona: "mdi:robot-vacuum-alert", colore: "rosso", ent: g.entity_id });
+  }
+  return out;
+}
+
 function frbOrdine(eid) {
   const m = eid.match(/_[pae]_(\d+)_(\d+)$/);
   return m ? (+m[1]) * 1000 + (+m[2]) : 0;
@@ -13868,6 +13975,7 @@ function frbDa(ms) {
 
 const FRB_TENDINE = [
   ["mappa", "Mappa e stanze", "mdi:map-outline"],
+  ["domande", "Chiedi al robot", "mdi:comment-question-outline"],
   ["modi", "Come pulisce", "mdi:tune-variant"],
   ["base", "Base di ricarica", "mdi:home-lightning-bolt-outline"],
   ["scene", "Scene", "mdi:movie-open-play-outline"],
@@ -14192,6 +14300,18 @@ class FaberRobot extends HTMLElement {
     return fine ? { fine, inizio, durata, inCorso } : null;
   }
 
+  // C'E QUALCOSA CHE NON VA IN BASE? La stessa domanda serve in tre posti —
+  // la tendina, la tessera sulla pagina e la riga "Serve qualcosa?" della
+  // Home — quindi la risposta si calcola qui, una volta sola.
+  guaioBase() {
+    try {
+      const g = this._righeBase().find(r => r.guai);
+      return g ? { t: g.t, s: g.s, az: g.az || null } : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
   // Le righe della base: panni, asciugatura, polvere, acqua, detersivo.
   // I due robot raccontano la stessa cosa in due modi diversi, e tutti e due
   // vanno letti:
@@ -14227,8 +14347,12 @@ class FaberRobot extends HTMLElement {
         const mai = this._baseStoria ? "mai, negli ultimi tre giorni" : "sto guardando\u2026";
         out.push({ i: "mdi:water-sync", c: l ? "#4ade80" : "#93a1b0", t: "Panni lavati",
           s: l ? frbDa(l.fine) + (l.durata ? " \u00b7 " + l.durata + " minuti di lavaggio" : "") : mai });
-        out.push({ i: "mdi:weather-windy", c: a ? "#4ade80" : "#93a1b0", t: "Panni asciugati",
-          s: a ? frbDa(a.fine) + (a.durata ? " \u00b7 " + (a.durata >= 60 ? Math.round(a.durata / 60) + " ore" : a.durata + " minuti") + " di asciugatura" : "") : mai });
+        const bagnati = l && (!a || a.fine < l.fine) && (Date.now() - l.fine) > 3 * 3600000;
+        out.push({ i: "mdi:weather-windy", c: bagnati ? "#ff8a3d" : a ? "#4ade80" : "#93a1b0", t: "Panni asciugati",
+          s: (a ? frbDa(a.fine) + (a.durata ? " \u00b7 " + (a.durata >= 60 ? Math.round(a.durata / 60) + " ore" : a.durata + " minuti") + " di asciugatura" : "") : mai)
+            + (bagnati ? " \u00b7 dall'ultimo lavaggio non risulta asciugatura" : ""),
+          guai: !!bagnati,
+          az: bagnati ? { e: this._e(this._k(["button:start_dry", "button:manual_drying"])), t: "Asciugali adesso" } : null });
       }
     } else {
       // Xiaomi: gli eventi della base.
@@ -14243,8 +14367,12 @@ class FaberRobot extends HTMLElement {
         // l'asciugatura non sia ancora partita. Si avvisa solo dopo tre ore,
         // se no la riga sarebbe arancione quasi sempre e non direbbe niente.
         const bagnati = lavato && asciutto < lavato && (Date.now() - lavato) > 3 * 3600000;
+        // Quando c'e qualcosa che non va, il rimedio sta nella riga stessa: il
+        // tasto per asciugarli adesso, senza andarlo a cercare fra i comandi.
         out.push({ i: "mdi:weather-windy", c: bagnati ? "#ff8a3d" : "#4ade80", t: "Panni asciugati",
-          s: frbDa(asciutto) + (bagnati ? " \u00b7 dall'ultimo lavaggio non risulta asciugatura" : "") });
+          s: frbDa(asciutto) + (bagnati ? " \u00b7 dall'ultimo lavaggio non risulta asciugatura" : ""),
+          guai: !!bagnati,
+          az: bagnati ? { e: this._e(this._k(["button:start_dry", "button:manual_drying"])), t: "Asciugali adesso" } : null });
       }
     }
 
@@ -14274,7 +14402,7 @@ class FaberRobot extends HTMLElement {
 
     const acqua = this._st("sensor:low_water_warning");
     if (acqua && !/no_warning|no warning|none/i.test(acqua.state)) {
-      out.push({ i: "mdi:water-alert-outline", c: "#ff8a3d", t: "Acqua", s: "il serbatoio e da riempire" });
+      out.push({ i: "mdi:water-alert-outline", c: "#ff8a3d", t: "Acqua", s: "il serbatoio e da riempire", guai: true });
     }
     const det = this._st("sensor:detergent_left") || this._st("sensor:detergent_left_level");
     if (det && isFinite(+det.state)) {
@@ -14288,9 +14416,251 @@ class FaberRobot extends HTMLElement {
     if (sac && isFinite(+sac.state)) {
       const n = Math.round(+sac.state);
       out.push({ i: "mdi:sack", c: n < 15 ? "#ff8a3d" : "#4ade80", t: "Sacchetto della polvere",
-        s: n <= 0 ? "pieno: va cambiato" : "ancora il " + n + "%" });
+        s: n <= 0 ? "pieno: va cambiato" : "ancora il " + n + "%", guai: n < 15 });
     }
     return out;
+  }
+
+  // =========================================================================
+  // CHIEDERE AL ROBOT
+  // Gli stessi dati che stanno nelle tendine, ma a domanda. Non c'e niente di
+  // inventato: le risposte si costruiscono con i numeri che il robot ha gia
+  // dato, e quando non c'e la risposta lo si dice. Se nella card e stato
+  // scelto un assistente, le domande che non rientrano nei casi noti vanno a
+  // lui — ma coi fatti gia calcolati e l'ordine di non inventare numeri.
+  // =========================================================================
+  _fattiRobot() {
+    const h = this._hass;
+    const st = h.states[this._cfg.entity];
+    const f = {};
+    f.nome = this._nome();
+    f.stato = st ? (FRB_STATI[st.state] || st.state) : "non risponde";
+    const prog = this._programma();
+    f.programma = prog.testo || "";
+    f.fase = prog.fase || "";
+    const bat = st ? this._batteria(st) : null;
+    f.batteria = bat != null ? bat + "%" : "";
+    const u = this._ultima();
+    f.ultima = u ? fhQuando(u.toISOString()) : "";
+    const tutte = this._pulizie();
+    f.ultimaPulizia = tutte[0] || null;
+    const settimana = tutte.filter(x => Date.now() - x.t.getTime() < 7 * 86400000);
+    f.settimana = settimana.length;
+    f.mqSettimana = settimana.reduce((a, x) => a + (x.mq || 0), 0);
+    f.minSettimana = Math.round(settimana.reduce((a, x) => a + (x.sec || 0), 0) / 60);
+    f.base = this._righeBase();
+    const stanza = this._st("sensor:current_room");
+    f.stanza = stanza ? stanza.state : "";
+    f.stanze = this._stanze().map(s => s.nome);
+    const g = this._st("sensor:fault") || this._st("sensor:error");
+    f.guasto = g && !/^(no_error|none|0|no_fault|nessun)/i.test(String(g.state))
+      ? (g.attributes.description || String(g.state)) : "";
+    f.ricambi = [];
+    FRB_RICAMBI.forEach(r => (this._entita()[r.k] || []).forEach((e, i) => {
+      const s = h.states[e];
+      const n = s ? parseFloat(s.state) : NaN;
+      if (!isNaN(n)) f.ricambi.push({ nome: r.t[i] || r.t[0], perc: Math.round(n) });
+    }));
+    const adesso = this._adesso();
+    f.adesso = adesso;
+    return f;
+  }
+
+  // La scheda che si passa all'assistente: fatti, non frasi.
+  _schedaRobot(f) {
+    const r = [
+      "Robot: " + f.nome,
+      "Stato adesso: " + f.stato + (f.fase ? " (" + f.fase + ")" : ""),
+      f.programma ? "Programma impostato: " + f.programma : "",
+      f.batteria ? "Batteria: " + f.batteria : "",
+      f.ultima ? "Ultima pulizia: " + f.ultima : "",
+      f.ultimaPulizia ? "Ultimo giro: " + (f.ultimaPulizia.mq || 0) + " m2 in " +
+        Math.round((f.ultimaPulizia.sec || 0) / 60) + " minuti" +
+        (f.ultimaPulizia.ok === false ? " (non finita)" : "") : "",
+      "Pulizie negli ultimi 7 giorni: " + f.settimana + " (" + f.mqSettimana + " m2, " + f.minSettimana + " minuti)",
+      f.stanza ? "Stanza in cui si trova: " + f.stanza : "",
+      f.stanze.length ? "Stanze che conosce: " + f.stanze.join(", ") : "",
+      f.guasto ? "Guasto in corso: " + f.guasto : "Nessun guasto",
+    ];
+    f.base.forEach(b => r.push(b.t + ": " + b.s));
+    f.ricambi.forEach(x => r.push("Ricambio " + x.nome + ": " + x.perc + "%"));
+    return r.filter(Boolean).join("\n");
+  }
+
+  // Capire la domanda: si cercano le parole che contano. Niente di magico, e
+  // quando non si capisce lo si dice invece di rispondere a caso.
+  _capisciRobot(testo) {
+    const q = String(testo || "").toLowerCase()
+      .replace(/[àá]/g, "a").replace(/[èé]/g, "e").replace(/[ìí]/g, "i").replace(/[òó]/g, "o").replace(/[ùú]/g, "u");
+    if (/asciug/.test(q)) return "asciugatura";
+    if (/pann|mocio|straccio|moci/.test(q)) return "panni";
+    if (/polver|svuot|sacchett|cestin|bidon/.test(q)) return "polvere";
+    if (/acqua|detersiv|serbatoi/.test(q)) return "liquidi";
+    if (/batteri|carica|carico/.test(q)) return "batteria";
+    if (/guast|problem|errore|bloccat|incastr|fermo perche/.test(q)) return "guasto";
+    if (/ricambi|spazzol|filtro|consumabil|cambiare/.test(q)) return "ricambi";
+    if (/dove sei|dove ti trovi|in che stanza|dove stai/.test(q)) return "dove";
+    if (/quali stanze|che stanze|quante stanze|stanze conosci/.test(q)) return "stanze";
+    if (/quante volte|quanti giri|settimana|quante pulizie/.test(q)) return "quante";
+    if (/quanti metri|quanto hai pulito|mq|metri quadr|area/.test(q)) return "area";
+    if (/programma|modalita|aspiri|lavi|come pulisci|cosa stai facendo|che fai/.test(q)) return "programma";
+    if (/quando.*(pulit|passat|finito)|ultima pulizia|ultimo giro|hai pulito/.test(q)) return "ultima";
+    if (/come stai|tutto bene|tutto a posto|come va/.test(q)) return "riassunto";
+    return null;
+  }
+
+  _rispostaRobot(intento, f) {
+    const b = n => (f.base.find(x => new RegExp(n, "i").test(x.t)) || {}).s || "";
+    if (intento === "panni") {
+      const l = b("Panni lavati"), a = b("Panni asciugati"), pa = b("^Panno$");
+      if (!l && !a) return "Di questo non so dirti niente: la mia base non manda a Home Assistant quando lava i panni.";
+      return [l ? "Panni lavati <b>" + l + "</b>." : "", a ? "Asciugati <b>" + a + "</b>." : "",
+        pa ? "Il panno adesso e <b>" + pa + "</b>." : ""].filter(Boolean).join(" ");
+    }
+    if (intento === "asciugatura") {
+      const a = b("Panni asciugati");
+      return a ? "Panni asciugati <b>" + a + "</b>."
+        : "Non ho un dato sull'asciugatura: questa base non lo dice a Home Assistant.";
+    }
+    if (intento === "polvere") {
+      const v = b("Polvere"), s = b("Sacchetto");
+      if (!v && !s) return "Non so dirti quando ho svuotato la polvere: la mia base non lo manda.";
+      return [v ? "Polvere svuotata <b>" + v + "</b>." : "", s ? "Sacchetto: <b>" + s + "</b>." : ""].filter(Boolean).join(" ");
+    }
+    if (intento === "liquidi") {
+      const acqua = b("Acqua"), det = b("Detersivo");
+      if (!acqua && !det) return "Acqua e detersivo non li misuro.";
+      return [acqua ? "Acqua: <b>" + acqua + "</b>." : "Il serbatoio non segnala problemi.",
+        det ? "Detersivo: <b>" + det + "</b>." : ""].filter(Boolean).join(" ");
+    }
+    if (intento === "batteria") {
+      if (!f.batteria) return "La batteria non riesco a leggerla.";
+      const n = parseInt(f.batteria, 10);
+      return "Sono al <b>" + f.batteria + "</b>" + (n >= 95 ? ", carico." : n < 25 ? ": mi conviene tornare in base." : ".");
+    }
+    if (intento === "guasto") {
+      return f.guasto ? "Si, c'e un problema: <b>" + fhEsc(f.guasto) + "</b>."
+        : "No, nessun guasto: sono <b>" + f.stato.toLowerCase() + "</b>.";
+    }
+    if (intento === "ricambi") {
+      if (!f.ricambi.length) return "Questo robot non dice a che punto sono i ricambi.";
+      const ord = f.ricambi.slice().sort((a, c) => a.perc - c.perc);
+      const testa = ord.slice(0, 3).map(x => x.nome.toLowerCase() + " <b>" + x.perc + "%</b>").join(", ");
+      return (ord[0].perc < 15 ? "Il piu consumato e messo male: " : "I piu consumati: ") + testa + ".";
+    }
+    if (intento === "dove") {
+      if (f.stanza) return "Sono in <b>" + fhEsc(f.stanza) + "</b>.";
+      return "Non dico in che stanza sono. Adesso sono <b>" + f.stato.toLowerCase() + "</b>.";
+    }
+    if (intento === "stanze") {
+      return f.stanze.length ? "Conosco " + f.stanze.length + " stanze: <b>" + f.stanze.join("</b>, <b>") + "</b>."
+        : "Non ho una mappa a stanze: pulisco tutta la casa.";
+    }
+    if (intento === "quante") {
+      if (!f.settimana) return "Negli ultimi sette giorni non risulta nessuna pulizia.";
+      return "Negli ultimi sette giorni ho pulito <b>" + f.settimana +
+        (f.settimana === 1 ? " volta" : " volte") + "</b>" +
+        (f.mqSettimana ? ", <b>" + f.mqSettimana + " m\u00b2</b> in tutto" : "") +
+        (f.minSettimana ? " e <b>" + f.minSettimana + " minuti</b> di lavoro" : "") + ".";
+    }
+    if (intento === "area") {
+      if (!isNaN(f.adesso.mq) && f.stato === "Sta pulendo") return "Finora ho fatto <b>" + f.adesso.mq + " m\u00b2</b> in " + f.adesso.min + " minuti.";
+      const u = f.ultimaPulizia;
+      if (!u) return "Non ho il dato dei metri quadri.";
+      return "L'ultima volta ho fatto <b>" + (u.mq || 0) + " m\u00b2</b> in <b>" +
+        Math.round((u.sec || 0) / 60) + " minuti</b>" + (u.ok === false ? ", ma non ho finito" : "") + ".";
+    }
+    if (intento === "programma") {
+      const pezzi = [];
+      if (f.programma) pezzi.push("Sono impostato su <b>" + fhEsc(f.programma) + "</b>");
+      pezzi.push(f.fase ? "adesso <b>" + fhEsc(f.fase) + "</b>" : "adesso sono <b>" + f.stato.toLowerCase() + "</b>");
+      return pezzi.join(", ") + ".";
+    }
+    if (intento === "ultima") {
+      if (!f.ultima) return "Non risulta nessuna pulizia in memoria.";
+      const u = f.ultimaPulizia;
+      return "Ho pulito <b>" + f.ultima + "</b>" + (u ? ": " + (u.mq || 0) + " m\u00b2 in " +
+        Math.round((u.sec || 0) / 60) + " minuti" + (u.ok === false ? ", senza finire" : "") : "") + ".";
+    }
+    if (intento === "riassunto") {
+      const parti = ["Sono <b>" + f.stato.toLowerCase() + "</b>"];
+      if (f.batteria) parti.push("batteria " + f.batteria);
+      if (f.ultima) parti.push("ultima pulizia " + f.ultima);
+      const l = (f.base.find(x => /Panni lavati/.test(x.t)) || {}).s;
+      if (l) parti.push("panni lavati " + l);
+      if (f.guasto) parti.push("ma c'e un problema: " + f.guasto);
+      return parti.join(" \u00b7 ") + ".";
+    }
+    return null;
+  }
+
+  async _chiediRobot(testo) {
+    if (!testo) return;
+    this._chat = (this._chat || []).concat([{ chi: "io", t: testo }]);
+    this._disegnaFoglio();
+    const f = this._fattiRobot();
+    let risposta = this._rispostaRobot(this._capisciRobot(testo), f);
+    if (!risposta && this._cfg.agente) {
+      this._chat = this._chat.concat([{ chi: "lui", t: "ci penso\u2026" }]);
+      this._disegnaFoglio();
+      risposta = await this._agenteRobot(testo, f);
+      this._chat.pop();
+    }
+    if (!risposta) {
+      risposta = "Questa non l'ho capita. Prova con: <b>quando hai lavato i panni</b>, " +
+        "<b>hai svuotato la polvere</b>, <b>quando hai pulito</b>, <b>quante volte questa settimana</b>, " +
+        "<b>come stai</b>.";
+    }
+    this._chat = this._chat.concat([{ chi: "lui", t: risposta }]);
+    this._disegnaFoglio();
+  }
+
+  async _agenteRobot(testo, f) {
+    const ag = this._cfg.agente;
+    if (!ag || !this._hass) return null;
+    const prompt = [
+      "Sei " + f.nome + ", un robot aspirapolvere di casa che parla in prima persona.",
+      "Rispondi in italiano, al massimo due frasi, tono semplice.",
+      "Usa SOLO i dati qui sotto. Se la risposta non c'e nei dati dillo chiaramente",
+      "e non inventare nessun numero.",
+      "",
+      "DATI:",
+      this._schedaRobot(f),
+      "",
+      "DOMANDA: " + testo,
+    ].join("\n");
+    try {
+      const res = await this._hass.callWS({ type: "conversation/process", text: prompt, agent_id: ag });
+      const r = res && res.response && res.response.speech && res.response.speech.plain
+        && res.response.speech.plain.speech;
+      return (r && fhEsc(String(r).trim())) || null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  _sezDomande() {
+    const pronte = [
+      "Quando hai lavato i panni?",
+      "I panni sono asciutti?",
+      "Hai svuotato la polvere?",
+      "Quando hai pulito?",
+      "Quante volte questa settimana?",
+      "Come stai?",
+    ];
+    const chat = (this._chat || []).map(m => m.chi === "io"
+      ? `<div class="frb-bolla frb-mia">${fhEsc(m.t)}</div>`
+      : `<div class="frb-bolla frb-sua">${m.t}</div>`).join("");
+    return `<div class="fhf-sez">
+      <div class="frb-chat">${chat || `<div class="frb-bolla frb-sua">Chiedimi quello che vuoi:
+        i panni, la polvere, quando ho pulito l'ultima volta, come sto.</div>`}</div>
+      <div class="frb-chips">${pronte.map(d => `<button type="button" class="frb-chip" data-dom="${fhEsc(d)}">${fhEsc(d)}</button>`).join("")}</div>
+      <div class="frb-riga-chiedi">
+        <input data-chiedi placeholder="scrivi la tua domanda" autocomplete="off">
+        <button type="button" class="frb-chip sel" data-invia>Chiedi</button>
+      </div>
+      ${this._cfg.agente ? "" : `<div class="fh-note" style="margin-top:8px">Rispondo con i miei dati.
+        Per le domande libere si puo collegare un assistente nella configurazione della card.</div>`}</div>`;
   }
 
   // Quanto ha pulito finora: Xiaomi Home da i secondi, Dreame i minuti.
@@ -14535,6 +14905,14 @@ class FaberRobot extends HTMLElement {
         <div class="frb-accc" data-s="${n}"></div></section>`).join("")}
       <button type="button" class="fhf-tasto" data-tutto style="align-self:flex-start">Tutte le impostazioni</button>`;
     c.addEventListener("click", e => this._clic(e));
+    // Invio da tastiera: su un telefono e il tasto che si preme per davvero.
+    c.addEventListener("keydown", e => {
+      if (e.key !== "Enter" || !e.target.hasAttribute("data-chiedi")) return;
+      const testo = e.target.value.trim();
+      if (!testo) return;
+      e.target.value = "";
+      this._chiediRobot(testo);
+    });
     this._disegnaFoglio();
     this._caricaBase();
     clearInterval(this._timerMappa);
@@ -14602,6 +14980,7 @@ class FaberRobot extends HTMLElement {
         <span>Pulisce tutta la casa: questo robot non dice a Home Assistant le sue stanze.</span></div></div>`;
     }
     this._sez("mappa", mappa, stanze.length ? (stanze.length === 1 ? "1 stanza" : stanze.length + " stanze") : "");
+    this._sez("domande", this._sezDomande(), (this._chat || []).length ? "" : "panni, polvere, pulizie");
     this._aggiornaMappa();
 
     // I numeri: batteria, da quanto non pulisce, com'e andata l'ultima volta.
@@ -14665,11 +15044,16 @@ class FaberRobot extends HTMLElement {
     const righeBase = this._righeBase();
     const statoBase = righeBase.map(r => `<div class="fhf-riga" style="--r-c:${r.c}">
       <div class="fhf-rig-ic"><ha-icon icon="${r.i}"></ha-icon></div>
-      <div class="fhf-rig-t"><b>${fhEsc(r.t)}</b><small>${fhEsc(r.s)}</small></div></div>`).join("");
+      <div class="fhf-rig-t"><b>${fhEsc(r.t)}</b><small>${fhEsc(r.s)}</small></div>
+      ${r.az && r.az.e ? `<button type="button" class="fhf-tasto" data-press="${r.az.e}">${fhEsc(r.az.t)}</button>` : ""}</div>`).join("");
+    // La nota accanto al titolo: se c'e qualcosa che non va si legge DA
+    // CHIUSA, se no la tendina resta chiusa e l'anomalia non la vede nessuno.
+    const guaio = righeBase.find(r => r.guai);
     this._sez("base", tasti.length || interr.length || statoBase ? `<div class="fhf-sez">
       ${statoBase}${tasti.length ? `<div class="frb-tasti">${tasti.join("")}</div>` : ""}${interr.join("")}</div>` : "",
-      // La nota accanto al titolo della tendina: si legge senza aprirla.
-      (righeBase.find(r => r.c === "#ffb020") || righeBase.find(r => /Panni lavati/.test(r.t)) || {}).s || "");
+      guaio ? "\u26a0 " + guaio.t.toLowerCase() + ": " + guaio.s
+        : (righeBase.find(r => r.c === "#ffb020") || righeBase.find(r => /Panni lavati/.test(r.t)) || {}).s || "");
+    this._guaioBase = guaio || null;
 
     // Le scene: automazioni con l'interruttore, e le ore della regola "non
     // ripartire se ha appena pulito" sotto "Quando uscite".
@@ -14790,6 +15174,16 @@ class FaberRobot extends HTMLElement {
     }
     const b = e.target.closest("button");
     if (!b) return;
+    if (b.dataset.dom) { fhVibra(8); this._chiediRobot(b.dataset.dom); return; }
+    if (b.hasAttribute("data-invia")) {
+      const inp = this._foglio.corpo.querySelector("[data-chiedi]");
+      const testo = inp ? inp.value.trim() : "";
+      if (!testo) return;
+      inp.value = "";
+      fhVibra(8);
+      this._chiediRobot(testo);
+      return;
+    }
     const h = this._hass, ent = this._cfg.entity;
     const fatto = () => { b.style.transform = "scale(.94)"; setTimeout(() => { b.style.transform = ""; }, 180); };
     if (b.hasAttribute("data-tutto")) {
