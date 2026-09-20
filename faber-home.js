@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.125.0";
+const FH_VERSION = "0.126.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -13843,6 +13843,28 @@ function frbDisegno() {
 }
 // Le sezioni del foglio che stanno in una tendina, nell'ordine in cui
 // compaiono. Quelle fuori da qui (stato, numeri, comandi) sono sempre aperte.
+// COSA STA FACENDO LA BASE. Sono gli stati che il robot manda in inglese:
+// qui diventano una frase che si capisce.
+const FRB_LAVAGGIO = {
+  idle: "ferma", washing: "sta lavando i panni", drying: "sta asciugando i panni",
+  paused: "in pausa", returning: "sta tornando in base a lavarsi",
+  clean_add_water: "carica l'acqua per lavare", adding_water: "sta caricando l'acqua",
+};
+const FRB_SVUOTO = { idle: "ferma", active: "sta svuotando la polvere", not_performed: "non fatto" };
+
+// Da quanto tempo: "3 minuti fa", "ieri alle 21:10". Sotto le dieci ore si
+// dice il tempo passato, sopra si dice il giorno e l'ora — e come lo direbbe
+// una persona.
+function frbDa(ms) {
+  if (!ms || !isFinite(ms)) return "";
+  const min = Math.round((Date.now() - ms) / 60000);
+  if (min < 1) return "adesso";
+  if (min < 60) return min + (min === 1 ? " minuto fa" : " minuti fa");
+  const ore = Math.round(min / 60);
+  if (ore < 10) return ore + (ore === 1 ? " ora fa" : " ore fa");
+  return fhQuando(new Date(ms).toISOString());
+}
+
 const FRB_TENDINE = [
   ["mappa", "Mappa e stanze", "mdi:map-outline"],
   ["modi", "Come pulisce", "mdi:tune-variant"],
@@ -14107,6 +14129,124 @@ class FaberRobot extends HTMLElement {
     return { testo, fase, doppio: /after_sweeping|Before Mopping|after sweeping/i.test(grezzo) };
   }
 
+  // LO STORICO DELLA BASE. Lo stato di adesso dice "ferma", ma non dice se i
+  // panni sono stati lavati stamattina o tre giorni fa — che e la domanda vera
+  // (Cristian: "non so se ha pulito i panni, se si sono asciugati, se la
+  // polvere e stata svuotata"). Si leggono gli ultimi tre giorni di quei due
+  // sensori e si cerca l'ultima volta che hanno lavorato davvero.
+  async _caricaBase() {
+    const ids = [this._e("sensor:self_wash_base_status"), this._e("sensor:auto_empty_status")].filter(Boolean);
+    if (!ids.length || !this._hass) return;
+    const chiave = ids.join("|");
+    if (this._baseKey === chiave && Date.now() - (this._baseTs || 0) < 120000) return;
+    this._baseKey = chiave;
+    this._baseTs = Date.now();
+    try {
+      const fine = new Date();
+      const inizio = new Date(fine.getTime() - 3 * 86400000);
+      const res = await this._hass.callWS({
+        type: "history/history_during_period",
+        start_time: inizio.toISOString(), end_time: fine.toISOString(),
+        entity_ids: ids, minimal_response: true, no_attributes: true, significant_changes_only: false,
+      });
+      const storia = {};
+      ids.forEach(id => {
+        storia[id] = ((res && res[id]) || []).map(x => ({
+          t: x.lu !== undefined ? x.lu * 1000 : new Date(x.last_updated || x.last_changed || x.lc).getTime(),
+          s: x.s !== undefined ? x.s : x.state,
+        })).filter(x => isFinite(x.t)).sort((a, b) => a.t - b.t);
+      });
+      this._baseStoria = storia;
+    } catch (e) {
+      this._baseStoria = null;
+    }
+    if (this._foglio && this._foglio.aperto()) this._disegnaFoglio();
+  }
+
+  // L'ultima volta che quel sensore e stato in uno di quegli stati: quando ha
+  // finito e quanto e durata.
+  _ultimoLavoro(id, stati) {
+    const punti = (this._baseStoria || {})[id];
+    if (!punti || !punti.length) return null;
+    let fine = null, inizio = null, durata = 0, inCorso = false;
+    for (let i = punti.length - 1; i >= 0; i--) {
+      if (stati.includes(punti[i].s)) {
+        fine = i + 1 < punti.length ? punti[i + 1].t : Date.now();
+        inCorso = i + 1 >= punti.length;
+        // Un lavaggio vero non e un blocco solo: il robot lava, si ferma un
+        // minuto, rilava. Sono tre "washing" separati da due "idle" brevi, e
+        // contarne uno solo faceva dire "4 minuti" a un lavaggio da dieci.
+        // Le pause sotto i sei minuti fanno parte dello stesso lavoro.
+        let j = i;
+        while (j > 0) {
+          if (stati.includes(punti[j - 1].s)) { j--; continue; }
+          if (j - 2 >= 0 && stati.includes(punti[j - 2].s) && (punti[j].t - punti[j - 1].t) < 360000) { j -= 2; continue; }
+          break;
+        }
+        inizio = punti[j].t;
+        durata = Math.round((fine - inizio) / 60000);
+        break;
+      }
+    }
+    return fine ? { fine, inizio, durata, inCorso } : null;
+  }
+
+  // Le righe della base: panni, asciugatura, polvere, acqua, detersivo.
+  _righeBase() {
+    const out = [];
+    const lavId = this._e("sensor:self_wash_base_status");
+    const lav = lavId && this._hass.states[lavId];
+    const panno = this._st("sensor:mop_pad");
+    const asciuga = this._st("sensor:dry_left_time");
+
+    if (lav) {
+      const s = String(lav.state);
+      const testo = FRB_LAVAGGIO[s] || s;
+      if (["washing", "drying", "adding_water", "clean_add_water"].includes(s)) {
+        const resta = s === "drying" && asciuga && +asciuga.state > 0
+          ? " \u00b7 finisce fra " + Math.round(+asciuga.state / 60) + "h" : "";
+        out.push({ i: s === "drying" ? "mdi:weather-windy" : "mdi:water-sync", c: "#ffb020",
+          t: testo.charAt(0).toUpperCase() + testo.slice(1), s: "in questo momento" + resta });
+      } else {
+        const l = this._ultimoLavoro(lavId, ["washing"]);
+        const a = this._ultimoLavoro(lavId, ["drying"]);
+        const mai = this._baseStoria ? "mai, negli ultimi tre giorni" : "sto guardando\u2026";
+        out.push({ i: "mdi:water-sync", c: l ? "#4ade80" : "#93a1b0", t: "Panni lavati",
+          s: l ? frbDa(l.fine) + (l.durata ? " \u00b7 " + l.durata + " minuti di lavaggio" : "") : mai });
+        out.push({ i: "mdi:weather-windy", c: a ? "#4ade80" : "#93a1b0", t: "Panni asciugati",
+          s: a ? frbDa(a.fine) + (a.durata ? " \u00b7 " + (a.durata >= 60 ? Math.round(a.durata / 60) + " ore" : a.durata + " minuti") + " di asciugatura" : "") : mai });
+      }
+    }
+    if (panno) {
+      const su = /^inst/i.test(panno.state);
+      out.push({ i: "mdi:texture-box", c: su ? "#4ade80" : "#93a1b0", t: "Panno",
+        s: su ? "montato sul robot" : "tolto" });
+    }
+    const svId = this._e("sensor:auto_empty_status");
+    const sv = svId && this._hass.states[svId];
+    if (sv) {
+      const s = String(sv.state);
+      if (s === "active") {
+        out.push({ i: "mdi:delete-empty-outline", c: "#ffb020", t: "Polvere", s: "la sta svuotando adesso" });
+      } else {
+        const v = this._ultimoLavoro(svId, ["active"]);
+        out.push({ i: "mdi:delete-empty-outline", c: v ? "#4ade80" : "#93a1b0", t: "Polvere svuotata",
+          s: v ? frbDa(v.fine) : (this._baseStoria ? "mai, negli ultimi tre giorni" : "sto guardando\u2026") });
+      }
+    }
+    const acqua = this._st("sensor:low_water_warning");
+    if (acqua && !/no_warning|no warning|none/i.test(acqua.state)) {
+      out.push({ i: "mdi:water-alert-outline", c: "#ff8a3d", t: "Acqua", s: "il serbatoio e da riempire" });
+    }
+    const det = this._st("sensor:detergent_left");
+    if (det && isFinite(+det.state)) {
+      const n = Math.round(+det.state);
+      out.push({ i: "mdi:bottle-tonic-outline", c: n < 15 ? "#ff8a3d" : "#4ade80", t: "Detersivo",
+        s: "ne resta il " + n + "%" });
+    }
+    return out;
+  }
+
   // Quanto ha pulito finora: Xiaomi Home da i secondi, Dreame i minuti.
   _adesso() {
     const a = this._st("sensor:cleaning_area") || this._st("sensor:cleaned_area");
@@ -14350,6 +14490,7 @@ class FaberRobot extends HTMLElement {
       <button type="button" class="fhf-tasto" data-tutto style="align-self:flex-start">Tutte le impostazioni</button>`;
     c.addEventListener("click", e => this._clic(e));
     this._disegnaFoglio();
+    this._caricaBase();
     clearInterval(this._timerMappa);
     this._timerMappa = setInterval(() => {
       if (!this._foglio || !this._foglio.aperto()) { clearInterval(this._timerMappa); this._timerMappa = null; return; }
@@ -14475,8 +14616,14 @@ class FaberRobot extends HTMLElement {
       `<div class="fhf-riga" style="--r-c:${s.state === "on" ? "#ffb020" : "#93a1b0"}"><div class="fhf-rig-ic"><ha-icon icon="${x.i}"></ha-icon></div>
         <div class="fhf-rig-t"><b>${fhEsc(x.t)}</b>${x.s ? `<small>${fhEsc(x.s)}</small>` : ""}</div>
         <button type="button" class="fhf-sw${s.state === "on" ? " on" : ""}" data-sw="${s.entity_id}" aria-label="${fhEsc(x.t)}"></button></div>`);
-    this._sez("base", tasti.length || interr.length ? `<div class="fhf-sez">
-      ${tasti.length ? `<div class="frb-tasti">${tasti.join("")}</div>` : ""}${interr.join("")}</div>` : "");
+    const righeBase = this._righeBase();
+    const statoBase = righeBase.map(r => `<div class="fhf-riga" style="--r-c:${r.c}">
+      <div class="fhf-rig-ic"><ha-icon icon="${r.i}"></ha-icon></div>
+      <div class="fhf-rig-t"><b>${fhEsc(r.t)}</b><small>${fhEsc(r.s)}</small></div></div>`).join("");
+    this._sez("base", tasti.length || interr.length || statoBase ? `<div class="fhf-sez">
+      ${statoBase}${tasti.length ? `<div class="frb-tasti">${tasti.join("")}</div>` : ""}${interr.join("")}</div>` : "",
+      // La nota accanto al titolo della tendina: si legge senza aprirla.
+      (righeBase.find(r => r.c === "#ffb020") || righeBase.find(r => /Panni lavati/.test(r.t)) || {}).s || "");
 
     // Le scene: automazioni con l'interruttore, e le ore della regola "non
     // ripartire se ha appena pulito" sotto "Quando uscite".
