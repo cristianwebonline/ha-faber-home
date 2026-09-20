@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.117.1";
+const FH_VERSION = "0.117.2";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -1216,6 +1216,11 @@ class FaberHome extends HTMLElement {
         if (st.attributes.device_class !== "battery") return;
         const n = parseFloat(st.state);
         if (!isFinite(n) || n >= cfg.sogliaBatteria) return;
+        // Una batteria che non si aggiorna da due giorni non e una pila da
+        // cambiare: e un apparecchio morto o tolto, e resterebbe li in eterno
+        // a fare rumore (il tablet vecchio all'1% fermo da quattro giorni).
+        const eta = (Date.now() - new Date(st.last_updated || st.last_changed).getTime()) / 86400000;
+        if (!(eta < 2)) return;
         basse.push({ e, n, nome: st.attributes.friendly_name || e });
       });
       basse.sort((a, b) => a.n - b.n).slice(0, 3).forEach(b => out.push({
