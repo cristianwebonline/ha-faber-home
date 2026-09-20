@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.124.0";
+const FH_VERSION = "0.125.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -2727,7 +2727,8 @@ class FaberHome extends HTMLElement {
       // sparisca come scatola (piatta), se no restano una sopra l'altra. Le
       // righe gia fatte di colonne separate — le persone — non si toccano.
       const quadreImpilate = conQuadre && activeCols.some(c => (c.cards || []).length > 1);
-      const piatta = !this._edit && (n < colsToRender.length || totCards > n || isStanza || quadreImpilate);
+      const piatta = !this._edit && (n < colsToRender.length || totCards > n || isStanza || quadreImpilate ||
+        (row.riempi === false && n > 1));
       inner.classList.toggle("piatta", piatta);
       // Riga di sole Mini Card: sul tablet diventa una griglia fitta di tessere.
       const tessere = totCards > 0 && activeCols.every(c => (c.cards || []).every(cc => cc && cc.type === "custom:mini-card"));
@@ -2742,7 +2743,16 @@ class FaberHome extends HTMLElement {
         const colEl = document.createElement("div");
         colEl.className = "fh-col";
         // Se la riga ha solo una colonna attiva, prende tutte le tracce della riga
-        const quante = solaPiccola ? 1 : (!this._edit && activeCols.length <= 1) ? n : Math.min(col.span || 1, n);
+        // Di regola una card rimasta sola in una riga si allarga e si prende
+        // tutta la riga, se no resterebbe un buco. Ma a volte il buco lo si
+        // vuole: e il posto dove domani andra un'altra card, e intanto questa
+        // deve restare grande come le sue vicine della riga sopra (Cristian:
+        // "il congelatore fallo grande come le altre cosi rimane spazio per un
+        // eventuale elettrodomestico"). Si decide riga per riga, con la
+        // puntina "lascia il posto libero".
+        const quante = solaPiccola ? 1
+          : (!this._edit && activeCols.length <= 1 && row.riempi !== false) ? n
+          : Math.min(col.span || 1, n);
         if (!piatta) colEl.style.gridColumn = `span ${quante}`;
         colEl.dataset.col = ci;
         if (this._edit) colEl.appendChild(this._colToolsEl(ri, ci));
@@ -2917,6 +2927,10 @@ class FaberHome extends HTMLElement {
       ${this._btn(row.fissa ? "mdi:pin" : "mdi:pin-outline",
         row.fissa ? "Tenuta in cima: le nuove card non la scavalcano" : "Tieni questa riga in cima", "fissa")}
       ${this._btn("mdi:table-column-plus-after", "Aggiungi colonna", "addcol")}
+      ${this._btn(row.riempi === false ? "mdi:view-grid-outline" : "mdi:arrow-expand-horizontal",
+        row.riempi === false
+          ? "Il posto accanto resta libero: le card restano della loro misura"
+          : "Una card sola si allarga su tutta la riga", "riempi")}
       ${this._btn("mdi:arrow-up", "Sposta su", "up")}
       ${this._btn("mdi:arrow-down", "Sposta giu", "down")}
       ${this._btn("mdi:delete-outline", "Elimina riga", "del")}
@@ -2939,9 +2953,14 @@ class FaberHome extends HTMLElement {
       const sp = el.querySelector('[data-act="fissa"]');
       if (sp) sp.classList.add("acceso");
     }
+    if (row.riempi === false) {
+      const sp = el.querySelector('[data-act="riempi"]');
+      if (sp) sp.classList.add("acceso");
+    }
     el.querySelectorAll("[data-act]").forEach(b => b.addEventListener("click", () => {
       const a = b.dataset.act;
       if (a === "fissa") rows[ri].fissa = !rows[ri].fissa;
+      else if (a === "riempi") rows[ri].riempi = rows[ri].riempi === false ? true : false;
       else if (a === "addcol") rows[ri].cols.push({ span: 1, cards: [] });
       else if (a === "up" && ri > 0) { const [r] = rows.splice(ri, 1); rows.splice(ri - 1, 0, r); }
       else if (a === "down" && ri < rows.length - 1) { const [r] = rows.splice(ri, 1); rows.splice(ri + 1, 0, r); }
