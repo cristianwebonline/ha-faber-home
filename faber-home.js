@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.118.1";
+const FH_VERSION = "0.119.1";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -1226,6 +1226,98 @@ class FaberHome extends HTMLElement {
   // dispositivi che non rispondono).
   // =========================================================================
 
+  // =========================================================================
+  // AZIONI RAPIDE (la fila sopra la barra)
+  // Le cose che si fanno davvero — esco, buonanotte, apri il cancello — erano
+  // sparse in tessere diverse, e alcune in fondo allo scorrimento: sul
+  // telefono e il punto piu scomodo, il pollice non ci arriva. Qui stanno
+  // attaccate alla barra, dove la mano gia si trova.
+  // Stanno DENTRO il contenitore della barra apposta: l'altezza della barra e
+  // gia misurata e sottratta alla pagina, quindi accendendole o spegnendole lo
+  // spazio sotto si aggiusta da solo, senza numeri scritti a mano.
+  // =========================================================================
+  _azioniCfg() {
+    const a = this._cfg.azioni || {};
+    return {
+      attive: !!a.attive,
+      dove: a.dove || "prima",
+      voci: Array.isArray(a.voci) ? a.voci : [],
+    };
+  }
+
+  _azioniVisibili() {
+    const c = this._azioniCfg();
+    if (!c.attive || this._edit || !c.voci.length) return [];
+    if (c.dove !== "tutte" && this._page !== 0) return [];
+    return c.voci;
+  }
+
+  _azioniHTML() {
+    const voci = this._azioniVisibili();
+    if (!voci.length) return "";
+    return `<div class="fh-azioni"><div class="fh-azriga">${voci.map((v, i) => {
+      const acceso = this._azioneAccesa(v);
+      return `<button type="button" class="fh-az${acceso ? " on" : ""}" data-az="${i}">
+        <span class="fh-azico"><ha-icon icon="${fhEsc(v.icona || "mdi:gesture-tap-button")}"></ha-icon></span>
+        <span class="fh-aztxt">${fhEsc(v.testo || "")}</span>
+      </button>`;
+    }).join("")}</div></div>`;
+  }
+
+  // Un interruttore mostra se e acceso; una scena o uno script non hanno uno
+  // stato da mostrare, e restano spenti.
+  _azioneAccesa(v) {
+    if ((v.tipo || "entita") !== "entita" || !v.target) return false;
+    const st = this._hass && this._hass.states[v.target];
+    return !!st && !this._attSpento(st.state);
+  }
+
+  _fallAzione(v) {
+    const h = this._hass;
+    if (!h || !v) return;
+    fhVibra(12);
+    const tipo = v.tipo || "entita";
+    const t = v.target || "";
+    if (tipo === "pagina") {
+      const i = (this._cfg.pages || []).findIndex(p => p.id === t);
+      if (i >= 0) this._vaiPagina(i);
+      return;
+    }
+    if (tipo === "link") {
+      if (!t) return;
+      if (t.startsWith("/")) {
+        history.pushState(null, "", t);
+        window.dispatchEvent(new CustomEvent("location-changed", { bubbles: true, composed: true }));
+      } else window.open(t, "_blank", "noopener");
+      return;
+    }
+    if (!t) return;
+    if (tipo === "scena") h.callService("scene", "turn_on", { entity_id: t });
+    else if (tipo === "script") h.callService("script", "turn_on", { entity_id: t });
+    else if (tipo === "automazione") h.callService("automation", "trigger", { entity_id: t });
+    else h.callService("homeassistant", "toggle", { entity_id: t });
+  }
+
+  _wireAzioni(nav) {
+    nav.querySelectorAll("[data-az]").forEach(b => b.addEventListener("click", e => {
+      e.stopPropagation();
+      const v = this._azioniCfg().voci[parseInt(b.dataset.az, 10)];
+      this._fallAzione(v);
+      // L'acceso/spento si vede subito, senza aspettare il giro di stato.
+      setTimeout(() => this._aggiornaAzioni(), 400);
+    }));
+  }
+
+  _aggiornaAzioni() {
+    const riga = this.querySelector(".fh-azriga");
+    if (!riga) return;
+    const voci = this._azioniVisibili();
+    riga.querySelectorAll("[data-az]").forEach(b => {
+      const v = voci[parseInt(b.dataset.az, 10)];
+      b.classList.toggle("on", !!v && this._azioneAccesa(v));
+    });
+  }
+
   _attenzioneCfg() {
     const a = this._cfg.attenzione || {};
     return {
@@ -2137,7 +2229,8 @@ class FaberHome extends HTMLElement {
     // elemento appena creato non ha da dove partire, e il cerchio saltava.
     const firma = voci.map(({ pg: p }) =>
       [p.id, p.title || "", p.icon || "", p.nascosta ? 1 : 0].join("~")).join("|") +
-      "||" + (conStanze ? "S" : "-") + (modoStanza ? "m" : "-") + (this._edit ? "e" : "-");
+      "||" + (conStanze ? "S" : "-") + (modoStanza ? "m" : "-") + (this._edit ? "e" : "-") +
+      "||" + this._azioniVisibili().map(v => (v.icona || "") + "~" + (v.testo || "")).join("|");
 
     const bloboVecchio = nav.querySelector("[data-blob]");
     const xPrima = (bloboVecchio && bloboVecchio.style.transform) || this._blobX || "";
@@ -2145,7 +2238,7 @@ class FaberHome extends HTMLElement {
       // Il cerchio ambra sta FUORI dalla barra che scorre: quando le voci sono
       // tante la barra diventa un contenitore a scorrimento, e un contenitore
       // a scorrimento taglia tutto quello che sporge — cerchio compreso.
-      nav.innerHTML = `<div class="fh-navwrap">
+      nav.innerHTML = this._azioniHTML() + `<div class="fh-navwrap">
         <span class="fh-blob" data-blob><ha-icon data-blobicon></ha-icon></span>
         <div class="fh-navbar">${voci.map(({ pg: p, i }) =>
         `<button type="button" class="fh-navitem${p.nascosta && !modoStanza ? " nascosta" : ""}" data-page="${i}">
@@ -2195,6 +2288,7 @@ class FaberHome extends HTMLElement {
         void b.offsetWidth;
         b.style.transition = "";
       }
+      this._wireAzioni(nav);
       this._navFirma = firma;
       this._navNuova = !xPrima;
     }
@@ -4799,6 +4893,8 @@ class FaberHome extends HTMLElement {
       const ap = this._cfg.appearance, at = ap.autoTheme, pb = ap.pageBackground, h = this._cfg.header;
       const att = this._attenzioneCfg();
       const sal = this._salutoCfg();
+      const azi = this._azioniCfg();
+      const domAz = { entita: "", scena: "scene.", script: "script.", automazione: "automation." };
       box.innerHTML = `
         <div class="fh-sgroup">Aspetto</div>
         <label class="fh-slab">Giorno o notte</label>
@@ -4983,6 +5079,49 @@ class FaberHome extends HTMLElement {
           </div>`).join("")}
         <button type="button" class="fh-btn primary" id="attAdd">+ Aggiungi una regola</button>
 
+        <div class="fh-sgroup">Azioni rapide</div>
+        <div class="fh-note">Tondi grossi appena sopra la barra in basso, dove arriva il pollice senza
+          spostare la mano. Se non ti servono, spegnile: lo spazio torna alla pagina da solo.</div>
+        <label class="fh-check"><input type="checkbox" id="azOn"${azi.attive ? " checked" : ""}>
+          Mostra le azioni rapide</label>
+        ${azi.attive ? `
+          <div class="fh-sfield"><label class="fh-slab">Dove</label>
+            <select class="fh-input" id="azDove">
+              <option value="prima"${azi.dove === "prima" ? " selected" : ""}>Solo nella Home</option>
+              <option value="tutte"${azi.dove === "tutte" ? " selected" : ""}>In tutte le pagine</option>
+            </select></div>
+          ${azi.voci.map((v, i) => `
+            <div class="fh-attrow" data-z="${i}">
+              <div class="fh-srow">
+                <div class="fh-sfield"><label class="fh-slab">Icona</label>
+                  <input class="fh-input" data-f="icona" value="${fhEsc(v.icona || "")}" placeholder="mdi:exit-run"></div>
+                <div class="fh-sfield"><label class="fh-slab">Scritta</label>
+                  <input class="fh-input" data-f="testo" value="${fhEsc(v.testo || "")}" placeholder="Esco"></div>
+              </div>
+              <div class="fh-sfield"><label class="fh-slab">Cosa fa</label>
+                <select class="fh-input" data-sel="tipo">
+                  ${[["entita", "Accende / spegne"], ["scena", "Lancia una scena"], ["script", "Lancia uno script"],
+                     ["automazione", "Fa partire un'automazione"], ["pagina", "Apre una pagina"], ["link", "Apre un indirizzo"]]
+                    .map(([k, et]) => `<option value="${k}"${(v.tipo || "entita") === k ? " selected" : ""}>${et}</option>`).join("")}
+                </select></div>
+              ${(v.tipo || "entita") === "pagina"
+                ? `<div class="fh-sfield"><label class="fh-slab">Pagina</label>
+                    <select class="fh-input" data-sel="target">
+                      <option value="">Scegli…</option>
+                      ${(this._cfg.pages || []).map(pg => `<option value="${fhEsc(pg.id)}"${v.target === pg.id ? " selected" : ""}>${fhEsc(pg.title || pg.id)}</option>`).join("")}
+                    </select></div>`
+                : (v.tipo === "link"
+                  ? `<div class="fh-sfield"><label class="fh-slab">Indirizzo</label>
+                      <input class="fh-input" data-f="target" value="${fhEsc(v.target || "")}" placeholder="/lovelace/…"></div>`
+                  : this._entityListHTML("stAz" + i, v.target, domAz[v.tipo || "entita"], "Cosa comanda"))}
+              <div class="fh-chiptools">
+                <button type="button" class="fh-tool" data-act="up"><ha-icon icon="mdi:arrow-up"></ha-icon></button>
+                <button type="button" class="fh-tool" data-act="down"><ha-icon icon="mdi:arrow-down"></ha-icon></button>
+                <button type="button" class="fh-tool" data-act="del"><ha-icon icon="mdi:delete-outline"></ha-icon></button>
+              </div>
+            </div>`).join("")}
+          <button type="button" class="fh-btn primary" id="azAdd">+ Aggiungi un'azione</button>` : ""}
+
         <div class="fh-sgroup">Chip</div>
         <div class="fh-note">Compaiono sotto l'orologio, su una riga che scorre. Cosa fanno al tocco lo scegli per ognuno: di serie mostrano le informazioni.</div>
         ${(h.chips || []).map((c, i) => `
@@ -5109,6 +5248,44 @@ class FaberHome extends HTMLElement {
         (a.ignoraBatterie || []).splice(parseInt(b.dataset.batvia, 10), 1);
         draw(); apply();
       }));
+
+      // --- Azioni rapide ---
+      const Z = () => (this._cfg.azioni = this._cfg.azioni || {});
+      const vociZ = () => { const a = Z(); a.voci = Array.isArray(a.voci) ? a.voci : []; return a.voci; };
+      q("#azOn").addEventListener("change", e => { Z().attive = e.target.checked; draw(); apply(); });
+      const azD = q("#azDove");
+      if (azD) azD.addEventListener("change", e => { Z().dove = e.target.value; apply(); });
+      const azA = q("#azAdd");
+      if (azA) azA.addEventListener("click", () => {
+        vociZ().push({ icona: "mdi:gesture-tap-button", testo: "Azione", tipo: "entita", target: "" });
+        draw(); apply();
+      });
+      box.querySelectorAll(".fh-attrow[data-z]").forEach(row => {
+        const i = parseInt(row.dataset.z, 10);
+        const v = vociZ()[i];
+        if (!v) return;
+        row.querySelectorAll("[data-f]").forEach(inp => inp.addEventListener("input", () => {
+          v[inp.dataset.f] = inp.value;
+          this._renderNav();
+        }));
+        const ent = row.querySelector("#stAz" + i);
+        if (ent) ent.addEventListener("change", e => { v.target = e.target.value.trim(); apply(); });
+        row.querySelectorAll("[data-sel]").forEach(sel => sel.addEventListener("change", () => {
+          const k = sel.dataset.sel;
+          v[k] = sel.value;
+          // Cambiando il tipo cambia anche cosa si sceglie sotto: pagina,
+          // indirizzo o entita di un dominio diverso.
+          if (k === "tipo") { v.target = ""; draw(); }
+          apply();
+        }));
+        row.querySelectorAll("[data-act]").forEach(b => b.addEventListener("click", () => {
+          const a = b.dataset.act, lista = vociZ();
+          if (a === "up" && i > 0) { const [x] = lista.splice(i, 1); lista.splice(i - 1, 0, x); }
+          else if (a === "down" && i < lista.length - 1) { const [x] = lista.splice(i, 1); lista.splice(i + 1, 0, x); }
+          else if (a === "del") lista.splice(i, 1);
+          draw(); apply();
+        }));
+      });
 
       // --- Saluto ---
       const S = () => { h.saluto = h.saluto || {}; return h.saluto; };
@@ -5284,6 +5461,7 @@ class FaberHome extends HTMLElement {
     this._aggiornaConsumo();
     this._aggiornaAttenzione();
     this._aggiornaSaluto();
+    this._aggiornaAzioni();
   }
 
   // Quali dispositivi del pannello non rispondono. Nessun elenco scritto a
@@ -6398,6 +6576,26 @@ const FH_CSS = `
   /* Il contenitore del cerchio deve restare largo quanto la barra intera: se
      diventa un flex, la barra si stringe sul contenuto e le parole si
      accorciano in "Sicur...". Resta un blocco, e la barra si centra da se. */
+  /* AZIONI RAPIDE: tondi grossi appena sopra la barra, nella zona che il
+     pollice raggiunge senza spostare la mano. Scorrono di lato se sono tante. */
+  .fh-azioni{pointer-events:auto;margin:0 auto 8px;max-width:min(560px,96vw)}
+  .fh-azriga{display:flex;gap:10px;justify-content:center;overflow-x:auto;padding:2px 4px 2px;
+    scrollbar-width:none;-ms-overflow-style:none;overscroll-behavior-x:contain}
+  .fh-azriga::-webkit-scrollbar{display:none}
+  .fh-az{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;gap:4px;width:64px;
+    border:none;background:none;padding:0;cursor:pointer;font:inherit;color:var(--fh-ink,#eaf1f8)}
+  .fh-azico{display:flex;align-items:center;justify-content:center;width:52px;height:52px;border-radius:50%;
+    background:var(--fh-panel,rgba(30,38,48,.78));border:1px solid var(--fh-stroke,rgba(255,255,255,.1));
+    backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+    box-shadow:0 8px 20px rgba(0,0,0,.28);transition:transform .15s ease,background .25s ease,border-color .25s ease}
+  .fh-az:active .fh-azico{transform:scale(.92)}
+  .fh-az ha-icon{--mdc-icon-size:25px}
+  .fh-aztxt{font-size:10px;font-weight:700;max-width:64px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .fh-az.on .fh-azico{background:linear-gradient(150deg,#ffc55c,#ffb020 55%,#e6890a);border-color:#ffb020;
+    box-shadow:0 8px 22px rgba(255,176,32,.42)}
+  .fh-az.on ha-icon{color:#1c1400}
+  @media (prefers-reduced-motion: reduce){ .fh-az:active .fh-azico{transform:none} }
+
   .fh-navwrap{position:relative;pointer-events:none}
   .fh-navbar{display:flex;align-items:flex-end;justify-content:space-around;gap:4px;
     max-width:560px;margin:0 auto;padding:8px 10px;pointer-events:auto;
