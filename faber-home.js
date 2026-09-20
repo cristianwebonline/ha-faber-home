@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.116.0";
+const FH_VERSION = "0.117.1";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -1127,6 +1127,160 @@ class FaberHome extends HTMLElement {
   }
 
   // =========================================================================
+  // SERVE QUALCOSA?
+  // La Home rispondeva a "com'e casa"; non rispondeva a "devo fare qualcosa?".
+  // Per saperlo bisognava leggere tutte le tessere una per una. Questa fascia
+  // dice SOLO cio che e fuori posto — e quando non c'e niente lo dice in una
+  // riga sola e si toglie di mezzo.
+  // Niente indovinelli: le regole le scrive Cristian (entita, quando, testo),
+  // piu due controlli automatici che si accendono a parte (batterie scariche e
+  // dispositivi che non rispondono).
+  // =========================================================================
+
+  _attenzioneCfg() {
+    const a = this._cfg.attenzione || {};
+    return {
+      attiva: a.attiva !== false,
+      dove: a.dove || "prima",            // "prima" = solo la Home, "tutte" = ogni pagina
+      tuttoOk: a.tuttoOk !== false,       // la riga verde quando non c'e niente
+      batterie: !!a.batterie,
+      sogliaBatteria: Number(a.sogliaBatteria != null ? a.sogliaBatteria : 15),
+      offline: !!a.offline,
+      voci: Array.isArray(a.voci) ? a.voci : [],
+    };
+  }
+
+  // Cosa vuol dire "spento" per una entita qualunque. Tenuto in un posto solo:
+  // una porta chiusa, una serratura chiusa e una presa spenta sono la stessa
+  // cosa — nulla da segnalare.
+  _attSpento(s) {
+    return ["off", "closed", "locked", "idle", "standby", "docked", "not_home",
+      "unavailable", "unknown", "", "0"].includes(String(s));
+  }
+
+  _attDa(st) {
+    const m = Math.max(0, Math.round((Date.now() - new Date(st.last_changed).getTime()) / 60000));
+    if (m < 60) return m + " min";
+    if (m < 2880) return Math.round(m / 60) + " ore";
+    return Math.round(m / 1440) + " giorni";
+  }
+
+  // Una regola: vale o non vale adesso. Torna null quando non c'e niente da
+  // dire, cosi chi chiama filtra senza sapere come e fatta la regola.
+  _voceAttenzione(v) {
+    const hass = this._hass;
+    if (!hass || !v || !v.entity) return null;
+    const st = hass.states[v.entity];
+    if (!st) return null;
+    const s = st.state;
+    const quando = v.quando || "acceso";
+    if (["unavailable", "unknown"].includes(s) && quando !== "stato") return null;
+    let vale;
+    if (quando === "spento") vale = this._attSpento(s);
+    else if (quando === "stato") vale = s === String(v.valore != null ? v.valore : "");
+    else if (quando === "sopra") vale = parseFloat(s) > parseFloat(v.valore);
+    else if (quando === "sotto") vale = parseFloat(s) < parseFloat(v.valore);
+    else vale = !this._attSpento(s);
+    if (!vale) return null;
+    // "da quanto": una luce accesa e normale, accesa da tre ore no.
+    const per = Number(v.per) || 0;
+    const da = this._attDa(st);
+    if (per > 0) {
+      const min = (Date.now() - new Date(st.last_changed).getTime()) / 60000;
+      if (!(min >= per)) return null;
+    }
+    const nome = st.attributes.friendly_name || v.entity;
+    const testo = String(v.testo || "{nome}: {stato}")
+      .replace(/\{nome\}/g, nome).replace(/\{stato\}/g, fhStateText ? fhStateText(st) : s)
+      .replace(/\{da\}/g, da);
+    return { testo, icona: v.icona || st.attributes.icon || "mdi:alert-circle-outline",
+      colore: v.colore || "ambra", ent: v.entity, vai: v.vai || "" };
+  }
+
+  _attenzioneDati() {
+    const cfg = this._attenzioneCfg();
+    const hass = this._hass;
+    const out = [];
+    if (!hass) return out;
+    cfg.voci.forEach((v, i) => {
+      const r = this._voceAttenzione(v);
+      if (r) { r.key = "v" + i; out.push(r); }
+    });
+    if (cfg.batterie) {
+      // Le tre piu scariche bastano: un elenco di dodici pile non lo legge
+      // nessuno, e la quarta la si vede domani.
+      const basse = [];
+      Object.keys(hass.states).forEach(e => {
+        if (!e.startsWith("sensor.")) return;
+        const st = hass.states[e];
+        if (st.attributes.device_class !== "battery") return;
+        const n = parseFloat(st.state);
+        if (!isFinite(n) || n >= cfg.sogliaBatteria) return;
+        basse.push({ e, n, nome: st.attributes.friendly_name || e });
+      });
+      basse.sort((a, b) => a.n - b.n).slice(0, 3).forEach(b => out.push({
+        key: "b:" + b.e, testo: b.nome.replace(/\s*batteria\s*/i, " ").trim() + " al " + Math.round(b.n) + "%",
+        icona: "mdi:battery-alert-variant-outline", colore: "ambra", ent: b.e, vai: "",
+      }));
+    }
+    if (cfg.offline) {
+      const g = this._dispositiviOffline();
+      const n = (g.offline || []).length;
+      if (n) out.push({
+        key: "off", colore: "rosso", icona: "mdi:lan-disconnect", ent: "", vai: "",
+        testo: n === 1 ? (g.offline[0].nome + " non risponde") : (n + " dispositivi non rispondono"),
+      });
+    }
+    return out;
+  }
+
+  _fasciaAttenzioneEl() {
+    const el = document.createElement("div");
+    el.className = "fh-att";
+    el.dataset.att = "1";
+    this._disegnaAttenzione(el);
+    return el;
+  }
+
+  _disegnaAttenzione(el) {
+    const cfg = this._attenzioneCfg();
+    const voci = this._attenzioneDati();
+    const firma = voci.map(v => v.key + "|" + v.testo).join("~") || "_ok_";
+    if (el.dataset.firma === firma) return;
+    el.dataset.firma = firma;
+    if (!voci.length) {
+      el.hidden = !cfg.tuttoOk;
+      el.innerHTML = cfg.tuttoOk
+        ? `<div class="fh-attok"><ha-icon icon="mdi:check-circle-outline"></ha-icon>Tutto in ordine</div>` : "";
+      return;
+    }
+    el.hidden = false;
+    el.innerHTML = `<div class="fh-attriga">${voci.map(v =>
+      `<button type="button" class="fh-attpill ${fhEsc(v.colore)}" data-att-ent="${fhEsc(v.ent)}" data-att-vai="${fhEsc(v.vai)}">
+        <ha-icon icon="${fhEsc(v.icona)}"></ha-icon><span>${fhEsc(v.testo)}</span>
+      </button>`).join("")}</div>`;
+    el.querySelectorAll("[data-att-ent]").forEach(b => b.addEventListener("click", () => {
+      fhVibra(8);
+      const vai = b.dataset.attVai, ent = b.dataset.attEnt;
+      if (vai) {
+        if (vai.startsWith("/")) {
+          history.pushState(null, "", vai);
+          window.dispatchEvent(new CustomEvent("location-changed", { bubbles: true, composed: true }));
+          return;
+        }
+        const i = (this._cfg.pages || []).findIndex(p => p.id === vai);
+        if (i >= 0) { this._vaiPagina(i); return; }
+      }
+      if (ent) this.dispatchEvent(new CustomEvent("hass-more-info", { bubbles: true, composed: true, detail: { entityId: ent } }));
+    }));
+  }
+
+  _aggiornaAttenzione() {
+    const el = this.querySelector("[data-att]");
+    if (el) this._disegnaAttenzione(el);
+  }
+
+  // =========================================================================
   // IL CONSUMO DELLA STANZA
   // Un numero in cima alla stanza che dice quanto sta tirando adesso, e che
   // cambia colore quando e troppo: e l'unica informazione che vuoi vedere
@@ -2193,6 +2347,12 @@ class FaberHome extends HTMLElement {
     // La fascia del consumo sta SOPRA le card, non fra le card: e la prima
     // cosa che si vede entrando nella stanza, e non deve dipendere da come
     // Cristian ha disposto il resto.
+    // "Serve qualcosa?" sta SOPRA tutto, consumo compreso: e la prima riga
+    // che si legge entrando, e spesso l'unica che serve.
+    const att = this._attenzioneCfg();
+    if (att.attiva && page && (att.dove === "tutte" || this._page === 0)) {
+      main.appendChild(this._fasciaAttenzioneEl());
+    }
     if (page && this._consumoCfg(page).attiva) main.appendChild(this._fasciaConsumoEl(page));
 
     if (!page || !page.rows || !page.rows.length) {
@@ -4541,6 +4701,7 @@ class FaberHome extends HTMLElement {
     const box = document.createElement("div");
     const draw = () => {
       const ap = this._cfg.appearance, at = ap.autoTheme, pb = ap.pageBackground, h = this._cfg.header;
+      const att = this._attenzioneCfg();
       box.innerHTML = `
         <div class="fh-sgroup">Aspetto</div>
         <label class="fh-slab">Giorno o notte</label>
@@ -4640,6 +4801,67 @@ class FaberHome extends HTMLElement {
         ${this._entityListHTML("stTemp", h.temperature, "sensor.", "Temperatura mostrata", "temperature")}
         <label class="fh-check"><input type="checkbox" id="stSec"${h.seconds ? " checked" : ""}>
           Mostra anche i secondi nell'orologio</label>
+
+        <div class="fh-sgroup">Serve qualcosa?</div>
+        <div class="fh-note">La riga in cima che elenca <b>solo</b> quello che e fuori posto. Le regole le scrivi tu:
+          entita, quando vale, e cosa deve dire. Nel testo puoi usare <b>{nome}</b>, <b>{stato}</b> e <b>{da}</b>
+          (da quanto tempo), per esempio "Luce giardino accesa da {da}".</div>
+        <label class="fh-check"><input type="checkbox" id="attOn"${att.attiva ? " checked" : ""}>
+          Mostra la riga</label>
+        <label class="fh-check"><input type="checkbox" id="attOk"${att.tuttoOk ? " checked" : ""}>
+          Quando non c'e niente scrivi "Tutto in ordine"</label>
+        <div class="fh-sfield"><label class="fh-slab">Dove</label>
+          <select class="fh-input" id="attDove">
+            <option value="prima"${att.dove === "prima" ? " selected" : ""}>Solo nella Home</option>
+            <option value="tutte"${att.dove === "tutte" ? " selected" : ""}>In tutte le pagine</option>
+          </select></div>
+        <label class="fh-check" style="margin-top:10px"><input type="checkbox" id="attBat"${att.batterie ? " checked" : ""}>
+          Batterie scariche (le tre piu basse)</label>
+        ${att.batterie ? `<div class="fh-sfield"><label class="fh-slab">Sotto il</label>
+          <input class="fh-input" id="attBatS" type="number" min="1" max="100" value="${att.sogliaBatteria}"></div>` : ""}
+        <label class="fh-check"><input type="checkbox" id="attOff"${att.offline ? " checked" : ""}>
+          Dispositivi che non rispondono</label>
+        ${att.voci.map((v, i) => `
+          <div class="fh-attrow" data-a="${i}">
+            <div class="fh-srow">
+              <div class="fh-sfield"><label class="fh-slab">Icona</label>
+                <input class="fh-input" data-f="icona" value="${fhEsc(v.icona || "")}" placeholder="mdi:alert"></div>
+              <div class="fh-sfield"><label class="fh-slab">Testo</label>
+                <input class="fh-input" data-f="testo" value="${fhEsc(v.testo || "")}" placeholder="{nome} da {da}"></div>
+            </div>
+            ${this._entityListHTML("stAtt" + i, v.entity, "", "Entita")}
+            <div class="fh-srow">
+              <div class="fh-sfield"><label class="fh-slab">Quando</label>
+                <select class="fh-input" data-sel="quando">
+                  ${[["acceso", "E acceso / aperto"], ["spento", "E spento / chiuso"], ["stato", "E in uno stato preciso"],
+                     ["sopra", "E sopra un valore"], ["sotto", "E sotto un valore"]]
+                    .map(([k, et]) => `<option value="${k}"${(v.quando || "acceso") === k ? " selected" : ""}>${et}</option>`).join("")}
+                </select></div>
+              ${["stato", "sopra", "sotto"].includes(v.quando || "acceso") ? `<div class="fh-sfield">
+                <label class="fh-slab">Valore</label>
+                <input class="fh-input" data-f="valore" value="${fhEsc(String(v.valore == null ? "" : v.valore))}"></div>` : ""}
+              <div class="fh-sfield"><label class="fh-slab">Da almeno (min)</label>
+                <input class="fh-input" data-f="per" type="number" min="0" value="${Number(v.per) || 0}"></div>
+            </div>
+            <div class="fh-srow">
+              <div class="fh-sfield"><label class="fh-slab">Colore</label>
+                <select class="fh-input" data-sel="colore">
+                  ${[["ambra", "Ambra"], ["rosso", "Rosso"], ["blu", "Blu"], ["verde", "Verde"]]
+                    .map(([k, et]) => `<option value="${k}"${(v.colore || "ambra") === k ? " selected" : ""}>${et}</option>`).join("")}
+                </select></div>
+              <div class="fh-sfield"><label class="fh-slab">Al tocco va a</label>
+                <select class="fh-input" data-sel="vai">
+                  <option value="">Mostra le informazioni</option>
+                  ${(this._cfg.pages || []).map(pg => `<option value="${fhEsc(pg.id)}"${v.vai === pg.id ? " selected" : ""}>${fhEsc(pg.title || pg.id)}</option>`).join("")}
+                </select></div>
+            </div>
+            <div class="fh-chiptools">
+              <button type="button" class="fh-tool" data-act="up"><ha-icon icon="mdi:arrow-up"></ha-icon></button>
+              <button type="button" class="fh-tool" data-act="down"><ha-icon icon="mdi:arrow-down"></ha-icon></button>
+              <button type="button" class="fh-tool" data-act="del"><ha-icon icon="mdi:delete-outline"></ha-icon></button>
+            </div>
+          </div>`).join("")}
+        <button type="button" class="fh-btn primary" id="attAdd">+ Aggiungi una regola</button>
 
         <div class="fh-sgroup">Chip</div>
         <div class="fh-note">Compaiono sotto l'orologio, su una riga che scorre. Cosa fanno al tocco lo scegli per ognuno: di serie mostrano le informazioni.</div>
@@ -4744,6 +4966,48 @@ class FaberHome extends HTMLElement {
       q("#stWeatherNow").addEventListener("change", e => { h.weather_attuale = e.target.value.trim(); apply(); });
       q("#stTemp").addEventListener("change", e => { h.temperature = e.target.value.trim(); this._updateLive(); });
       q("#stSec").addEventListener("change", e => { h.seconds = e.target.checked; this._startClock(); });
+      // --- Serve qualcosa? ---
+      const A = () => (this._cfg.attenzione = this._cfg.attenzione || {});
+      const vociA = () => { const a = A(); a.voci = Array.isArray(a.voci) ? a.voci : []; return a.voci; };
+      q("#attOn").addEventListener("change", e => { A().attiva = e.target.checked; apply(); });
+      q("#attOk").addEventListener("change", e => { A().tuttoOk = e.target.checked; apply(); });
+      q("#attDove").addEventListener("change", e => { A().dove = e.target.value; apply(); });
+      q("#attBat").addEventListener("change", e => { A().batterie = e.target.checked; draw(); apply(); });
+      const bs = q("#attBatS");
+      if (bs) bs.addEventListener("change", e => { A().sogliaBatteria = Math.max(1, parseInt(e.target.value, 10) || 15); apply(); });
+      q("#attOff").addEventListener("change", e => { A().offline = e.target.checked; apply(); });
+      q("#attAdd").addEventListener("click", () => {
+        vociA().push({ entity: "", quando: "acceso", testo: "{nome} da {da}", icona: "mdi:alert-circle-outline", colore: "ambra", per: 0 });
+        A().attiva = true;
+        draw(); apply();
+      });
+      box.querySelectorAll(".fh-attrow").forEach(row => {
+        const i = parseInt(row.dataset.a, 10);
+        const v = vociA()[i];
+        if (!v) return;
+        row.querySelectorAll("[data-f]").forEach(inp => inp.addEventListener("input", () => {
+          const k = inp.dataset.f;
+          v[k] = k === "per" ? (parseInt(inp.value, 10) || 0) : inp.value;
+          this._aggiornaAttenzione();
+        }));
+        const ent = row.querySelector("#stAtt" + i);
+        if (ent) ent.addEventListener("change", e => { v.entity = e.target.value.trim(); this._aggiornaAttenzione(); });
+        row.querySelectorAll("[data-sel]").forEach(sel => sel.addEventListener("change", () => {
+          const k = sel.dataset.sel;
+          if (sel.value) v[k] = sel.value; else delete v[k];
+          // Cambiando "quando" compare (o sparisce) il campo del valore.
+          if (k === "quando") draw();
+          this._aggiornaAttenzione();
+        }));
+        row.querySelectorAll("[data-act]").forEach(b => b.addEventListener("click", () => {
+          const a = b.dataset.act, lista = vociA();
+          if (a === "up" && i > 0) { const [x] = lista.splice(i, 1); lista.splice(i - 1, 0, x); }
+          else if (a === "down" && i < lista.length - 1) { const [x] = lista.splice(i, 1); lista.splice(i + 1, 0, x); }
+          else if (a === "del") lista.splice(i, 1);
+          draw(); apply();
+        }));
+      });
+
       q("#stAddChip").addEventListener("click", () => {
         h.chips.push({ entity: "", icon: "mdi:lightbulb", label: "" }); draw(); this._updateLive();
       });
@@ -4875,6 +5139,7 @@ class FaberHome extends HTMLElement {
     }
     this._updateChips();
     this._aggiornaConsumo();
+    this._aggiornaAttenzione();
   }
 
   // Quali dispositivi del pannello non rispondono. Nessun elenco scritto a
@@ -6136,6 +6401,38 @@ const FH_CSS = `
     background:linear-gradient(135deg,rgba(255,176,32,.42),rgba(255,176,32,.22));
     color:var(--fh-ink,#eaf1f8)}
   .fh-sheet .fh-btn.primary{color:var(--primary-text-color)}
+  /* SERVE QUALCOSA?
+     Pastiglie su una riga che scorre, come le chip dell'intestazione: il
+     colore dice la gravita senza leggere. Quando non c'e niente resta una
+     riga verde bassa, che si nota appena - e proprio quello il messaggio. */
+  .fh-att{margin:0 0 12px}
+  .fh-attriga{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;-ms-overflow-style:none;
+    padding-bottom:2px;-webkit-overflow-scrolling:touch;overscroll-behavior-x:contain;
+    -webkit-mask-image:linear-gradient(90deg,transparent 0,#000 10px,#000 calc(100% - 18px),transparent 100%);
+    mask-image:linear-gradient(90deg,transparent 0,#000 10px,#000 calc(100% - 18px),transparent 100%)}
+  .fh-attriga::-webkit-scrollbar{display:none}
+  .fh-attpill{flex:0 0 auto;display:flex;align-items:center;gap:7px;max-width:82vw;
+    padding:9px 14px 9px 11px;border-radius:999px;cursor:pointer;font:inherit;font-size:12.5px;font-weight:700;
+    color:var(--fh-ink,#eaf1f8);border:1px solid var(--fh-stroke,rgba(255,255,255,.12));
+    background:var(--fh-panel,rgba(30,38,48,.72));
+    backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+  .fh-attpill span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .fh-attpill ha-icon{--mdc-icon-size:19px;flex:0 0 auto}
+  .fh-attpill.rosso{border-color:rgba(255,84,66,.55);background:rgba(255,84,66,.14)}
+  .fh-attpill.rosso ha-icon{color:#ff7a6b}
+  .fh-attpill.ambra{border-color:rgba(255,176,32,.5);background:rgba(255,176,32,.13)}
+  .fh-attpill.ambra ha-icon{color:#ffb020}
+  .fh-attpill.blu{border-color:rgba(90,210,255,.45);background:rgba(90,210,255,.12)}
+  .fh-attpill.blu ha-icon{color:#5ad2ff}
+  .fh-attpill.verde{border-color:rgba(52,211,153,.45);background:rgba(52,211,153,.12)}
+  .fh-attpill.verde ha-icon{color:#34d399}
+  .fh-attok{display:flex;align-items:center;gap:7px;padding:7px 12px;border-radius:999px;width:fit-content;
+    font-size:11.5px;font-weight:700;color:#34d399;background:rgba(52,211,153,.10);
+    border:1px solid rgba(52,211,153,.28)}
+  .fh-attok ha-icon{--mdc-icon-size:17px}
+  .fh-attrow{display:flex;flex-direction:column;gap:8px;padding:10px;border-radius:14px;margin-bottom:8px;
+    border:1px solid var(--divider-color,rgba(127,127,127,.2));background:rgba(127,127,127,.06)}
+
   /* LA FASCIA DEL CONSUMO.
      Non e una card: e una riga sola, alta quanto basta, che cambia colore da
      sola. Il riempimento dietro cresce col consumo, cosi il colpo d'occhio
