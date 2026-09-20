@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.121.1";
+const FH_VERSION = "0.122.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -1659,7 +1659,8 @@ class FaberHome extends HTMLElement {
       const st = hass && hass.states[pwrTot];
       const w = getW(pwrTot);
       if (w != null) tot += w;
-      voci.push({ id: pwrTot, nome: "Totale stanza: " + this._nomeEnt(pwrTot), w, viva: !!st && w != null, isTot: true });
+      voci.push({ id: pwrTot, nome: (pg.stanza ? "Totale stanza: " : "Totale: ") + this._nomeEnt(pwrTot),
+        w, viva: !!st && w != null, isTot: true });
     }
 
     lista.forEach(e => {
@@ -1695,7 +1696,19 @@ class FaberHome extends HTMLElement {
     // bisogno di sapere di quanto hai sforato per capire che hai sforato.
     const q = Math.max(0, Math.min(1, d.tot / Math.max(1, d.cfg.alto)));
     el.style.setProperty("--fh-q", (q * 100).toFixed(1) + "%");
-    const primo = d.voci.find(v => (v.w || 0) > 0);
+    // QUANTO, non solo SE. Tre colori secchi dicevano "sotto, sopra, molto
+    // sopra" e basta: 520 W e 1400 W in cucina avevano la stessa faccia.
+    // Qui dentro ogni livello il colore cresce con quanto si sta consumando,
+    // cosi la fascia si vede scaldare mentre le cose si accendono invece di
+    // saltare da un gradino all'altro. La scala riparte a ogni livello: al
+    // fondo di quello nuovo il colore e gia il suo, appena accennato.
+    const att = Math.max(1, d.cfg.attenzione), alt = Math.max(att + 1, d.cfg.alto);
+    let intensita;
+    if (d.liv === "basso") intensita = d.tot / att;
+    else if (d.liv === "medio") intensita = (d.tot - att) / (alt - att);
+    else intensita = (d.tot - alt) / (alt * 0.5);
+    el.style.setProperty("--fh-int", Math.max(0, Math.min(1, intensita)).toFixed(2));
+    const primo = d.voci.find(v => (v.w || 0) > 0 && !v.isTot);
     el.innerHTML = `
       <span class="fh-cfill"></span>
       <span class="fh-cico"><ha-icon icon="mdi:flash"></ha-icon></span>
@@ -6936,17 +6949,25 @@ const FH_CSS = `
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .fh-consumo .fh-cgo{position:relative;opacity:.5}
   .fh-consumo .fh-cgo ha-icon{--mdc-icon-size:20px}
-  .fh-consumo.basso .fh-cfill{background:linear-gradient(90deg,rgba(52,211,153,.20),rgba(52,211,153,.05))}
-  .fh-consumo.basso .fh-cico{background:rgba(52,211,153,.18);color:#34d399}
-  .fh-consumo.medio{border-color:rgba(255,176,32,.5)}
-  .fh-consumo.medio .fh-cfill{background:linear-gradient(90deg,rgba(255,176,32,.30),rgba(255,176,32,.08))}
-  .fh-consumo.medio .fh-cico{background:rgba(255,176,32,.22);color:#ffb020}
+  /* --fh-int (0..1, scritta dal JS) e quanto si sta consumando DENTRO il
+     livello: il verde di 30 W non e il verde di 480 W, l'ambra di 1550 W non
+     e quella di 2800 W. */
+  .fh-consumo.basso .fh-cfill{background:linear-gradient(90deg,
+    rgba(52,211,153,calc(.10 + var(--fh-int,.5) * .18)),rgba(52,211,153,.04))}
+  .fh-consumo.basso .fh-cico{background:rgba(52,211,153,calc(.10 + var(--fh-int,.5) * .16));color:#34d399}
+  .fh-consumo.medio{border-color:rgba(255,176,32,calc(.32 + var(--fh-int,.5) * .36))}
+  .fh-consumo.medio .fh-cfill{background:linear-gradient(90deg,
+    rgba(255,176,32,calc(.16 + var(--fh-int,.5) * .26)),rgba(255,176,32,.06))}
+  .fh-consumo.medio .fh-cico{background:rgba(255,176,32,calc(.14 + var(--fh-int,.5) * .18));color:#ffb020}
   /* Sopra la soglia alta il bordo si accende e respira: un colore fermo lo si
      smette di vedere dopo due minuti, uno che pulsa no. */
-  .fh-consumo.alto{border-color:rgba(255,84,66,.65);box-shadow:0 0 0 1px rgba(255,84,66,.18),0 10px 26px rgba(255,84,66,.16);
+  .fh-consumo.alto{border-color:rgba(255,84,66,calc(.5 + var(--fh-int,.5) * .4));
+    box-shadow:0 0 0 1px rgba(255,84,66,calc(.12 + var(--fh-int,.5) * .16)),
+      0 10px calc(20px + var(--fh-int,.5) * 16px) rgba(255,84,66,calc(.12 + var(--fh-int,.5) * .18));
     animation:fhConsumoAllarme 2.6s ease-in-out infinite}
-  .fh-consumo.alto .fh-cfill{background:linear-gradient(90deg,rgba(255,84,66,.34),rgba(255,84,66,.10))}
-  .fh-consumo.alto .fh-cico{background:rgba(255,84,66,.24);color:#ff7a6b}
+  .fh-consumo.alto .fh-cfill{background:linear-gradient(90deg,
+    rgba(255,84,66,calc(.22 + var(--fh-int,.5) * .26)),rgba(255,84,66,.08))}
+  .fh-consumo.alto .fh-cico{background:rgba(255,84,66,calc(.16 + var(--fh-int,.5) * .2));color:#ff7a6b}
   @keyframes fhConsumoAllarme{
     0%,100%{box-shadow:0 0 0 1px rgba(255,84,66,.18),0 10px 26px rgba(255,84,66,.14)}
     50%{box-shadow:0 0 0 1px rgba(255,84,66,.40),0 12px 32px rgba(255,84,66,.28)}}
@@ -13213,7 +13234,16 @@ function fhFoglio(titolo, chiaro) {
     <div class="fhf-head"><b>${fhEsc(titolo)}</b><button type="button" class="fhf-x" data-x>✕</button></div>
     <div class="fhf-corpo" data-corpo></div></div>`;
   document.body.appendChild(scrim);
-  const chiudi = () => scrim.remove();
+  // Toccando "informazioni" su una voce si apre la scheda di Home Assistant.
+  // Quella scheda vive piu in basso di questo foglio, che sta in cima a tutto:
+  // restava nascosta sotto e sembrava che il tocco non avesse fatto niente.
+  // Il foglio si toglie di mezzo da solo appena parte la richiesta.
+  const viaPerScheda = () => chiudi();
+  const chiudi = () => {
+    window.removeEventListener("hass-more-info", viaPerScheda, true);
+    scrim.remove();
+  };
+  window.addEventListener("hass-more-info", viaPerScheda, true);
   scrim.addEventListener("click", e => { if (e.target === scrim) chiudi(); });
   scrim.querySelector("[data-x]").addEventListener("click", chiudi);
   return { scrim, corpo: scrim.querySelector("[data-corpo]"), chiudi, aperto: () => document.body.contains(scrim) };
