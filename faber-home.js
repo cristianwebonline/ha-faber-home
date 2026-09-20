@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.126.0";
+const FH_VERSION = "0.127.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -13820,6 +13820,7 @@ const FRB_RICAMBI = [
   { k: "sensor:mop_life_level", o: "sensor:mop_left_time", t: ["Panni"], i: "mdi:texture-box" },
   { k: "sensor:mop_pad_left", o: "sensor:mop_pad_time_left", t: ["Panni"], i: "mdi:texture-box" },
   { k: "sensor:dust_bag_life_level", o: "sensor:dust_bag_left_time", t: ["Sacchetto polvere"], i: "mdi:sack" },
+  { k: "sensor:dust_bag_life_level", o: "sensor:dust_bag_left_time", t: ["Sacchetto polvere"], i: "mdi:sack" },
   { k: "sensor:detergent_left", o: "sensor:detergent_time_left", t: ["Detersivo"], i: "mdi:bottle-tonic-outline" },
 ];
 // Cosa fanno le scene: il nome da solo ("Quando uscite") non dice le regole.
@@ -14192,12 +14193,25 @@ class FaberRobot extends HTMLElement {
   }
 
   // Le righe della base: panni, asciugatura, polvere, acqua, detersivo.
+  // I due robot raccontano la stessa cosa in due modi diversi, e tutti e due
+  // vanno letti:
+  //  - il Dreame ha un sensore che dice cosa sta facendo la base adesso
+  //    ("washing", "drying"), e il quando si ricava dallo storico;
+  //  - lo Xiaomi non ha quel sensore, ma manda un EVENTO ogni volta che
+  //    finisce un lavoro (panni lavati, panni asciutti, polvere svuotata) e
+  //    quell'evento porta con se l'ora esatta: piu preciso dello storico.
   _righeBase() {
     const out = [];
     const lavId = this._e("sensor:self_wash_base_status");
     const lav = lavId && this._hass.states[lavId];
-    const panno = this._st("sensor:mop_pad");
     const asciuga = this._st("sensor:dry_left_time");
+    // L'ora dell'ultimo evento: lo stato di un'entita "event" e il momento in
+    // cui e successo.
+    const quandoEv = k => {
+      const s = this._st(k);
+      const ms = s ? Date.parse(s.state) : NaN;
+      return isFinite(ms) ? ms : null;
+    };
 
     if (lav) {
       const s = String(lav.state);
@@ -14216,12 +14230,32 @@ class FaberRobot extends HTMLElement {
         out.push({ i: "mdi:weather-windy", c: a ? "#4ade80" : "#93a1b0", t: "Panni asciugati",
           s: a ? frbDa(a.fine) + (a.durata ? " \u00b7 " + (a.durata >= 60 ? Math.round(a.durata / 60) + " ore" : a.durata + " minuti") + " di asciugatura" : "") : mai });
       }
+    } else {
+      // Xiaomi: gli eventi della base.
+      const lavato = quandoEv("event:mop_wash_complete");
+      const asciutto = quandoEv("event:dry_complete");
+      if (lavato) out.push({ i: "mdi:water-sync", c: "#4ade80", t: "Panni lavati", s: frbDa(lavato) });
+      if (asciutto) {
+        // Asciugatura piu vecchia dell'ultimo lavaggio = i panni sono rimasti
+        // bagnati, ed e la cosa che porta i cattivi odori. Ma i panni si
+        // lavano anche DURANTE la pulizia, ogni tot metri quadri (39 volte in
+        // una settimana, su questo robot): appena finito e normale che
+        // l'asciugatura non sia ancora partita. Si avvisa solo dopo tre ore,
+        // se no la riga sarebbe arancione quasi sempre e non direbbe niente.
+        const bagnati = lavato && asciutto < lavato && (Date.now() - lavato) > 3 * 3600000;
+        out.push({ i: "mdi:weather-windy", c: bagnati ? "#ff8a3d" : "#4ade80", t: "Panni asciugati",
+          s: frbDa(asciutto) + (bagnati ? " \u00b7 dall'ultimo lavaggio non risulta asciugatura" : "") });
+      }
     }
+
+    // Il panno: il Dreame dice installed/removed, lo Xiaomi acceso/spento.
+    const panno = this._st("sensor:mop_pad") || this._st("binary_sensor:mop_status");
     if (panno) {
-      const su = /^inst/i.test(panno.state);
+      const su = /^(inst|on|vero|true)/i.test(String(panno.state));
       out.push({ i: "mdi:texture-box", c: su ? "#4ade80" : "#93a1b0", t: "Panno",
         s: su ? "montato sul robot" : "tolto" });
     }
+
     const svId = this._e("sensor:auto_empty_status");
     const sv = svId && this._hass.states[svId];
     if (sv) {
@@ -14233,16 +14267,28 @@ class FaberRobot extends HTMLElement {
         out.push({ i: "mdi:delete-empty-outline", c: v ? "#4ade80" : "#93a1b0", t: "Polvere svuotata",
           s: v ? frbDa(v.fine) : (this._baseStoria ? "mai, negli ultimi tre giorni" : "sto guardando\u2026") });
       }
+    } else {
+      const svuotato = quandoEv("event:dust_arrest_complete");
+      if (svuotato) out.push({ i: "mdi:delete-empty-outline", c: "#4ade80", t: "Polvere svuotata", s: frbDa(svuotato) });
     }
+
     const acqua = this._st("sensor:low_water_warning");
     if (acqua && !/no_warning|no warning|none/i.test(acqua.state)) {
       out.push({ i: "mdi:water-alert-outline", c: "#ff8a3d", t: "Acqua", s: "il serbatoio e da riempire" });
     }
-    const det = this._st("sensor:detergent_left");
+    const det = this._st("sensor:detergent_left") || this._st("sensor:detergent_left_level");
     if (det && isFinite(+det.state)) {
       const n = Math.round(+det.state);
       out.push({ i: "mdi:bottle-tonic-outline", c: n < 15 ? "#ff8a3d" : "#4ade80", t: "Detersivo",
         s: "ne resta il " + n + "%" });
+    }
+    // Il sacchetto della polvere: quando e pieno il robot non svuota piu, e
+    // te ne accorgi solo quando la spazzatura resta dentro.
+    const sac = this._st("sensor:dust_bag_life_level");
+    if (sac && isFinite(+sac.state)) {
+      const n = Math.round(+sac.state);
+      out.push({ i: "mdi:sack", c: n < 15 ? "#ff8a3d" : "#4ade80", t: "Sacchetto della polvere",
+        s: n <= 0 ? "pieno: va cambiato" : "ancora il " + n + "%" });
     }
     return out;
   }
