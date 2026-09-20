@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.128.0";
+const FH_VERSION = "0.129.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -13824,6 +13824,37 @@ function frbChiave(eid, pref) {
   else k = k.replace(/^xiaomi_[a-z]{2}_\d+_[a-z0-9]+_/, "");
   return eid.slice(0, i) + ":" + k.replace(/_[pae]_\d+_\d+$/, "");
 }
+// L'ASCIUGATURA E' PARTITA?
+// Il robot non ha un sensore che dice "sto asciugando": l'evento "asciugatura
+// finita" arriva due ore dopo. Ma il TASTO lo sa — in Home Assistant un
+// button si ricorda quando e stato premuto l'ultima volta — e la base dice da
+// quanti minuti sta lavorando. Cosi il tasto premuto si vede subito, invece
+// di far ricomparire "Asciugali adesso" come se non fosse successo niente
+// (Cristian: "mi dice fatto ma poi mi rimette asciuga adesso").
+function frbAsciugaOra(st) {
+  const b = st("button:start_dry") || st("button:manual_drying");
+  const ms = b ? Date.parse(b.state) : NaN;
+  if (!isFinite(ms)) return null;
+  // Quanto dura: lo dice il robot (2 ore di suo).
+  const d = st("select:drying_time") || st("number:drying_time");
+  let ore = parseFloat(String((d && d.state) || "")) || 2;
+  if (ore > 12) ore = ore / 60;              // se lo desse in minuti
+  const fine = ms + ore * 3600000;
+  if (Date.now() > fine) return null;
+  // Se la base dice che sta ferma, l'asciugatura e stata interrotta: non si
+  // continua a dire che sta lavorando quando non e vero.
+  const base = st("sensor:base_station_working_status");
+  if (base) {
+    try {
+      const j = JSON.parse(base.state);
+      if (j && Number(j.mode) === 0) return null;
+    } catch (e) { /* non e un json: si tiene buono il tasto */ }
+  }
+  const stop = st("sensor:self_wash_base_status");
+  if (stop && stop.state === "idle" && Date.now() - ms > 300000) return null;
+  return { da: ms, fine };
+}
+
 // COSA NON VA NEL ROBOT, detto da fuori.
 // La card lo sa gia, ma quando la card non e aperta non lo sa nessuno: la
 // riga "Serve qualcosa?" in cima alla Home deve poterlo chiedere senza
@@ -13851,7 +13882,8 @@ function frbGuai(hass, entityId, nome) {
   // Panni lavati e mai asciugati: dopo tre ore e il momento di dirlo.
   const lavato = quando("event:mop_wash_complete");
   const asciutto = quando("event:dry_complete");
-  if (lavato && (!asciutto || asciutto < lavato) && (Date.now() - lavato) > 3 * 3600000) {
+  const inCorso = frbAsciugaOra(st);
+  if (!inCorso && lavato && (!asciutto || asciutto < lavato) && (Date.now() - lavato) > 3 * 3600000) {
     out.push({ testo: chi + ": panni lavati " + frbDa(lavato) + " e mai asciugati",
       icona: "mdi:weather-windy", colore: "ambra", ent: (m["event:dry_complete"] || [])[0] || entityId,
       asciuga: (m["button:start_dry"] || m["button:manual_drying"] || [])[0] || "" });
@@ -14312,6 +14344,17 @@ class FaberRobot extends HTMLElement {
     }
   }
 
+  // L'asciugatura in corso: quando finisce, e il tasto per fermarla prima.
+  _rigaAsciugaOra(a) {
+    const ora = new Date(a.fine).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
+    const min = Math.max(1, Math.round((a.fine - Date.now()) / 60000));
+    const resta = min >= 60 ? Math.round(min / 60) + (Math.round(min / 60) === 1 ? " ora" : " ore") : min + " minuti";
+    const stop = this._e(this._k(["button:stop_dry", "button:stop_drying"]));
+    return { i: "mdi:weather-windy", c: "#ffb020", t: "Sta asciugando i panni",
+      s: "partita " + frbDa(a.da) + " \u00b7 finisce verso le " + ora + ", fra " + resta,
+      az: stop ? { e: stop, t: "Ferma" } : null };
+  }
+
   // Le righe della base: panni, asciugatura, polvere, acqua, detersivo.
   // I due robot raccontano la stessa cosa in due modi diversi, e tutti e due
   // vanno letti:
@@ -14322,6 +14365,7 @@ class FaberRobot extends HTMLElement {
   //    quell'evento porta con se l'ora esatta: piu preciso dello storico.
   _righeBase() {
     const out = [];
+    const asciugaOra = frbAsciugaOra(k => this._st(k));
     const lavId = this._e("sensor:self_wash_base_status");
     const lav = lavId && this._hass.states[lavId];
     const asciuga = this._st("sensor:dry_left_time");
@@ -14341,6 +14385,11 @@ class FaberRobot extends HTMLElement {
           ? " \u00b7 finisce fra " + Math.round(+asciuga.state / 60) + "h" : "";
         out.push({ i: s === "drying" ? "mdi:weather-windy" : "mdi:water-sync", c: "#ffb020",
           t: testo.charAt(0).toUpperCase() + testo.slice(1), s: "in questo momento" + resta });
+      } else if (asciugaOra) {
+        out.push(this._rigaAsciugaOra(asciugaOra));
+        const l = this._ultimoLavoro(lavId, ["washing"]);
+        if (l) out.push({ i: "mdi:water-sync", c: "#4ade80", t: "Panni lavati",
+          s: frbDa(l.fine) + (l.durata ? " \u00b7 " + l.durata + " minuti di lavaggio" : "") });
       } else {
         const l = this._ultimoLavoro(lavId, ["washing"]);
         const a = this._ultimoLavoro(lavId, ["drying"]);
@@ -14359,7 +14408,8 @@ class FaberRobot extends HTMLElement {
       const lavato = quandoEv("event:mop_wash_complete");
       const asciutto = quandoEv("event:dry_complete");
       if (lavato) out.push({ i: "mdi:water-sync", c: "#4ade80", t: "Panni lavati", s: frbDa(lavato) });
-      if (asciutto) {
+      if (asciugaOra) out.push(this._rigaAsciugaOra(asciugaOra));
+      else if (asciutto) {
         // Asciugatura piu vecchia dell'ultimo lavaggio = i panni sono rimasti
         // bagnati, ed e la cosa che porta i cattivi odori. Ma i panni si
         // lavano anche DURANTE la pulizia, ogni tot metri quadri (39 volte in
