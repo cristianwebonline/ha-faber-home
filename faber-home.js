@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.120.1";
+const FH_VERSION = "0.121.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -2630,15 +2630,28 @@ class FaberHome extends HTMLElement {
 
       const inner = document.createElement("div");
       inner.className = "fh-row";
-      const n = this._colonneRiga(row);
-      inner.style.setProperty("--fh-n", n);
       // In visualizzazione normale escludiamo le colonne vuote per non creare buchi
       const activeCols = (row.cols || []).filter(c => (c.cards || []).length > 0);
       const colsToRender = this._edit ? (row.cols || []) : activeCols;
       const totCards = activeCols.reduce((acc, c) => acc + (c.cards || []).length, 0);
+      // UNA CARD QUADRATA VALE MEZZA RIGA. Prima "quadrata" cambiava solo la
+      // forma: due tessere impilate nella stessa colonna restavano impilate,
+      // ognuna larga quanto la pagina, e quindi non diventavano nemmeno
+      // quadrate (una card larga 340 e alta 340 non ci sta). Se la riga ha una
+      // traccia sola si apre a due, cosi due quadrate si affiancano davvero.
+      // Le card NON quadrate della stessa riga restano larghe quanto la riga:
+      // il meteo sopra non si dimezza.
+      const conQuadre = activeCols.some(c => (c.cards || []).some(cc => this._isQuadra(cc)));
+      let n = this._colonneRiga(row);
+      if (!this._edit && conQuadre && totCards > 1 && n < 2) n = 2;
+      inner.style.setProperty("--fh-n", n);
       const isStanza = !!(page && (page.stanza || (page.rows && page.rows.length === 1 && totCards > 2)));
       // Appiattisce in griglia diretta per allineare perfettamente le card su ogni riga
-      const piatta = !this._edit && (n < colsToRender.length || totCards > n || isStanza);
+      // Le quadrate impilate nella STESSA colonna hanno bisogno che la colonna
+      // sparisca come scatola (piatta), se no restano una sopra l'altra. Le
+      // righe gia fatte di colonne separate — le persone — non si toccano.
+      const quadreImpilate = conQuadre && activeCols.some(c => (c.cards || []).length > 1);
+      const piatta = !this._edit && (n < colsToRender.length || totCards > n || isStanza || quadreImpilate);
       inner.classList.toggle("piatta", piatta);
       // Riga di sole Mini Card: sul tablet diventa una griglia fitta di tessere.
       const tessere = totCards > 0 && activeCols.every(c => (c.cards || []).every(cc => cc && cc.type === "custom:mini-card"));
@@ -2671,15 +2684,12 @@ class FaberHome extends HTMLElement {
           // una card larga due colonne si ritrovava stretta in una sola: era
           // il meteo che tornava verticale appena salvato, mentre in modifica
           // (dove il gruppo resta montato) si vedeva giusto.
-          if (piatta && quante > 1) slot.style.gridColumn = `span ${quante}`;
+          const isQuadra = this._isQuadra(cardCfg);
+          // La quadrata si prende una traccia sola: e questo che la mette
+          // accanto alla sua vicina invece che sotto.
+          if (piatta && quante > 1) slot.style.gridColumn = isQuadra ? "span 1" : `span ${quante}`;
           const h = this._altezzaCard(cardCfg);
           if (h) { slot.style.setProperty("--fh-h", h + "px"); slot.classList.add("fissa"); }
-          const isQuadra = cardCfg && (
-            cardCfg.fh_forma === "quadra" ||
-            cardCfg.forma === "quadrato" ||
-            cardCfg.forma_card === "quadrata" ||
-            cardCfg.taglia === "quadrata"
-          );
           if (isQuadra) {
             slot.classList.add("quadra");
             const cap = FH_QUADRA_CAP[cardCfg.grandezza] || (this._fasciaOra() !== "tel" ? 240 : null);
@@ -2714,6 +2724,19 @@ class FaberHome extends HTMLElement {
     });
     if (this._edit) main.appendChild(this._addRowEl());
     this._misuraQuadre();
+  }
+
+  // Quadrata puo arrivare da quattro chiavi diverse: la nostra (fh_forma), e
+  // quelle che certe card si scrivono da sole nel loro editor. Erano lette in
+  // un punto solo dentro il disegno della pagina; adesso serve anche prima,
+  // per decidere quante colonne aprire, quindi vivono qui.
+  _isQuadra(cfg) {
+    return !!cfg && (
+      cfg.fh_forma === "quadra" ||
+      cfg.forma === "quadrato" ||
+      cfg.forma_card === "quadrata" ||
+      cfg.taglia === "quadrata"
+    );
   }
 
   // Quanto e larga ogni casella quadrata, adesso: glielo si chiede dopo che
@@ -6178,6 +6201,29 @@ const FH_CSS = `
     min-height:0!important;box-sizing:border-box;border-radius:24px}
   .fh-slot.quadra ha-card{height:100%!important;width:100%!important;min-height:0!important;
     aspect-ratio:1 / 1!important;box-sizing:border-box;border-radius:24px!important;overflow:hidden!important}
+  /* LE TESSERE FABER DENTRO IL QUADRATO. Rifiuti, Automazioni, Cancello,
+     Spesa, Robot e compagnia sono costruite sopra .fht, che ha un'altezza
+     minima di 142px e cresce col testo: dentro un riquadro quadrato restava
+     della sua altezza e il quadrato non si chiudeva mai (Cristian: "se metto
+     quadrata non si fanno quadrate"). Qui .fht riempie il riquadro, e il suo
+     contenuto si stringe in proporzione invece di sfondarlo. Le misure sono
+     in percentuale del lato: a mezza riga sul telefono (~165px) o larghe come
+     la pagina, la tessera resta la stessa cosa, solo piu piccola. */
+  .fh-slot.quadra .fht{height:100%!important;width:100%!important;min-height:0!important;
+    box-sizing:border-box!important;overflow:hidden!important;
+    padding:clamp(9px,7%,16px)!important;gap:clamp(3px,2%,6px)!important;justify-content:space-between!important}
+  .fh-slot.quadra .fht-ic{width:clamp(28px,25%,42px)!important;height:clamp(28px,25%,42px)!important;
+    border-radius:clamp(9px,8%,14px)!important}
+  .fh-slot.quadra .fht-ic ha-icon{--mdc-icon-size:clamp(16px,14%,24px)!important}
+  .fh-slot.quadra .fht-pill{padding:3px 7px!important;font-size:clamp(8px,5%,10px)!important}
+  .fh-slot.quadra .fht-testo{min-height:0!important;gap:1px!important}
+  .fh-slot.quadra .fht-title{font-size:clamp(12px,8.5%,15px)!important}
+  .fh-slot.quadra .fht-stato{font-size:clamp(10.5px,7.5%,12.5px)!important}
+  .fh-slot.quadra .fht-sub{font-size:clamp(9px,6.5%,11px)!important;-webkit-line-clamp:2}
+  .fh-slot.quadra .fht-btns{margin-top:clamp(4px,3%,8px)!important}
+  .fh-slot.quadra .fht-btn{padding:clamp(5px,4%,8px) 4px!important;font-size:clamp(9.5px,6.5%,11.5px)!important;
+    border-radius:clamp(9px,8%,13px)!important}
+  .fh-slot.quadra .fht-btn ha-icon{--mdc-icon-size:clamp(14px,11%,17px)!important}
   .fh-slot.quadra .fp{aspect-ratio:1 / 1!important;height:100%!important;width:100%!important;
     box-sizing:border-box!important;display:flex!important;flex-direction:column!important;border-radius:24px!important;overflow:hidden!important}
   .fh-slot.quadra .fp-body{height:100%!important;width:100%!important;min-height:0!important;box-sizing:border-box!important;
