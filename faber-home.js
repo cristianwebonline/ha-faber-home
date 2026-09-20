@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.119.1";
+const FH_VERSION = "0.120.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -1236,6 +1236,67 @@ class FaberHome extends HTMLElement {
   // gia misurata e sottratta alla pagina, quindi accendendole o spegnendole lo
   // spazio sotto si aggiusta da solo, senza numeri scritti a mano.
   // =========================================================================
+  // =========================================================================
+  // SCORRERE DI LATO PER CAMBIARE PAGINA
+  // Il gesto che ci si aspetta da un'app. Due accortezze, se no da fastidio:
+  // 1. si decide DOPO qualche pixel se il dito sta andando di lato o in giu —
+  //    finche non e chiaro non si tocca niente, cosi lo scorrimento normale
+  //    della pagina resta intatto;
+  // 2. le cose che scorrono per conto loro (le chip, il radar della pioggia,
+  //    la fila delle azioni) si tengono il gesto: li dentro non si cambia
+  //    pagina.
+  // =========================================================================
+  _wireSwipe(main) {
+    if (!main || main.__swipe) return;
+    main.__swipe = true;
+    const scorrevoli = ".fh-chips,.fh-attriga,.fh-azriga,.fh-navbar,.fw-rvista,.frb-chips,.fh-stanzegrid,[data-noswipe]";
+    let x0 = 0, y0 = 0, t0 = 0, deciso = 0;  // 0 = non si sa, 1 = di lato, -1 = in giu
+    main.addEventListener("touchstart", e => {
+      if (e.touches.length !== 1) { deciso = -1; return; }
+      const dentro = e.target && e.target.closest && e.target.closest(scorrevoli);
+      deciso = dentro ? -1 : 0;
+      x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; t0 = Date.now();
+    }, { passive: true });
+    main.addEventListener("touchmove", e => {
+      if (deciso || e.touches.length !== 1) return;
+      const dx = e.touches[0].clientX - x0, dy = e.touches[0].clientY - y0;
+      if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
+      deciso = Math.abs(dx) > Math.abs(dy) * 1.4 ? 1 : -1;
+    }, { passive: true });
+    main.addEventListener("touchend", e => {
+      const era = deciso; deciso = -1;
+      if (era !== 1 || !this._swipeAttivo()) return;
+      const tocco = e.changedTouches && e.changedTouches[0];
+      if (!tocco) return;
+      const dx = tocco.clientX - x0;
+      if (Math.abs(dx) < 60 || Date.now() - t0 > 900) return;
+      this._paginaDiLato(dx < 0 ? 1 : -1);
+    }, { passive: true });
+  }
+
+  _swipeAttivo() {
+    if (this._edit) return false;
+    if (this.querySelector(".fh-scrim")) return false;   // c'e un foglio aperto
+    return (this._cfg.appearance || {}).swipe !== false;
+  }
+
+  _paginaDiLato(verso) {
+    const voci = this._pagineVisibili();
+    const qui = voci.findIndex(v => v.i === this._page);
+    if (qui < 0) return;
+    const dopo = voci[qui + verso];
+    if (!dopo) return;                      // ai due capi non si gira in tondo
+    const main = this.querySelector("[data-main]");
+    if (main) {
+      main.classList.remove("fh-entra-sx", "fh-entra-dx");
+      // si forza il riavvio dell'animazione, se no due strisciate di fila
+      // sembrano una sola
+      void main.offsetWidth;
+      main.classList.add(verso > 0 ? "fh-entra-dx" : "fh-entra-sx");
+    }
+    this._vaiPagina(dopo.i);
+  }
+
   _azioniCfg() {
     const a = this._cfg.azioni || {};
     return {
@@ -2525,6 +2586,7 @@ class FaberHome extends HTMLElement {
   async _renderPage() {
     const main = this.querySelector("[data-main]");
     if (!main) return;
+    this._wireSwipe(main);
     this._watchFascia();
     this._applySidebar();
     const page = this._cfg.pages[this._page];
@@ -4992,6 +5054,8 @@ class FaberHome extends HTMLElement {
           non vedono il temporale che c'e adesso. Per il cielo di adesso meglio uno che osserva, come
           OpenWeatherMap in modalita <b>current</b>. Se quello tace, si torna al primo.</span>
         ${this._entityListHTML("stTemp", h.temperature, "sensor.", "Temperatura mostrata", "temperature")}
+        <label class="fh-check"><input type="checkbox" id="stSwipe"${ap.swipe !== false ? " checked" : ""}>
+          Cambia pagina strisciando di lato</label>
         <label class="fh-check"><input type="checkbox" id="stSec"${h.seconds ? " checked" : ""}>
           Mostra anche i secondi nell'orologio</label>
 
@@ -5224,6 +5288,7 @@ class FaberHome extends HTMLElement {
       q("#stWeather").addEventListener("change", e => { h.weather = e.target.value.trim(); apply(); });
       q("#stWeatherNow").addEventListener("change", e => { h.weather_attuale = e.target.value.trim(); apply(); });
       q("#stTemp").addEventListener("change", e => { h.temperature = e.target.value.trim(); this._updateLive(); });
+      q("#stSwipe").addEventListener("change", e => { ap.swipe = e.target.checked; });
       q("#stSec").addEventListener("change", e => { h.seconds = e.target.checked; this._startClock(); });
       // --- Serve qualcosa? ---
       const A = () => (this._cfg.attenzione = this._cfg.attenzione || {});
@@ -6595,6 +6660,14 @@ const FH_CSS = `
     box-shadow:0 8px 22px rgba(255,176,32,.42)}
   .fh-az.on ha-icon{color:#1c1400}
   @media (prefers-reduced-motion: reduce){ .fh-az:active .fh-azico{transform:none} }
+
+  /* L'entrata della pagina nuova: viene dal lato da cui hai strisciato.
+     Solo un accenno, 140 millesimi: deve sembrare svelta, non una diapositiva. */
+  @keyframes fhEntraDx{from{opacity:.4;transform:translateX(22px)}to{opacity:1;transform:none}}
+  @keyframes fhEntraSx{from{opacity:.4;transform:translateX(-22px)}to{opacity:1;transform:none}}
+  .fh-entra-dx{animation:fhEntraDx .14s ease-out}
+  .fh-entra-sx{animation:fhEntraSx .14s ease-out}
+  @media (prefers-reduced-motion: reduce){ .fh-entra-dx,.fh-entra-sx{animation:none} }
 
   .fh-navwrap{position:relative;pointer-events:none}
   .fh-navbar{display:flex;align-items:flex-end;justify-content:space-around;gap:4px;
