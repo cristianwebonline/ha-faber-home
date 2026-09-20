@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.123.0";
+const FH_VERSION = "0.124.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -135,8 +135,31 @@ const FH_STATE_IT = {
   "locked": "Chiusa", "unlocked": "Aperta", "open": "Aperta", "closed": "Chiusa",
   "unavailable": "Non disponibile", "unknown": "—",
 };
+// UNA SERRATURA SBLOCCATA NON E' UNA PORTA APERTA. La tabella qui sopra e per
+// tutti i tipi di cosa, e traduceva "unlocked" con "Aperta": la porta blindata
+// girata ma accostata diventava "Porta aperta" nel chip e nella riga in cima
+// (Cristian: "effettivamente e sbloccata non aperta, cosi e ingannevole").
+// Sono due cose diverse e vanno dette diverse: la serratura si blocca, la
+// porta si apre. Stessa cosa per l'allarme, che in inglese non dice niente.
+const FH_STATE_LOCK = {
+  locked: "Chiusa a chiave", unlocked: "Sbloccata", open: "Aperta", opening: "Si apre",
+  locking: "Si chiude", unlocking: "Si sblocca", jammed: "Bloccata a meta",
+};
+const FH_STATE_ALLARME = {
+  disarmed: "Disinserito", armed_away: "Inserito · fuori casa", armed_home: "Inserito · in casa",
+  armed_night: "Inserito · notte", armed_vacation: "Inserito · vacanza",
+  armed_custom_bypass: "Inserito · parziale", arming: "Si sta inserendo…",
+  pending: "Conto alla rovescia…", triggered: "ALLARME IN CORSO", disarming: "Si sta spegnendo…",
+};
+const FH_APERTURE = ["door", "window", "opening", "garage_door"];
 function fhStateText(st) {
   if (!st) return "";
+  const dom = String(st.entity_id || "").split(".")[0];
+  if (dom === "lock" && FH_STATE_LOCK[st.state]) return FH_STATE_LOCK[st.state];
+  if (dom === "alarm_control_panel" && FH_STATE_ALLARME[st.state]) return FH_STATE_ALLARME[st.state];
+  if (dom === "binary_sensor" && FH_APERTURE.includes(st.attributes && st.attributes.device_class)) {
+    return st.state === "on" ? "Aperta" : "Chiusa";
+  }
   const t = FH_STATE_IT[st.state];
   if (t) return t;
   const u = st.attributes && st.attributes.unit_of_measurement;
@@ -1465,10 +1488,17 @@ class FaberHome extends HTMLElement {
         // a fare rumore (il tablet vecchio all'1% fermo da quattro giorni).
         const eta = (Date.now() - new Date(st.last_updated || st.last_changed).getTime()) / 86400000;
         if (!(eta < 2)) return;
-        basse.push({ e, n, nome: st.attributes.friendly_name || e });
+        // "Batteria all'1%" di che cosa? Il nome del sensore da solo puo
+        // essere una sigla (SM-T530): ci si aggiunge la stanza, quando
+        // Home Assistant la conosce, se no non si sa dove andare a guardare.
+        const area = this._areaEntita(e);
+        basse.push({ e, n, area: area ? this._nomeArea(area) : "",
+          nome: st.attributes.friendly_name || e });
       });
       basse.sort((a, b) => a.n - b.n).slice(0, 3).forEach(b => out.push({
-        key: "b:" + b.e, testo: b.nome.replace(/\s*batteria\s*/i, " ").trim() + " al " + Math.round(b.n) + "%",
+        key: "b:" + b.e,
+        testo: b.nome.replace(/\s*(batteria|battery level|battery)\s*/ig, " ").trim()
+          + (b.area ? " (" + b.area + ")" : "") + " al " + Math.round(b.n) + "%",
         icona: "mdi:battery-alert-variant-outline", colore: "ambra", ent: b.e, vai: "",
       }));
     }
@@ -2145,6 +2175,30 @@ class FaberHome extends HTMLElement {
           sotto: isPompa ? "Pompa in funzione" : isOn ? "Autoclave pronta" : "Autoclave",
           on: isOn,
           accent: isPompa ? "warn" : "",
+        });
+        return;
+      }
+      // L'ALLARME DI CASA. Con la chip generica sarebbe stato "spento" anche
+      // da inserito — "armed_away" non e fra gli stati che quella considera
+      // accesi — e avrebbe scritto la parola inglese. Qui ha la sua faccia:
+      // scudo aperto quando e giu, scudo chiuso quando e su, e rosso che
+      // lampeggia se e scattato.
+      if (chip.tipo === "allarme") {
+        const id = chip.entity || "alarm_control_panel.ialarm_xr";
+        const st = hass ? hass.states[id] : null;
+        const s = st ? st.state : "unavailable";
+        const su = String(s).startsWith("armed");
+        const inCorso = s === "triggered";
+        const inMoto = ["arming", "pending", "disarming"].includes(s);
+        out.push({
+          key: "allarme", tipo: "entita", target: id,
+          tocco: chip.tocco || "info", vai: chip.vai || "",
+          icon: chip.icon || (inCorso ? "mdi:shield-alert" : inMoto ? "mdi:shield-sync-outline"
+            : su ? "mdi:shield-lock" : "mdi:shield-off-outline"),
+          label: chip.label || "Allarme",
+          sotto: st ? fhStateText(st) : "Non risponde",
+          on: su || inCorso,
+          accent: inCorso ? "danger" : inMoto ? "warn" : "",
         });
         return;
       }
