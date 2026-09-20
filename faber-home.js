@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.117.2";
+const FH_VERSION = "0.118.1";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -960,6 +960,9 @@ class FaberHome extends HTMLElement {
     this._timer = setInterval(() => {
       const t = this.querySelector("[data-clock]"); if (t) t.textContent = this._timeText();
       const d = this.querySelector("[data-date]"); if (d) d.textContent = this._dateText();
+      // Il saluto cambia con l'ora del giorno, non con lo stato della casa:
+      // se non lo si rinfresca qui, alle 13 dice ancora "Buongiorno".
+      this._aggiornaSaluto();
     }, sec ? 1000 : 20000);
   }
   _timeText() {
@@ -970,6 +973,91 @@ class FaberHome extends HTMLElement {
   }
   _dateText() {
     return new Date().toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" });
+  }
+
+  // =========================================================================
+  // SALUTO E CONTESTO
+  // Sotto l'orologio c'era solo la data. Su un telefono quella riga puo dire
+  // le tre cose che si vorrebbero sapere senza toccare niente: che ora della
+  // giornata e, che tempo fa fuori, e se stasera c'e da fare qualcosa.
+  // I rifiuti NON si riconfigurano: si legge il calendario che e gia scritto
+  // nella card Rifiuti, con la stessa regola (prima delle 5 conta oggi, dopo
+  // conta domani sera).
+  // =========================================================================
+  _salutoCfg() {
+    const s = (this._cfg.header && this._cfg.header.saluto) || {};
+    return {
+      attivo: !!s.attivo,
+      nome: s.nome || "",
+      meteo: s.meteo !== false,
+      sole: s.sole !== false,
+      rifiuti: s.rifiuti !== false,
+    };
+  }
+
+  _rifiutiSaluto() {
+    let conf = null;
+    const gira = v => {
+      if (conf || !v) return;
+      if (Array.isArray(v)) { v.forEach(gira); return; }
+      if (typeof v === "object") {
+        if (v.type === "custom:faber-rifiuti" && v.calendario) { conf = v; return; }
+        Object.keys(v).forEach(k => gira(v[k]));
+      }
+    };
+    gira(this._cfg.pages);
+    if (!conf) return "";
+    const giorni = ["dom", "lun", "mar", "mer", "gio", "ven", "sab"];
+    const ora = new Date().getHours();
+    const d = new Date();
+    if (ora >= 5) d.setDate(d.getDate() + 1);
+    const testo = (conf.calendario || {})[giorni[d.getDay()]] || "";
+    if (!testo) return ora < 5 ? "" : "stasera niente rifiuti";
+    return (ora < 5 ? "stamattina passa " : "stasera esponi ") + String(testo).toLowerCase();
+  }
+
+  _salutoText() {
+    const c = this._salutoCfg();
+    if (!c.attivo) return "";
+    const hass = this._hass;
+    const h = new Date().getHours();
+    const parte = h < 5 ? "Buonanotte" : h < 13 ? "Buongiorno" : h < 18 ? "Buon pomeriggio" : h < 23 ? "Buonasera" : "Buonanotte";
+    const pezzi = [parte + (c.nome ? " " + c.nome : "")];
+    if (c.meteo && hass) {
+      const w = this._meteoAdesso();
+      const st = w && hass.states[w];
+      if (st) {
+        const gr = st.attributes.temperature;
+        // Di notte "sereno" diventa "notte serena": la funzione della card
+        // meteo lo sa gia fare, si riusa quella se c'e.
+        const stato = typeof fwStatoOra === "function" ? fwStatoOra(hass, st.state) : st.state;
+        const cond = FH_WEATHER_IT[stato] || FH_WEATHER_IT[st.state] || st.state;
+        pezzi.push((gr != null ? Math.round(gr) + "\u00b0, " : "") + String(cond).toLowerCase());
+      }
+    }
+    if (c.sole && hass && hass.states["sun.sun"]) {
+      const s = hass.states["sun.sun"];
+      const su = s.state === "above_horizon";
+      const q = su ? s.attributes.next_setting : s.attributes.next_rising;
+      const d = q ? new Date(q) : null;
+      if (d && !isNaN(d)) {
+        const p = v => String(v).padStart(2, "0");
+        pezzi.push((su ? "tramonto " : "alba ") + p(d.getHours()) + ":" + p(d.getMinutes()));
+      }
+    }
+    if (c.rifiuti) {
+      const r = this._rifiutiSaluto();
+      if (r) pezzi.push(r);
+    }
+    return pezzi.join(" \u00b7 ");
+  }
+
+  _aggiornaSaluto() {
+    const el = this.querySelector("[data-saluto]");
+    if (!el) return;
+    const testo = this._salutoText();
+    el.hidden = !testo;
+    if (el.textContent !== testo) el.textContent = testo;
   }
 
   // -------------------------------------------------------------------------
@@ -983,6 +1071,7 @@ class FaberHome extends HTMLElement {
             <div class="fh-clockbox">
               <div class="fh-clock" data-clock>${this._timeText()}</div>
               <div class="fh-date" data-date>${this._dateText()}</div>
+              <div class="fh-saluto" data-saluto></div>
             </div>
             <div class="fh-headicons">
             <button type="button" class="fh-ic" data-act="cfg" title="Impostazioni"><ha-icon icon="mdi:cog-outline"></ha-icon></button>
@@ -1145,6 +1234,7 @@ class FaberHome extends HTMLElement {
       tuttoOk: a.tuttoOk !== false,       // la riga verde quando non c'e niente
       batterie: !!a.batterie,
       sogliaBatteria: Number(a.sogliaBatteria != null ? a.sogliaBatteria : 15),
+      ignoraBatterie: Array.isArray(a.ignoraBatterie) ? a.ignoraBatterie : [],
       offline: !!a.offline,
       voci: Array.isArray(a.voci) ? a.voci : [],
     };
@@ -1210,8 +1300,9 @@ class FaberHome extends HTMLElement {
       // Le tre piu scariche bastano: un elenco di dodici pile non lo legge
       // nessuno, e la quarta la si vede domani.
       const basse = [];
+      const saltare = new Set(cfg.ignoraBatterie);
       Object.keys(hass.states).forEach(e => {
-        if (!e.startsWith("sensor.")) return;
+        if (!e.startsWith("sensor.") || saltare.has(e)) return;
         const st = hass.states[e];
         if (st.attributes.device_class !== "battery") return;
         const n = parseFloat(st.state);
@@ -4707,6 +4798,7 @@ class FaberHome extends HTMLElement {
     const draw = () => {
       const ap = this._cfg.appearance, at = ap.autoTheme, pb = ap.pageBackground, h = this._cfg.header;
       const att = this._attenzioneCfg();
+      const sal = this._salutoCfg();
       box.innerHTML = `
         <div class="fh-sgroup">Aspetto</div>
         <label class="fh-slab">Giorno o notte</label>
@@ -4824,8 +4916,31 @@ class FaberHome extends HTMLElement {
           Batterie scariche (le tre piu basse)</label>
         ${att.batterie ? `<div class="fh-sfield"><label class="fh-slab">Sotto il</label>
           <input class="fh-input" id="attBatS" type="number" min="1" max="100" value="${att.sogliaBatteria}"></div>` : ""}
+        ${att.batterie ? `<div class="fh-lab2" style="margin-top:6px">Batterie da non guardare
+            <small>quelle degli apparecchi a corrente: segnano 0% per sempre</small></div>
+          <div class="fh-tags">${att.ignoraBatterie.length
+            ? att.ignoraBatterie.map((e, i) => `<span class="fh-tag">${fhEsc(this._nomeEnt(e))}<button type="button" data-batvia="${i}">&times;</button></span>`).join("")
+            : `<div class="fh-note">Nessuna esclusa.</div>`}</div>
+          ${this._entityListHTML("attBatIgn", "", "sensor.", "Escludi una batteria", "battery")}
+          <button type="button" class="fh-btn" id="attBatAdd" style="margin-bottom:6px">Escludi questa</button>` : ""}
         <label class="fh-check"><input type="checkbox" id="attOff"${att.offline ? " checked" : ""}>
           Dispositivi che non rispondono</label>
+
+        <div class="fh-sgroup">Saluto</div>
+        <div class="fh-note">La riga sotto l'orologio: buongiorno/buonasera, che tempo fa fuori, a che ora
+          tramonta il sole e i rifiuti di stasera (letti dal calendario che hai gia scritto nella card Rifiuti).</div>
+        <label class="fh-check"><input type="checkbox" id="salOn"${sal.attivo ? " checked" : ""}>
+          Mostra il saluto</label>
+        ${sal.attivo ? `
+          <div class="fh-sfield"><label class="fh-slab">Come ti chiamo</label>
+            <input class="fh-input" id="salNome" value="${fhEsc(sal.nome)}" placeholder="Cristian"></div>
+          <label class="fh-check"><input type="checkbox" id="salMeteo"${sal.meteo ? " checked" : ""}>
+            Gradi e cielo di adesso</label>
+          <label class="fh-check"><input type="checkbox" id="salSole"${sal.sole ? " checked" : ""}>
+            Ora dell'alba o del tramonto</label>
+          <label class="fh-check"><input type="checkbox" id="salRif"${sal.rifiuti ? " checked" : ""}>
+            Rifiuti di stasera</label>
+          <div class="fh-note" style="margin-top:6px">Adesso direbbe: <b>${fhEsc(this._salutoText() || "—")}</b></div>` : ""}
         ${att.voci.map((v, i) => `
           <div class="fh-attrow" data-a="${i}">
             <div class="fh-srow">
@@ -4981,6 +5096,29 @@ class FaberHome extends HTMLElement {
       const bs = q("#attBatS");
       if (bs) bs.addEventListener("change", e => { A().sogliaBatteria = Math.max(1, parseInt(e.target.value, 10) || 15); apply(); });
       q("#attOff").addEventListener("change", e => { A().offline = e.target.checked; apply(); });
+      const bAdd = q("#attBatAdd");
+      if (bAdd) bAdd.addEventListener("click", () => {
+        const v = (q("#attBatIgn").value || "").trim();
+        if (!v.includes(".")) return;
+        const a = A(); a.ignoraBatterie = Array.isArray(a.ignoraBatterie) ? a.ignoraBatterie : [];
+        if (!a.ignoraBatterie.includes(v)) a.ignoraBatterie.push(v);
+        draw(); apply();
+      });
+      box.querySelectorAll("[data-batvia]").forEach(b => b.addEventListener("click", () => {
+        const a = A();
+        (a.ignoraBatterie || []).splice(parseInt(b.dataset.batvia, 10), 1);
+        draw(); apply();
+      }));
+
+      // --- Saluto ---
+      const S = () => { h.saluto = h.saluto || {}; return h.saluto; };
+      q("#salOn").addEventListener("change", e => { S().attivo = e.target.checked; draw(); this._aggiornaSaluto(); });
+      const sn = q("#salNome");
+      if (sn) sn.addEventListener("input", e => { S().nome = e.target.value; this._aggiornaSaluto(); });
+      [["salMeteo", "meteo"], ["salSole", "sole"], ["salRif", "rifiuti"]].forEach(([id, k]) => {
+        const el = q("#" + id);
+        if (el) el.addEventListener("change", e => { S()[k] = e.target.checked; draw(); this._aggiornaSaluto(); });
+      });
       q("#attAdd").addEventListener("click", () => {
         vociA().push({ entity: "", quando: "acceso", testo: "{nome} da {da}", icona: "mdi:alert-circle-outline", colore: "ambra", per: 0 });
         A().attiva = true;
@@ -5145,6 +5283,7 @@ class FaberHome extends HTMLElement {
     this._updateChips();
     this._aggiornaConsumo();
     this._aggiornaAttenzione();
+    this._aggiornaSaluto();
   }
 
   // Quali dispositivi del pannello non rispondono. Nessun elenco scritto a
@@ -5688,6 +5827,10 @@ const FH_CSS = `
   .fh-head{position:relative;z-index:1;display:flex;flex-direction:column;gap:10px;padding:18px 20px 8px}
   .fh-headtop{display:flex;align-items:flex-start;gap:14px}
   .fh-clockbox{flex:1;min-width:0}
+  /* Il saluto: due righe al massimo, tono sommesso. Non deve rubare la scena
+     all'orologio, deve solo essere li quando lo guardi. */
+  .fh-saluto{margin-top:5px;font-size:12px;font-weight:600;line-height:1.35;color:var(--fh-muted,#93a1b0);
+    max-width:min(560px,92%);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
   .fh-clock{font-size:clamp(34px,9vw,52px);font-weight:800;line-height:1;letter-spacing:-.02em;
     font-variant-numeric:tabular-nums}
   .fh-date{margin-top:4px;font-size:12.5px;font-weight:600;color:var(--fh-muted,#93a1b0);text-transform:capitalize}
