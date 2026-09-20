@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.122.0";
+const FH_VERSION = "0.123.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -1678,6 +1678,20 @@ class FaberHome extends HTMLElement {
     return { cfg, voci, tot, liv, proposta: !cfg.entita };
   }
 
+  // Il livello di consumo di una pagina e quanto ci sta dentro: lo usano sia
+  // la fascia in cima alla stanza sia le tessere dell'elenco Stanze, cosi
+  // dicono per forza la stessa cosa. Le soglie sono quelle della stanza, non
+  // un numero uguale per tutte: 1 kW in cucina e normale, in camera no.
+  _livelloConsumo(pg, watt) {
+    const c = this._consumoCfg(pg);
+    const att = Math.max(1, c.attenzione), alt = Math.max(att + 1, c.alto);
+    const liv = watt >= alt ? "alto" : watt >= att ? "medio" : "basso";
+    const grezza = liv === "alto" ? (watt - alt) / (alt * 0.5)
+      : liv === "medio" ? (watt - att) / (alt - att)
+      : watt / att;
+    return { liv, int: Math.max(0, Math.min(1, grezza)) };
+  }
+
   _fasciaConsumoEl(pg) {
     const el = document.createElement("button");
     el.type = "button";
@@ -1702,12 +1716,7 @@ class FaberHome extends HTMLElement {
     // cosi la fascia si vede scaldare mentre le cose si accendono invece di
     // saltare da un gradino all'altro. La scala riparte a ogni livello: al
     // fondo di quello nuovo il colore e gia il suo, appena accennato.
-    const att = Math.max(1, d.cfg.attenzione), alt = Math.max(att + 1, d.cfg.alto);
-    let intensita;
-    if (d.liv === "basso") intensita = d.tot / att;
-    else if (d.liv === "medio") intensita = (d.tot - att) / (alt - att);
-    else intensita = (d.tot - alt) / (alt * 0.5);
-    el.style.setProperty("--fh-int", Math.max(0, Math.min(1, intensita)).toFixed(2));
+    el.style.setProperty("--fh-int", this._livelloConsumo(pg, d.tot).int.toFixed(2));
     const primo = d.voci.find(v => (v.w || 0) > 0 && !v.isTot);
     el.innerHTML = `
       <span class="fh-cfill"></span>
@@ -4545,8 +4554,12 @@ class FaberHome extends HTMLElement {
       const watt = this._consumoDiPagina(p);
       const acc = this._contaAccesiPagina(p.id);
       const haConsumo = (watt > 0) || p.mostra_sempre_consumo || p.power || p.consumo_totale || (p.consumo && p.consumo.entita && p.consumo.entita.length);
-      return `<div class="fh-stanza${acc ? " viva" : ""}${ord ? " ord" : ""}${mod ? " mod-attiva" : ""}" data-vai="${i}"
-        style="--ritardo:${(k % 5) * 140}ms">
+      // Il colore del consumo anche qui: da questo elenco si vede tutta la
+      // casa in una schermata, ed e il posto dove una stanza che sta tirando
+      // troppo deve saltare all'occhio senza entrarci.
+      const lv = haConsumo ? this._livelloConsumo(p, watt) : null;
+      return `<div class="fh-stanza${acc ? " viva" : ""}${ord ? " ord" : ""}${mod ? " mod-attiva" : ""}${lv ? " c-" + lv.liv : ""}" data-vai="${i}"
+        style="--ritardo:${(k % 5) * 140}ms${lv ? ";--fh-int:" + lv.int.toFixed(2) : ""}">
         <button type="button" class="fh-stanzabtn-cfg" data-sensori="${i}" title="Modifica sensori temperatura e consumi">
           <ha-icon icon="mdi:tune-vertical"></ha-icon>
         </button>
@@ -6815,7 +6828,26 @@ const FH_CSS = `
   .fh-stanzadati i{font-style:normal;font-size:9.5px;font-weight:800;letter-spacing:.03em;opacity:.62}
   .fh-stanzametriche{display:flex;align-items:center;justify-content:center;gap:5px;flex-wrap:wrap;line-height:1.2}
   .fh-stanzametriche .fh-stemp{font-size:13px;font-weight:900}
-  .fh-stanzametriche .fh-swatt{font-size:10.5px;font-weight:800;color:var(--fh-c-warn,#ffb020);background:rgba(255,176,32,.14);padding:1px 5px;border-radius:5px}
+  .fh-stanzametriche .fh-swatt{font-size:10.5px;font-weight:800;color:var(--fh-c-warn,#ffb020);background:rgba(255,176,32,.14);padding:1px 5px;border-radius:5px;
+    transition:background .35s ease,color .35s ease}
+  /* IL CONSUMO SI VEDE DALL'ELENCO. Il numero dei watt era sempre ambra,
+     quindi 5 W in camera e 1,15 kW in cucina avevano lo stesso aspetto: il
+     colore non stava dicendo niente. Adesso il cartellino segue le soglie
+     della stanza — verde finche e il suo solito, ambra sopra l'attenzione,
+     rosso oltre — e il bordo della tessera si accende con lui, cosi la stanza
+     che sta tirando si riconosce senza leggere i numeri.
+     --fh-int e quanto e dentro il livello: il colore cresce con i watt. */
+  .fh-stanza.c-basso .fh-swatt{color:#34d399;background:rgba(52,211,153,calc(.10 + var(--fh-int,.5) * .14))}
+  .fh-stanza.c-medio .fh-swatt{color:#ffb020;background:rgba(255,176,32,calc(.16 + var(--fh-int,.5) * .26))}
+  .fh-stanza.c-medio{border-color:rgba(255,176,32,calc(.40 + var(--fh-int,.5) * .40))}
+  .fh-stanza.c-alto .fh-swatt{color:#ff8a7a;background:rgba(255,84,66,calc(.20 + var(--fh-int,.5) * .28))}
+  .fh-stanza.c-alto{border-color:rgba(255,84,66,calc(.55 + var(--fh-int,.5) * .40));
+    box-shadow:0 0 0 1px rgba(255,84,66,calc(.10 + var(--fh-int,.5) * .14)),
+      0 8px calc(16px + var(--fh-int,.5) * 14px) rgba(255,84,66,calc(.10 + var(--fh-int,.5) * .16))}
+  /* Di giorno il verde e l'ambra chiari sul bianco non si leggono. */
+  .fh-app.chiaro .fh-stanza.c-basso .fh-swatt{color:#0a6134;background:rgba(16,150,88,calc(.10 + var(--fh-int,.5) * .12))}
+  .fh-app.chiaro .fh-stanza.c-medio .fh-swatt{color:#7a4400;background:rgba(214,130,0,calc(.16 + var(--fh-int,.5) * .22))}
+  .fh-app.chiaro .fh-stanza.c-alto .fh-swatt{color:#8d1d10;background:rgba(214,60,40,calc(.16 + var(--fh-int,.5) * .24))}
   .fh-valbadge{display:inline-block;padding:3px 9px;border-radius:7px;background:rgba(255,255,255,.08);font-size:12.5px}
   /* L'alone si accende solo dove c'e qualcosa acceso: in un colpo d'occhio si
      vede dove sta consumando la casa. */
