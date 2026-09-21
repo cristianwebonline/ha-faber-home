@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.129.0";
+const FH_VERSION = "0.130.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -13824,6 +13824,55 @@ function frbChiave(eid, pref) {
   else k = k.replace(/^xiaomi_[a-z]{2}_\d+_[a-z0-9]+_/, "");
   return eid.slice(0, i) + ":" + k.replace(/_[pae]_\d+_\d+$/, "");
 }
+// I GUASTI DEI ROBOT XIAOMI, detti in italiano.
+// Il robot manda un numero e basta: "segnala il guasto 210030" non serve a
+// nessuno (Cristian: "non si capisce cos'e"). Questi sono i codici che si
+// conoscono; quelli che non si conoscono restano numeri, ma almeno si dice
+// che sono numeri che il robot non spiega, invece di far finta.
+const FRB_ERR_XIAOMI = {
+  "100001": "il sensore laser non vede: controlla che non sia sporco o coperto",
+  "100002": "sensore di caduta sporco o guasto",
+  "100003": "il paraurti e bloccato: liberalo e puliscilo",
+  "100005": "problema alla spazzola principale: controlla che non sia aggrovigliata",
+  "100006": "problema alla spazzola laterale",
+  "100008": "ruote sollevate: e alzato, su una soglia alta o fermo in base",
+  "100009": "problema al contenitore della polvere o al filtro",
+  "100015": "il supporto del panno e caduto",
+  "100022": "errore interno del robot",
+  "100026": "serbatoio dell'acqua pulita vuoto",
+  "100027": "serbatoio dell'acqua sporca pieno",
+  "100028": "problema al vassoio della base",
+  "100031": "non riesce a parlare con la base",
+  "100034": "detersivo finito",
+  "100038": "non riesce a tornare in base: la strada e bloccata",
+  "210005": "non e arrivato dove doveva: strada bloccata o porta chiusa",
+};
+function frbErrore(codice) {
+  const c = String(codice || "").trim();
+  if (!c || c === "0") return "";
+  return FRB_ERR_XIAOMI[c] || "";
+}
+
+// I GUASTI ATTIVI ADESSO. Il sensore "fault" resta appiccicato all'ultimo
+// codice visto anche quando il problema e passato (il robot camere e rimasto
+// a 210030 per un giorno intero, a robot fermo in base e funzionante): la
+// verita sta nell'altro sensore, quello che manda la lista dei guasti in
+// corso, e quando dice [0] vuol dire che va tutto bene.
+function frbGuastiOra(st) {
+  const ids = st("sensor:fault_ids");
+  if (ids) {
+    try {
+      const j = JSON.parse(ids.state);
+      const lista = (j && j.fault) || [];
+      return lista.map(String).filter(x => x && x !== "0");
+    } catch (e) { /* non e un json: si guarda il sensore normale */ }
+  }
+  const g = st("sensor:fault") || st("sensor:error");
+  if (!g) return [];
+  const s = String(g.state);
+  return /^(no_error|none|0|no_fault|nessun)/i.test(s) ? [] : [s];
+}
+
 // L'ASCIUGATURA E' PARTITA?
 // Il robot non ha un sensore che dice "sto asciugando": l'evento "asciugatura
 // finita" arriva due ore dopo. Ma il TASTO lo sa — in Home Assistant un
@@ -13898,10 +13947,13 @@ function frbGuai(hass, entityId, nome) {
     out.push({ testo: chi + ": manca l'acqua", icona: "mdi:water-alert-outline", colore: "ambra", ent: acqua.entity_id });
   }
   const g = st("sensor:fault") || st("sensor:error");
-  if (g && !/^(no_error|none|0|no_fault|nessun)/i.test(String(g.state))) {
-    out.push({ testo: chi + ": " + (g.attributes.description || "segnala il guasto " + g.state),
-      icona: "mdi:robot-vacuum-alert", colore: "rosso", ent: g.entity_id });
-  }
+  frbGuastiOra(st).forEach(cod => {
+    const spiegato = frbErrore(cod) || (g && g.attributes.description) || "";
+    out.push({
+      testo: chi + ": " + (spiegato || "guasto che non so tradurre (codice " + cod + ")"),
+      icona: "mdi:robot-vacuum-alert", colore: "rosso", ent: (g && g.entity_id) || entityId,
+    });
+  });
   return out;
 }
 
