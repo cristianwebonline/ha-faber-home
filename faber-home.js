@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.130.0";
+const FH_VERSION = "0.131.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -152,6 +152,15 @@ const FH_STATE_ALLARME = {
   pending: "Conto alla rovescia…", triggered: "ALLARME IN CORSO", disarming: "Si sta spegnendo…",
 };
 const FH_APERTURE = ["door", "window", "opening", "garage_door"];
+// Il nome di un sensore senza il prefisso dell'impianto che lo porta
+// ("ALLARME CASA finestra sala" -> "Finestra sala"): in una riga corta il
+// prefisso e rumore, ed e uguale per tutti.
+function fhNomeBreve(st) {
+  const n = String((st && st.attributes && st.attributes.friendly_name) || (st && st.entity_id) || "")
+    .replace(/^allarme\s+casa\s+/i, "").replace(/^allarme\s+/i, "").trim();
+  return n ? n.charAt(0).toUpperCase() + n.slice(1) : "";
+}
+
 function fhStateText(st) {
   if (!st) return "";
   const dom = String(st.entity_id || "").split(".")[0];
@@ -1485,9 +1494,55 @@ class FaberHome extends HTMLElement {
     const hass = this._hass;
     const out = [];
     if (!hass) return out;
+    // TRE PILLOLE PER UN FATTO SOLO. Con la porta aperta comparivano insieme
+    // "Finestre o porte aperte", "Porta di casa sbloccata" e "Porta di casa
+    // aperta" (Cristian: "ci sono 3 cose uguali"). Due regole le mettono in
+    // ordine:
+    //  - una regola puo RENDERNE INUTILI altre (si sceglie nelle impostazioni
+    //    di ogni regola): "porta aperta" rende ovvio "porta sbloccata";
+    //  - un gruppo (tutte le finestre e porte dell'allarme) non ripete i suoi
+    //    membri che hanno gia una regola accesa, e quando resta qualcosa dice
+    //    QUALE e aperta invece del generico "finestre o porte".
+    const accese = [];
     cfg.voci.forEach((v, i) => {
       const r = this._voceAttenzione(v);
-      if (r) { r.key = "v" + i; out.push(r); }
+      if (r) { r.key = "v" + i; r._v = v; accese.push(r); }
+    });
+    const assorbite = new Set(), coperte = new Set();
+    accese.forEach(r => {
+      coperte.add(r._v.entity);
+      (r._v.assorbe || []).forEach(e => { assorbite.add(e); coperte.add(e); });
+    });
+    const APERTURE = ["door", "window", "opening", "garage_door"];
+    accese.forEach(r => {
+      const v = r._v;
+      delete r._v;
+      if (assorbite.has(v.entity)) return;
+      const st = hass.states[v.entity];
+      const membri = st && Array.isArray(st.attributes.entity_id) ? st.attributes.entity_id : null;
+      if (membri && (v.quando || "acceso") === "acceso") {
+        const aperti = membri.filter(m => {
+          const s = hass.states[m];
+          return s && s.state === "on" && !coperte.has(m);
+        });
+        // Tutto quello che il gruppo ha da dire l'ha gia detto un'altra regola.
+        if (!aperti.length) return;
+        // L'impianto d'allarme dichiara "porta" tutti i suoi sensori, anche i
+        // volumetrici e le vibrazioni: per non scrivere "volumetrico sala
+        // aperta" si guarda anche il nome. Un'apertura "e aperta", un
+        // volumetrico o una vibrazione "sente qualcosa".
+        const frase = m => {
+          const s = hass.states[m];
+          const nome = fhNomeBreve(s);
+          const apertura = APERTURE.includes(s.attributes.device_class) && !/volumetr|vibr|moviment|motion/i.test(nome + m);
+          return apertura ? nome + " aperta" : nome + " sente qualcosa";
+        };
+        const frasi = aperti.map(frase);
+        r.testo = frasi.length === 1 ? frasi[0]
+          : frasi.length === 2 ? frasi[0] + " \u00b7 " + frasi[1].charAt(0).toLowerCase() + frasi[1].slice(1)
+          : frasi.length + " sensori dell'allarme: " + frasi.slice(0, 2).join(", ").toLowerCase() + "\u2026";
+      }
+      out.push(r);
     });
     if (cfg.batterie) {
       // Le tre piu scariche bastano: un elenco di dodici pile non lo legge
@@ -5298,6 +5353,11 @@ class FaberHome extends HTMLElement {
                   ${(this._cfg.pages || []).map(pg => `<option value="${fhEsc(pg.id)}"${v.vai === pg.id ? " selected" : ""}>${fhEsc(pg.title || pg.id)}</option>`).join("")}
                 </select></div>
             </div>
+            ${att.voci.filter((o, j) => j !== i && o.entity).length ? `<div class="fh-sfield">
+              <label class="fh-slab">Quando c'e questa, non mostrare anche</label>
+              ${att.voci.map((o, j) => j === i || !o.entity ? "" : `<label class="fh-check">
+                <input type="checkbox" data-assorbe="${fhEsc(o.entity)}"${(v.assorbe || []).includes(o.entity) ? " checked" : ""}>
+                ${fhEsc(o.testo || o.entity)}</label>`).join("")}</div>` : ""}
             <div class="fh-chiptools">
               <button type="button" class="fh-tool" data-act="up"><ha-icon icon="mdi:arrow-up"></ha-icon></button>
               <button type="button" class="fh-tool" data-act="down"><ha-icon icon="mdi:arrow-down"></ha-icon></button>
@@ -5541,6 +5601,12 @@ class FaberHome extends HTMLElement {
         }));
         const ent = row.querySelector("#stAtt" + i);
         if (ent) ent.addEventListener("change", e => { v.entity = e.target.value.trim(); this._aggiornaAttenzione(); });
+        row.querySelectorAll("[data-assorbe]").forEach(cb => cb.addEventListener("change", () => {
+          const l = new Set(v.assorbe || []);
+          if (cb.checked) l.add(cb.dataset.assorbe); else l.delete(cb.dataset.assorbe);
+          if (l.size) v.assorbe = [...l]; else delete v.assorbe;
+          this._aggiornaAttenzione();
+        }));
         row.querySelectorAll("[data-sel]").forEach(sel => sel.addEventListener("change", () => {
           const k = sel.dataset.sel;
           if (sel.value) v[k] = sel.value; else delete v[k];
