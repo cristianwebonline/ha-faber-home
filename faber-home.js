@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.131.0";
+const FH_VERSION = "0.132.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -6934,6 +6934,37 @@ const FH_CSS = `
   .fh-entra-sx{animation:fhEntraSx .14s ease-out}
   @media (prefers-reduced-motion: reduce){ .fh-entra-dx,.fh-entra-sx{animation:none} }
 
+  /* IL DITO NON E UN CURSORE. Un polpastrello copre circa 44 pixel: sotto
+     quella misura il tocco manca il tasto o prende quello accanto. Parecchi
+     comandi stavano sotto — la rotellina delle stanze a 26, gli strumenti
+     della modifica a 30, i tondi in cima a 36, le frecce di ordinamento a
+     28x25 — e sul telefono si sbagliava.
+     Due rimedi, a seconda di dove sta il tasto:
+      - quelli ISOLATI restano grandi come prima a vista, ma si allarga
+        l'area che risponde al tocco (uno strato trasparente attorno);
+      - quelli in FILA, dove l'area allargata finirebbe sul vicino, crescono
+        davvero.
+     Solo sugli schermi da toccare (pointer: coarse): col mouse la misura
+     piccola va benissimo e non si tocca niente. */
+  @media (pointer: coarse){
+    .fh-ic,.fh-tool,.fh-grip,.fk-tbtn,.fsp-modal-close,.fw-mclose,.ffc-x{position:relative}
+    .fh-ic::before,.fh-stanzabtn-cfg::before,.fh-tool::before,.fh-grip::before,.fh-ang::before,
+    .fk-tbtn::before,.fsp-modal-close::before,.fw-mclose::before,.ffc-x::before,.fce-x::before,.fke-x::before{
+      content:"";position:absolute;border-radius:inherit}
+    .fh-ic::before{inset:-4px}
+    .fh-stanzabtn-cfg::before{inset:-9px}
+    .fh-tool::before,.fh-grip::before{inset:-7px}
+    .fh-ang::before{inset:-3px}
+    .fk-tbtn::before{inset:-2px}
+    .fsp-modal-close::before,.ffc-x::before{inset:-6px}
+    .fw-mclose::before{inset:-5px}
+    .fce-x::before,.fke-x::before{inset:-10px}
+    /* In fila: crescono davvero. */
+    .fh-frecce{gap:8px}
+    .fh-frecce button{min-width:44px;min-height:40px;font-size:14px}
+    .pc-cmd button{width:38px;height:38px}
+  }
+
   .fh-navwrap{position:relative;pointer-events:none}
   .fh-navbar{display:flex;align-items:flex-end;justify-content:space-around;gap:4px;
     max-width:560px;margin:0 auto;padding:8px 10px;pointer-events:auto;
@@ -13385,6 +13416,15 @@ const FHT_CSS = `
   .fht-btn:active{transform:scale(.95)}
   .fht-btn:disabled{opacity:.4;cursor:default}
 
+  /* Lo stesso rimedio dentro i fogli: la X di chiusura e l'interruttore
+     delle righe. I fogli stanno fuori dal pannello e hanno il loro stile,
+     quindi la regola va ripetuta qui. */
+  @media (pointer: coarse){
+    .fhf-x{position:relative}
+    .fhf-x::before{content:"";position:absolute;inset:-6px;border-radius:inherit}
+    .fhf-sw::before{content:"";position:absolute;inset:-9px -2px;border-radius:999px}
+    .frb-chip{min-height:38px}
+  }
   .fhf-scrim{position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
     z-index:999999;display:flex;align-items:flex-end;justify-content:center;animation:fhfIn .2s ease}
   .fhf-sheet{width:100%;max-width:560px;max-height:86vh;overflow-y:auto;box-sizing:border-box;
