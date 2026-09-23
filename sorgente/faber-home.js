@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.133.0";
+const FH_VERSION = "0.134.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -3519,6 +3519,7 @@ class FaberHome extends HTMLElement {
       { g: "Faber", n: "Fuori casa (automazione)", i: "mdi:shield-home", c: { type: "custom:faber-fuoricasa", name: "Fuori casa", entity: "" } },
       { g: "Faber", n: "Automazioni e sistema", i: "mdi:robot-happy-outline", c: { type: "custom:faber-automazioni", name: "Automazioni", compatta: true, gruppi: [] } },
       { g: "Faber", n: "Rifiuti porta a porta", i: "mdi:recycle", c: { type: "custom:faber-rifiuti", name: "Rifiuti", calendario: { lun: "", mar: "", mer: "", gio: "", ven: "", sab: "", dom: "" } } },
+      { g: "Faber", n: "Manuali e libretti", i: "mdi:book-open-page-variant", c: { type: "custom:faber-manuali", name: "Manuali", voci: [] } },
       { g: "Faber", n: "Robot aspirapolvere", i: "mdi:robot-vacuum", c: { type: "custom:faber-robot", name: "Robot", entity: "" } },
       { g: "Faber", n: "Casse e TV (player)", i: "mdi:speaker-wireless", c: { type: "custom:faber-player", entity: "" } },
       { g: "Faber", n: "Pulsantiera / telecomando", i: "mdi:remote", c: { type: "custom:faber-pulsantiera", name: "Comandi", icona: "mdi:remote", remote: "", device: "", tasti: [] } },
@@ -3579,6 +3580,7 @@ class FaberHome extends HTMLElement {
       { g: "Faber", n: "Fuori casa (automazione)", i: "mdi:shield-home", c: { type: "custom:faber-fuoricasa", name: "Fuori casa", entity: "" } },
       { g: "Faber", n: "Automazioni e sistema", i: "mdi:robot-happy-outline", c: { type: "custom:faber-automazioni", name: "Automazioni", compatta: true, gruppi: [] } },
       { g: "Faber", n: "Rifiuti porta a porta", i: "mdi:recycle", c: { type: "custom:faber-rifiuti", name: "Rifiuti", calendario: { lun: "", mar: "", mer: "", gio: "", ven: "", sab: "", dom: "" } } },
+      { g: "Faber", n: "Manuali e libretti", i: "mdi:book-open-page-variant", c: { type: "custom:faber-manuali", name: "Manuali", voci: [] } },
       { g: "Faber", n: "Robot aspirapolvere", i: "mdi:robot-vacuum", c: { type: "custom:faber-robot", name: "Robot", entity: "" } },
       { g: "Faber", n: "Casse e TV (player)", i: "mdi:speaker-wireless", c: { type: "custom:faber-player", entity: "" } },
       { g: "Faber", n: "Pulsantiera / telecomando", i: "mdi:remote", c: { type: "custom:faber-pulsantiera", name: "Comandi", icona: "mdi:remote", remote: "", device: "", tasti: [] } },
@@ -13367,7 +13369,7 @@ customElements.define("faber-fuoricasa", FaberFuoriCasa);
 // del suo stato, e il dettaglio in un foglio che sale dal basso.
 // ===========================================================================
 const FHT_CSS = `
-  faber-automazioni,faber-rifiuti,faber-robot,faber-player,faber-pulsantiera{display:block}
+  faber-automazioni,faber-rifiuti,faber-robot,faber-player,faber-pulsantiera,faber-manuali{display:block}
   .fht{position:relative;overflow:hidden;border-radius:24px;padding:14px 14px 12px;
     background-color:rgba(16,22,34,.78);border:1px solid rgba(255,255,255,.10);
     backdrop-filter:blur(18px) saturate(140%);-webkit-backdrop-filter:blur(18px) saturate(140%);
@@ -13478,7 +13480,7 @@ const FHT_CSS = `
 // le card hanno il vetro sfocato, che terrebbe prigioniero un position:fixed.
 // Card piccole: una tessera con un titolo e un tasto. Da sole in una riga,
 // fuori dal telefono, occupano mezza riga invece di tutta.
-const FH_CARD_PICCOLE = new Set(["custom:faber-robot", "custom:faber-rifiuti", "custom:faber-automazioni",
+const FH_CARD_PICCOLE = new Set(["custom:faber-robot", "custom:faber-rifiuti", "custom:faber-automazioni", "custom:faber-manuali",
   "custom:faber-cancello", "custom:faber-spesa", "custom:faber-persona", "custom:faber-pulsantiera",
   "custom:faber-player", "custom:mini-card"]);
 
@@ -13820,6 +13822,166 @@ class FaberRifiuti extends HTMLElement {
   }
 }
 customElements.define("faber-rifiuti", FaberRifiuti);
+
+// ===========================================================================
+// FABER MANUALI — i libretti di casa, a portata di tocco
+// Il manuale del forno stava in fondo a una pagina della vecchia plancia, in
+// un riquadro grigio con scritto "MANUALE FORNO": si trovava solo se sapevi
+// gia dov'era. Qui diventa una tessera come le altre, nella stanza
+// dell'apparecchio, e ci stanno dentro tutti i libretti di quella stanza.
+// Con un libretto solo il tocco lo apre subito; con piu di uno si apre
+// l'elenco. Il link puo essere un indirizzo internet o un file caricato in
+// Home Assistant (/local/...).
+// Voce: { nome, icona, url, nota }
+// ===========================================================================
+class FaberManuali extends HTMLElement {
+  static getConfigElement() { return document.createElement("faber-manuali-editor"); }
+  setConfig(c) {
+    this._cfg = Object.assign({ name: "Manuali", voci: [] }, c || {});
+    this._built = false;
+    this._firma = null;
+  }
+  static getStubConfig() {
+    return { type: "custom:faber-manuali", name: "Manuali",
+      voci: [{ nome: "Manuale forno", icona: "mdi:stove", url: "" }] };
+  }
+  getCardSize() { return 2; }
+  set hass(h) { this._hass = h; this._update(); }
+
+  _voci() { return (this._cfg.voci || []).filter(v => v && (v.url || "").trim()); }
+
+  _apriUrl(url) {
+    const u = String(url || "").trim();
+    if (!u) return;
+    fhVibra(8);
+    // Un indirizzo dentro Home Assistant si apre nel pannello, senza uscire
+    // dall'app; uno esterno nel browser.
+    if (u.startsWith("/") && !u.startsWith("/local/") && !u.startsWith("/api/")) {
+      history.pushState(null, "", u);
+      window.dispatchEvent(new CustomEvent("location-changed", { bubbles: true, composed: true }));
+      return;
+    }
+    window.open(u, "_blank", "noopener");
+  }
+
+  _update() {
+    if (!this._hass) return;
+    const voci = this._voci();
+    const uno = voci.length === 1 ? voci[0] : null;
+    const stato = !voci.length ? "Nessun libretto"
+      : uno ? "Apri il libretto" : voci.length + " libretti";
+    const sub = !voci.length ? "Aggiungili nella configurazione della card"
+      : uno ? (uno.nota || uno.nome || "") : voci.map(v => v.nome).filter(Boolean).join(" \u00b7 ");
+    const firma = [stato, sub, voci.length].join("|");
+    if (!this._built) {
+      this._built = true;
+      this.innerHTML = `<style>${FHT_CSS}</style>
+        <div class="fht tap" data-card data-tono="blu">
+          <div class="fht-top"><div class="fht-ic"><ha-icon data-icona icon="mdi:book-open-page-variant"></ha-icon></div>
+            <span class="fht-pill" data-pill></span></div>
+          <div class="fht-testo"><div class="fht-title">${fhEsc(this._cfg.name || "Manuali")}</div>
+            <div class="fht-stato" data-stato></div><div class="fht-sub" data-sub></div></div>
+        </div>`;
+      this.querySelector("[data-card]").addEventListener("click", () => {
+        const l = this._voci();
+        if (l.length === 1) this._apriUrl(l[0].url);
+        else if (l.length) this._apri();
+      });
+    }
+    if (this._firma === firma) return;
+    this._firma = firma;
+    const pill = this.querySelector("[data-pill]");
+    pill.hidden = voci.length < 2;
+    pill.textContent = voci.length;
+    // Con un libretto solo la tessera prende la sua icona: si riconosce da
+    // lontano che quello e il forno.
+    this.querySelector("[data-icona]").setAttribute("icon",
+      (uno && uno.icona) || "mdi:book-open-page-variant");
+    this.querySelector("[data-stato]").textContent = stato;
+    this.querySelector("[data-sub]").textContent = sub;
+  }
+
+  _apri() {
+    const f = fhFoglio(this._cfg.name || "Manuali", !!this.closest(".fh-app.chiaro"));
+    f.corpo.innerHTML = `<div class="fhf-sez"><h4>Tocca un libretto per aprirlo</h4>${this._voci().map((v, i) =>
+      `<div class="fhf-riga cliccabile" data-i="${i}" style="--r-c:#5aa9ff">
+        <div class="fhf-rig-ic"><ha-icon icon="${fhEsc(v.icona || "mdi:book-open-page-variant")}"></ha-icon></div>
+        <div class="fhf-rig-t"><b>${fhEsc(v.nome || "Libretto")}</b>${v.nota ? `<small>${fhEsc(v.nota)}</small>` : ""}</div>
+        <span class="fhf-val">apri</span></div>`).join("")}</div>`;
+    f.corpo.querySelectorAll("[data-i]").forEach(r => r.addEventListener("click", () => {
+      const v = this._voci()[parseInt(r.dataset.i, 10)];
+      if (v) { this._apriUrl(v.url); f.chiudi(); }
+    }));
+  }
+}
+customElements.define("faber-manuali", FaberManuali);
+
+class FaberManualiEditor extends HTMLElement {
+  setConfig(c) { this._cfg = Object.assign({ name: "Manuali", voci: [] }, c || {}); this._draw(); }
+  set hass(h) { this._hass = h; }
+  _emit() { this.dispatchEvent(new CustomEvent("config-changed", { detail: { config: this._cfg }, bubbles: true, composed: true })); }
+  _draw() {
+    if (!this._cfg) return;
+    const c = this._cfg;
+    const voci = c.voci || [];
+    this.innerHTML = `<style>
+      .fme{display:flex;flex-direction:column;gap:12px;padding:6px 2px;font-family:inherit}
+      .fme .fld{display:flex;flex-direction:column;gap:5px}
+      .fme label{font-size:13px;font-weight:600;color:var(--primary-text-color)}
+      .fme .h{font-size:11.5px;color:var(--secondary-text-color);line-height:1.45}
+      .fme input{padding:10px 11px;border-radius:8px;font-size:15px;font-family:inherit;
+        border:1px solid var(--divider-color);background:var(--card-background-color);color:var(--primary-text-color)}
+      .fme .riga{border:1px solid var(--divider-color);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:8px}
+      .fme .row{display:flex;gap:8px}.fme .row>.fld{flex:1}
+      .fme button{padding:8px 12px;border-radius:9px;border:1px solid var(--divider-color);
+        background:var(--card-background-color);color:var(--primary-text-color);font:inherit;cursor:pointer}
+      .fme .via{color:#c62828}
+    </style>
+    <div class="fme">
+      <div class="fld"><label>Titolo della tessera</label>
+        <input id="m_nome" value="${fhEsc(c.name || "")}" placeholder="Manuali"></div>
+      <div class="h">Un libretto solo: il tocco lo apre subito e la tessera prende la sua icona.
+        Piu libretti: il tocco apre l'elenco. L'indirizzo puo essere un link internet
+        (https://...) o un file caricato in Home Assistant (/local/forno.pdf).</div>
+      ${voci.map((v, i) => `<div class="riga" data-i="${i}">
+        <div class="row">
+          <div class="fld"><label>Nome</label><input data-f="nome" value="${fhEsc(v.nome || "")}" placeholder="Manuale forno"></div>
+          <div class="fld"><label>Icona</label><input data-f="icona" value="${fhEsc(v.icona || "")}" placeholder="mdi:stove"></div>
+        </div>
+        <div class="fld"><label>Indirizzo</label><input data-f="url" value="${fhEsc(v.url || "")}" placeholder="https://..."></div>
+        <div class="fld"><label>Nota (sotto il nome)</label><input data-f="nota" value="${fhEsc(v.nota || "")}" placeholder="istruzioni e programmi"></div>
+        <div class="row"><button data-act="su">\u2191</button><button data-act="giu">\u2193</button><button class="via" data-act="via">Elimina</button></div>
+      </div>`).join("")}
+      <button id="m_add">+ Aggiungi un libretto</button>
+    </div>`;
+    const q = s => this.querySelector(s);
+    q("#m_nome").addEventListener("input", e => { this._cfg = Object.assign({}, this._cfg, { name: e.target.value }); this._emit(); });
+    q("#m_add").addEventListener("click", () => {
+      this._cfg = Object.assign({}, this._cfg, { voci: (this._cfg.voci || []).concat([{ nome: "", icona: "", url: "", nota: "" }]) });
+      this._draw(); this._emit();
+    });
+    this.querySelectorAll(".riga").forEach(r => {
+      const i = parseInt(r.dataset.i, 10);
+      r.querySelectorAll("[data-f]").forEach(inp => inp.addEventListener("input", () => {
+        const l = (this._cfg.voci || []).slice();
+        l[i] = Object.assign({}, l[i], { [inp.dataset.f]: inp.value });
+        this._cfg = Object.assign({}, this._cfg, { voci: l });
+        this._emit();
+      }));
+      r.querySelectorAll("[data-act]").forEach(b => b.addEventListener("click", () => {
+        const l = (this._cfg.voci || []).slice();
+        const a = b.dataset.act;
+        if (a === "su" && i > 0) { const [x] = l.splice(i, 1); l.splice(i - 1, 0, x); }
+        else if (a === "giu" && i < l.length - 1) { const [x] = l.splice(i, 1); l.splice(i + 1, 0, x); }
+        else if (a === "via") l.splice(i, 1);
+        this._cfg = Object.assign({}, this._cfg, { voci: l });
+        this._draw(); this._emit();
+      }));
+    });
+  }
+}
+customElements.define("faber-manuali-editor", FaberManualiEditor);
+
 
 // ===========================================================================
 // FABER ROBOT — il robot aspirapolvere: tessera + foglio "come l'app Xiaomi"
@@ -16042,6 +16204,8 @@ if (!existingCards.includes("faber-fuoricasa")) {
 if (!existingCards.includes("faber-automazioni")) window.customCards.push({ type: "faber-automazioni", name: "Faber Automazioni", description: "Routine, presenza e sistema: interruttori e stato in un foglio.", preview: true,
   documentationURL: "https://github.com/cristianwebonline/ha-faber-home" });
 if (!existingCards.includes("faber-rifiuti")) window.customCards.push({ type: "faber-rifiuti", name: "Faber Rifiuti", description: "Cosa esporre stasera, calendario porta a porta e centro raccolta.", preview: true,
+  documentationURL: "https://github.com/cristianwebonline/ha-faber-home" });
+if (!existingCards.includes("faber-manuali")) window.customCards.push({ type: "faber-manuali", name: "Faber Manuali", description: "I libretti di casa: uno solo si apre al tocco, piu di uno aprono l'elenco.", preview: true,
   documentationURL: "https://github.com/cristianwebonline/ha-faber-home" });
 if (!existingCards.includes("faber-robot")) window.customCards.push({ type: "faber-robot", name: "Faber Robot", description: "Robot aspirapolvere: stato e comandi; il tocco apre mappa/stanze, modalità, base, scene e ricambi.", preview: true,
   documentationURL: "https://github.com/cristianwebonline/ha-faber-home" });
