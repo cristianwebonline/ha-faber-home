@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.134.0";
+const FH_VERSION = "0.135.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -9382,7 +9382,16 @@ const PC_HELPER = {
   tolleranza: { e: "input_number.controllo_carichi_tolleranza_contatore", t: "Tolleranza del contatore" },
   margine: { e: "input_number.controllo_carichi_margine_prima_del_picco", t: "Margine prima del picco" },
   acceso: { e: "input_number.controllo_carichi_carico_acceso_sopra", t: "Un carico e acceso sopra" },
+  pausa: { e: "input_number.controllo_carichi_non_ripetere_prima_di", t: "Minuti fra due avvisi" },
+  voce_quando: { e: "input_select.controllo_carichi_voce_quando", t: "Quando parla a voce" },
+  sil_da: { e: "input_datetime.controllo_carichi_silenzio_dalle", t: "Silenzio dalle" },
+  sil_a: { e: "input_datetime.controllo_carichi_silenzio_alle", t: "Silenzio alle" },
+  episodio: { e: "input_boolean.controllo_carichi_episodio_in_corso", t: "Episodio in corso" },
 };
+
+// Le scelte della voce: le stesse dell'input_select in Home Assistant. Se
+// l'helper esiste si leggono da li, cosi restano allineate anche se cambiano.
+const PC_VOCE_QUANDO = ["Solo il primo avviso", "A ogni avviso", "Solo oltre il contratto"];
 
 // Gli helper che esistono uno per ogni carico: {n} e il numero del carico.
 const PC_SCHEMI = {
@@ -9542,6 +9551,10 @@ class FaberPC extends HTMLElement {
       mar: this._n(this._h("margine")) || 0,
       acceso: this._n(this._h("acceso")) || 0,
       voce: this._s(this._h("voce")) === "on",
+      pausa: this._n(this._h("pausa")) || 30,
+      voceQuando: this._s(this._h("voce_quando")) || PC_VOCE_QUANDO[0],
+      silDa: (this._s(this._h("sil_da")) || "22:30:00").slice(0, 5),
+      silA: (this._s(this._h("sil_a")) || "07:30:00").slice(0, 5),
       dest: this._lista_testo("input_text.controllo_carichi_destinatari_avvisi"),
       alto: this._lista_testo("input_text.controllo_carichi_altoparlanti_avvisi"),
       attivo: this._s(this._h("attivo")) === "on",
@@ -9686,6 +9699,14 @@ class FaberPC extends HTMLElement {
       .sort((a, b) => a.nome.localeCompare(b.nome, "it")).slice(0, 40);
   }
 
+  // Le scelte della voce vengono dall'helper vero: se un domani se ne aggiunge
+  // una in Home Assistant, compare qui senza toccare la card.
+  _voceOpzioni() {
+    const s = this._hass.states[this._h("voce_quando")];
+    const o = s && s.attributes && s.attributes.options;
+    return (o && o.length) ? o.slice() : PC_VOCE_QUANDO.slice();
+  }
+
   _disegnaPopup() {
     const b = this._bozza, H = this._hass.states;
     const sn = this._serviziNotifica();
@@ -9752,6 +9773,23 @@ class FaberPC extends HTMLElement {
         <div class="pc-nota">I nomi qui sopra sono quelli veri dell'app Alexa: se rinomini un Echo,
           cambia anche qui. La spunta <b>Avvisi a voce</b> in cima spegne tutte le voci in un colpo,
           senza perdere questa scelta.</div>
+
+        <div class="pc-lab">Quanto insiste <small>perche non ripeta lo stesso avviso tutta la sera</small></div>
+        <div class="pc-gr">
+          <div><label>Non ripetere prima di (min)</label><input type="number" data-k="pausa" value="${b.pausa}" step="5" min="1"></div>
+          <div><label>Parla a voce</label>
+            <select data-sel="voceQuando">
+              ${this._voceOpzioni().map(o => `<option value="${fhEsc(o)}"${o === b.voceQuando ? " selected" : ""}>${fhEsc(o)}</option>`).join("")}
+            </select>
+          </div>
+          <div><label>Silenzio dalle</label><input type="time" data-ora="silDa" value="${fhEsc(b.silDa)}"></div>
+          <div><label>fino alle</label><input type="time" data-ora="silA" value="${fhEsc(b.silA)}"></div>
+        </div>
+        <div class="pc-nota">La <b>notifica</b> sul telefono arriva comunque: qui si regola solo
+          quanto spesso e la voce. <b>Solo il primo avviso</b>: parla una volta sola quando ci si
+          avvicina al picco e sta zitta finche il consumo non rientra davvero.
+          <b>Solo oltre il contratto</b>: parla soltanto sopra ${pcW(b.rit)} W.
+          Nella fascia di silenzio non parla mai${b.silDa === b.silA ? " (ora spenta: le due ore sono uguali)" : ""}.</div>
 
         <div class="pc-lab">Ordine <small>in cima = staccato per <b>ultimo</b>, in fondo = il primo a cadere</small></div>
         <div class="pc-lista">
@@ -9828,6 +9866,14 @@ class FaberPC extends HTMLElement {
       ok.disabled = !cambiato;
       ok.textContent = cambiato ? "Salva" : "Nessuna modifica";
     };
+    // Tendina e orari: aggiornano solo il tasto Salva. Ridisegnare il foglio a
+    // ogni tocco lo riporterebbe in cima mentre si sta scegliendo.
+    m.querySelectorAll("[data-sel]").forEach(x => x.onchange = e => {
+      b[e.target.dataset.sel] = e.target.value; aggiornaSalva();
+    });
+    m.querySelectorAll("[data-ora]").forEach(x => x.onchange = e => {
+      if (/^\d{2}:\d{2}$/.test(e.target.value)) { b[e.target.dataset.ora] = e.target.value; aggiornaSalva(); }
+    });
     m.querySelectorAll("[data-dest]").forEach(x => x.onchange = e => {
       const id = e.target.dataset.dest;
       if (e.target.checked) { if (!b.dest.includes(id)) b.dest.push(id); }
@@ -9900,6 +9946,7 @@ class FaberPC extends HTMLElement {
       ["input_number.controllo_carichi_tolleranza_contatore", b.tol],
       ["input_number.controllo_carichi_margine_prima_del_picco", b.mar],
       ["input_number.controllo_carichi_carico_acceso_sopra", b.acceso],
+      [this._h("pausa"), b.pausa],
     ];
     numeri.forEach(([ent, v]) => {
       if (H[ent] && parseFloat(H[ent].state) !== v) {
@@ -9914,6 +9961,16 @@ class FaberPC extends HTMLElement {
       if (v.length > 255) { console.warn("[faber-pc] lista troppo lunga, non salvata:", ent); return; }
       if (H[ent] && H[ent].state !== v) {
         azioni.push({ dominio: "input_text", servizio: "set_value", dati: { entity_id: ent, value: v } });
+      }
+    });
+    // Quanto insiste: la tendina della voce e le due ore del silenzio.
+    if (H[this._h("voce_quando")] && H[this._h("voce_quando")].state !== b.voceQuando) {
+      azioni.push({ dominio: "input_select", servizio: "select_option", dati: { entity_id: this._h("voce_quando"), option: b.voceQuando } });
+    }
+    [["sil_da", b.silDa], ["sil_a", b.silA]].forEach(([k, v]) => {
+      const ent = this._h(k);
+      if (H[ent] && H[ent].state.slice(0, 5) !== v) {
+        azioni.push({ dominio: "input_datetime", servizio: "set_datetime", dati: { entity_id: ent, time: v + ":00" } });
       }
     });
     const attivoOra = this._s("input_boolean.attiva_power_control") === "on";
@@ -10009,9 +10066,11 @@ const PC_CSS = `
   .pc-sw2{display:flex;align-items:center;gap:9px;font-size:13px;font-weight:800;cursor:pointer}
   .pc-gr{display:grid;grid-template-columns:1fr 1fr;gap:9px}
   .pc-gr label{display:block;font-size:10px;font-weight:800;opacity:.6;margin-bottom:3px;text-transform:uppercase;letter-spacing:.05em}
-  .pc-gr input{width:100%;box-sizing:border-box;padding:8px 10px;border-radius:10px;font:inherit;font-size:13px;font-weight:800;
+  .pc-gr input,.pc-gr select{width:100%;box-sizing:border-box;padding:8px 10px;border-radius:10px;font:inherit;font-size:13px;font-weight:800;
     border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.06);color:inherit}
-  .fh-app.chiaro .pc-gr input{background:#fff;border-color:rgba(15,23,42,.18)}
+  .pc-gr select option{background:#0f172a;color:#e5e7eb}
+  .fh-app.chiaro .pc-gr input,.fh-app.chiaro .pc-gr select{background:#fff;border-color:rgba(15,23,42,.18)}
+  .fh-app.chiaro .pc-gr select option{background:#fff;color:#0f172a}
   .pc-nota{font-size:10.5px;line-height:1.45;opacity:.62}
   .pc-lab{font-size:10.5px;font-weight:900;letter-spacing:.06em;text-transform:uppercase;opacity:.6}
   .pc-lab small{display:block;font-size:10px;font-weight:700;letter-spacing:0;text-transform:none;opacity:.85;margin-top:2px}
