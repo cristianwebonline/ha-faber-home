@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.135.0";
+const FH_VERSION = "0.136.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -13532,8 +13532,53 @@ const FHT_CSS = `
   .fhf-sw.on,.fhf-scrim.chiaro .fhf-sw.on,.fh-app.chiaro .fhf-sw.on{background:#ffb020}
   .fhf-sw.on::after{transform:translateX(19px)}
   .fhf-nota{font-size:11.5px;opacity:.65;line-height:1.4}
+  /* La schermata degli orari: cambiare l'ora di un'automazione senza entrare
+     nelle impostazioni di Home Assistant. */
+  .fho-griglia{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+  .fho-c{display:flex;flex-direction:column;gap:4px;padding:10px 11px;border-radius:14px;background:rgba(255,255,255,.05)}
+  .fhf-scrim.chiaro .fho-c{background:rgba(15,23,42,.04)}
+  .fho-c span{font-size:10px;font-weight:900;letter-spacing:.05em;text-transform:uppercase;opacity:.6}
+  .fho-c input{width:100%;box-sizing:border-box;padding:8px 10px;border-radius:11px;font:inherit;font-size:16px;font-weight:900;
+    border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.06);color:inherit}
+  .fhf-scrim.chiaro .fho-c input{background:#fff;border-color:rgba(15,23,42,.18)}
+  .fho-c.mosso input{border-color:#ffb020}
+  .fho-salva{padding:13px;border-radius:14px;border:none;background:#ffb020;color:#1b1400;font:inherit;font-size:14px;
+    font-weight:900;cursor:pointer}
+  .fho-salva:disabled{background:rgba(255,255,255,.12);color:inherit;opacity:.55;cursor:default}
+  .fhf-scrim.chiaro .fho-salva:disabled{background:rgba(15,23,42,.08)}
+  .fho-esito{font-size:11.5px;font-weight:800;opacity:.8}
+  .fho-esito.male{color:#ff8a3d}
   @keyframes fhfIn{from{opacity:0}to{opacity:1}}
 `;
+
+// ---------------------------------------------------------------- ORARI
+// Gli orari fissi di un'automazione, letti dalla sua configurazione. Si
+// tengono solo gli inneschi "time" con un orario scritto: quelli che puntano
+// a un input_datetime o al sole si cambiano altrove e non vanno toccati qui.
+function fhOrariDi(cfg) {
+  const tr = (cfg && (cfg.triggers || cfg.trigger)) || [];
+  const lista = Array.isArray(tr) ? tr : [tr];
+  const out = [];
+  lista.forEach((t, i) => {
+    if ((t.trigger || t.platform) !== "time") return;
+    const at = t.at;
+    (Array.isArray(at) ? at : [at]).forEach((ora, k) => {
+      if (typeof ora !== "string" || !/^\d{1,2}:\d{2}(:\d{2})?$/.test(ora)) return;
+      out.push({ i, k, insieme: Array.isArray(at), ora: ora.slice(0, 5), nome: fhNomeOra(t, out.length) });
+    });
+  });
+  return out;
+}
+
+// "on2" e "off3" sono i nomi degli inneschi, non una lingua: qui diventano
+// "Accende 2" e "Spegne 3".
+function fhNomeOra(t, n) {
+  const id = String(t.id || t.alias || "").trim();
+  const m = id.match(/^(on|off|accend\w*|spegn\w*)[ _-]?(\d*)$/i);
+  if (m) return (/^(on|accend)/i.test(m[1]) ? "Accende" : "Spegne") + (m[2] ? " " + m[2] : "");
+  if (!id) return "Orario " + (n + 1);
+  return id.charAt(0).toUpperCase() + id.slice(1).replace(/[_-]/g, " ");
+}
 
 // Un foglio che sale dal basso, agganciato a document.body: dentro il pannello
 // le card hanno il vetro sfocato, che terrebbe prigioniero un position:fixed.
@@ -13686,6 +13731,7 @@ class FaberAutomazioni extends HTMLElement {
       this._built = true;
       this.innerHTML = `<style>${FHT_CSS}</style><div class="fht" style="min-height:0">
         <div class="fht-title">${fhEsc(this._cfg.name)}</div><div class="fhf-corpo" data-corpo></div></div>`;
+      this._caricaOrari();
     }
     this._disegnaLista(this.querySelector("[data-corpo]"));
   }
@@ -13694,27 +13740,144 @@ class FaberAutomazioni extends HTMLElement {
     this._foglio = fhFoglio(this._cfg.name, !!this.closest(".fh-app.chiaro"));
     this._firmaLista = null;
     this._disegnaLista(this._foglio.corpo);
+    this._caricaOrari();
+  }
+
+  // Legge la configurazione delle automazioni elencate, una volta sola, per
+  // sapere quali hanno orari fissi. Solo lettura: la scrittura passa da
+  // _salvaOrari, che e l'unico punto che tocca l'automazione.
+  async _caricaOrari() {
+    if (!this._hass) return;
+    this._cfgAuto = this._cfgAuto || {};
+    let cambiate = 0;
+    for (const v of this._voci()) {
+      const e = v.entity || "";
+      if (!e.startsWith("automation.")) continue;
+      const st = this._hass.states[e];
+      const id = st && st.attributes && st.attributes.id;
+      let cfg = null;
+      if (id) {
+        try { cfg = await this._hass.callApi("GET", "config/automation/config/" + encodeURIComponent(id)); }
+        catch (err) { cfg = null; }
+      }
+      // Si rilegge a ogni apertura: se un orario e stato cambiato da Home
+      // Assistant, qui dentro si vede subito.
+      const prima = JSON.stringify(fhOrariDi(this._cfgAuto[e]));
+      this._cfgAuto[e] = cfg;
+      if (JSON.stringify(fhOrariDi(cfg)) !== prima) cambiate++;
+    }
+    if (!cambiate) return;
+    if (this._foglio && this._foglio.aperto()) {
+      this._foglio.corpo.__firma = null;
+      this._disegnaLista(this._foglio.corpo);
+    }
+    const dentro = this.querySelector("[data-corpo]");
+    if (dentro) { dentro.__firma = null; this._disegnaLista(dentro); }
+  }
+
+  _orariDi(entity) { return fhOrariDi((this._cfgAuto || {})[entity]); }
+
+  // La schermata dedicata: solo le ore, in grande, e un Salva.
+  _apriOrari(v) {
+    const chiaro = !!this.closest(".fh-app.chiaro");
+    const nome = v.nome || v.entity;
+    const ore = this._orariDi(v.entity).map(o => Object.assign({}, o));
+    const partenza = ore.map(o => o.ora);
+    const f = fhFoglio("Orari · " + nome, chiaro);
+    // fhFoglio tiene un foglio solo: chiudendo gli orari si tornerebbe al
+    // pannello invece che all'elenco da cui si e partiti.
+    const indietro = () => setTimeout(() => { if (!f.aperto()) this._apri(); }, 0);
+    f.scrim.addEventListener("click", e => { if (e.target === f.scrim) indietro(); });
+    f.scrim.querySelector("[data-x]").addEventListener("click", indietro);
+    const disegna = (esito) => {
+      const mosso = ore.some((o, i) => o.ora !== partenza[i]);
+      f.corpo.innerHTML = `
+        <div class="fhf-nota">Gli orari di <b>${fhEsc(nome)}</b>. Cambiali qui e premi Salva:
+          non serve entrare nelle impostazioni di Home Assistant.</div>
+        <div class="fho-griglia">
+          ${ore.map((o, i) => `<label class="fho-c${o.ora !== partenza[i] ? " mosso" : ""}">
+            <span>${fhEsc(o.nome)}</span>
+            <input type="time" data-o="${i}" value="${fhEsc(o.ora)}">
+          </label>`).join("")}
+        </div>
+        ${esito ? `<div class="fho-esito${esito.male ? " male" : ""}">${fhEsc(esito.testo)}</div>` : ""}
+        <button type="button" class="fho-salva" data-salva ${mosso ? "" : "disabled"}>${mosso ? "Salva" : "Nessuna modifica"}</button>`;
+      f.corpo.querySelectorAll("[data-o]").forEach(x => x.onchange = ev => {
+        if (!/^\d{2}:\d{2}$/.test(ev.target.value)) return;
+        ore[+ev.target.dataset.o].ora = ev.target.value;
+        disegna();
+      });
+      const s = f.corpo.querySelector("[data-salva]");
+      if (s) s.onclick = async () => {
+        s.disabled = true; s.textContent = "Salvo…";
+        const esito = await this._salvaOrari(v, ore);
+        if (esito.male) { disegna(esito); return; }
+        partenza.length = 0; ore.forEach(o => partenza.push(o.ora));
+        disegna(esito);
+      };
+    };
+    disegna();
+  }
+
+  // L'UNICO punto che scrive sull'automazione, e solo dentro il tasto Salva.
+  // Prima rilegge la configurazione dal server e cambia soltanto gli orari:
+  // se nel frattempo l'automazione e stata modificata altrove (o ha cambiato
+  // forma), si ferma invece di sovrascriverla.
+  async _salvaOrari(v, ore) {
+    const st = this._hass.states[v.entity];
+    const id = st && st.attributes && st.attributes.id;
+    if (!id) return { male: true, testo: "Questa automazione non ha un codice: va cambiata da Home Assistant." };
+    let cfg;
+    try {
+      cfg = await this._hass.callApi("GET", "config/automation/config/" + encodeURIComponent(id));
+    } catch (e) {
+      return { male: true, testo: "Non riesco a leggere l'automazione: " + (e.message || e) };
+    }
+    const adesso = fhOrariDi(cfg);
+    if (adesso.length !== ore.length || adesso.some((o, i) => o.i !== ore[i].i || o.k !== ore[i].k)) {
+      this._cfgAuto[v.entity] = cfg;
+      return { male: true, testo: "L'automazione e cambiata da un'altra parte: riapri gli orari e riprova." };
+    }
+    const tr = cfg.triggers || cfg.trigger;
+    ore.forEach(o => {
+      const t = tr[o.i];
+      if (o.insieme) t.at[o.k] = o.ora + ":00";
+      else t.at = o.ora + ":00";
+    });
+    this._gesto = true;
+    try {
+      await this._hass.callApi("POST", "config/automation/config/" + encodeURIComponent(id), cfg);
+    } catch (e) {
+      return { male: true, testo: "Non sono riuscito a salvare: " + (e.message || e) };
+    } finally {
+      this._gesto = false;
+    }
+    this._cfgAuto[v.entity] = cfg;
+    if (this._foglio && this._foglio.aperto()) { this._foglio.corpo.__firma = null; this._disegnaLista(this._foglio.corpo); }
+    return { male: false, testo: "Salvato ✓ " + ore.map(o => o.nome + " " + o.ora).join(" · ") };
   }
 
   // Si ridisegna solo se qualcosa di quello che si vede e cambiato: la card
   // riceve lo stato di tutta la casa molte volte al secondo.
   _disegnaLista(corpo) {
-    const gruppi = (this._cfg.gruppi || []).map(g => ({ titolo: g.titolo, voci: (g.voci || []).map(v => ({ v, r: this._leggi(v) })) }));
-    const firma = JSON.stringify(gruppi.map(g => g.voci.map(({ r }) => [r.on, r.ok, r.sub, r.valore])));
+    const gruppi = (this._cfg.gruppi || []).map(g => ({ titolo: g.titolo,
+      voci: (g.voci || []).map(v => ({ v, r: this._leggi(v), ore: this._orariDi(v.entity) })) }));
+    const firma = JSON.stringify(gruppi.map(g => g.voci.map(({ r, ore }) => [r.on, r.ok, r.sub, r.valore, ore.map(o => o.ora)])));
     if (corpo.__firma === firma) return;
     corpo.__firma = firma;
     corpo.innerHTML = gruppi.map((g, gi) => `<div class="fhf-sez">${g.titolo ? `<h4>${fhEsc(g.titolo)}</h4>` : ""}
-      ${g.voci.map(({ v, r }, vi) => {
+      ${g.voci.map(({ v, r, ore }, vi) => {
         const col = r.ok === false ? "#ff8a3d" : r.on ? "#ffb020" : r.dom === "binary_sensor" || r.dom === "sensor" ? "#4ade80" : "#93a1b0";
         let ctrl = "";
-        if (r.dom === "automation" && r.st) ctrl = `<button type="button" class="fhf-sw${r.on ? " on" : ""}" data-sw="${gi}.${vi}" aria-label="Attiva o spegni"></button>`;
+        if (r.dom === "automation" && r.st) ctrl = `${ore.length ? `<button type="button" class="fhf-tasto" data-ore="${gi}.${vi}">${ore.length === 1 ? fhEsc(ore[0].ora) : "Orari"}</button>` : ""}<button type="button" class="fhf-sw${r.on ? " on" : ""}" data-sw="${gi}.${vi}" aria-label="Attiva o spegni"></button>`;
         else if (v.azione) ctrl = `<button type="button" class="fhf-tasto" data-az="${gi}.${vi}">${fhEsc(v.tasto || "Esegui")}</button>`;
         else if (r.dom === "script" && r.st) ctrl = `<button type="button" class="fhf-tasto" data-az="${gi}.${vi}">${fhEsc(v.tasto || "Avvia")}</button>`;
         else if (r.dom === "button" && r.st) ctrl = `<button type="button" class="fhf-tasto" data-az="${gi}.${vi}">${fhEsc(v.tasto || "Premi")}</button>`;
         else if (r.valore) ctrl = `<span class="fhf-val">${fhEsc(r.valore)}</span>`;
+        const sub = r.sub + (ore.length > 1 ? " · " + ore.slice(0, 4).map(o => o.ora).join(", ") + (ore.length > 4 ? "…" : "") : "");
         return `<div class="fhf-riga${r.st ? " cliccabile" : ""}" style="--r-c:${col}" data-info="${fhEsc(v.entity || "")}">
           <div class="fhf-rig-ic"><ha-icon icon="${fhEsc(r.icona)}"></ha-icon></div>
-          <div class="fhf-rig-t"><b>${fhEsc(r.nome)}</b>${r.sub ? `<small>${fhEsc(r.sub)}</small>` : ""}</div>${ctrl}</div>`;
+          <div class="fhf-rig-t"><b>${fhEsc(r.nome)}</b>${sub ? `<small>${fhEsc(sub)}</small>` : ""}</div>${ctrl}</div>`;
       }).join("")}</div>`).join("");
     const voce = k => { const [a, b] = k.split(".").map(Number); return (this._cfg.gruppi[a].voci || [])[b]; };
     corpo.querySelectorAll("[data-sw]").forEach(b => b.addEventListener("click", e => {
@@ -13724,6 +13887,11 @@ class FaberAutomazioni extends HTMLElement {
       if (!st) return;
       fhVibra(10);
       this._hass.callService("automation", st.state === "on" ? "turn_off" : "turn_on", { entity_id: v.entity });
+    }));
+    corpo.querySelectorAll("[data-ore]").forEach(b => b.addEventListener("click", e => {
+      e.stopPropagation();
+      fhVibra(8);
+      this._apriOrari(voce(b.dataset.ore));
     }));
     corpo.querySelectorAll("[data-az]").forEach(b => b.addEventListener("click", e => {
       e.stopPropagation();
