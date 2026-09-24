@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.136.0";
+const FH_VERSION = "0.137.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -13542,6 +13542,8 @@ const FHT_CSS = `
     border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.06);color:inherit}
   .fhf-scrim.chiaro .fho-c input{background:#fff;border-color:rgba(15,23,42,.18)}
   .fho-c.mosso input{border-color:#ffb020}
+  .fho-c .fho-prev{font-size:10.5px;font-weight:700;font-style:normal;opacity:.7;line-height:1.35}
+  .fho-c .fho-prev b{font-weight:900;opacity:1}
   .fho-salva{padding:13px;border-radius:14px;border:none;background:#ffb020;color:#1b1400;font:inherit;font-size:14px;
     font-weight:900;cursor:pointer}
   .fho-salva:disabled{background:rgba(255,255,255,.12);color:inherit;opacity:.55;cursor:default}
@@ -13560,7 +13562,19 @@ function fhOrariDi(cfg) {
   const lista = Array.isArray(tr) ? tr : [tr];
   const out = [];
   lista.forEach((t, i) => {
-    if ((t.trigger || t.platform) !== "time") return;
+    const tipo = t.trigger || t.platform;
+    if (tipo === "sun" && (t.event === "sunset" || t.event === "sunrise")) {
+      // Il sole non ha un'ora fissa: si regola di quanto stare prima o dopo,
+      // e l'ora vera la dice il cielo, giorno per giorno.
+      // "Al tramonto · accende" sarebbe una ripetizione: il nome dell'innesco
+      // si aggiunge solo quando dice qualcosa in piu di accende/spegne.
+      const et = (t.id || t.alias) ? fhNomeOra(t, out.length) : "";
+      out.push({ i, k: 0, sole: t.event, min: fhOffMin(t.offset),
+        nome: (t.event === "sunset" ? "Al tramonto" : "All'alba") +
+          (et && !/^(Accende|Spegne)( \d+)?$/.test(et) ? " · " + et.toLowerCase() : "") });
+      return;
+    }
+    if (tipo !== "time") return;
     const at = t.at;
     (Array.isArray(at) ? at : [at]).forEach((ora, k) => {
       if (typeof ora !== "string" || !/^\d{1,2}:\d{2}(:\d{2})?$/.test(ora)) return;
@@ -13568,6 +13582,36 @@ function fhOrariDi(cfg) {
     });
   });
   return out;
+}
+
+// Lo scostamento dal sole, in minuti: HA lo scrive "-00:30:00", "00:20:00" o
+// in secondi.
+function fhOffMin(off) {
+  if (off === undefined || off === null || off === "") return 0;
+  if (typeof off === "number") return Math.round(off / 60);
+  const m = String(off).match(/^(-)?(\d{1,3}):(\d{2})(?::(\d{2}))?$/);
+  if (!m) return 0;
+  const v = (+m[2]) * 60 + (+m[3]) + (m[4] ? (+m[4]) / 60 : 0);
+  return Math.round(m[1] ? -v : v);
+}
+function fhOffTesto(min) {
+  const a = Math.abs(Math.round(min));
+  return (min < 0 ? "-" : "") + String(Math.floor(a / 60)).padStart(2, "0") + ":" + String(a % 60).padStart(2, "0") + ":00";
+}
+// A che ora succedera davvero: il prossimo tramonto (o la prossima alba) che
+// Home Assistant conosce, spostato dello scostamento.
+function fhOraSole(hass, evento, min) {
+  const s = hass && hass.states && hass.states["sun.sun"];
+  const iso = s && s.attributes && s.attributes[evento === "sunset" ? "next_setting" : "next_rising"];
+  if (!iso) return "";
+  const d = new Date(new Date(iso).getTime() + (min || 0) * 60000);
+  return isNaN(d) ? "" : d.toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
+}
+function fhScostamento(min) {
+  if (!min) return "in punto";
+  const a = Math.abs(min);
+  const q = a >= 60 ? (a % 60 ? Math.floor(a / 60) + " h e " + (a % 60) + " min" : Math.floor(a / 60) + (Math.floor(a / 60) === 1 ? " ora" : " ore")) : a + " min";
+  return q + (min < 0 ? " prima" : " dopo");
 }
 
 // "on2" e "off3" sono i nomi degli inneschi, non una lingua: qui diventano
@@ -13782,7 +13826,8 @@ class FaberAutomazioni extends HTMLElement {
     const chiaro = !!this.closest(".fh-app.chiaro");
     const nome = v.nome || v.entity;
     const ore = this._orariDi(v.entity).map(o => Object.assign({}, o));
-    const partenza = ore.map(o => o.ora);
+    const valore = o => o.sole ? o.min : o.ora;
+    const partenza = ore.map(valore);
     const f = fhFoglio("Orari · " + nome, chiaro);
     // fhFoglio tiene un foglio solo: chiudendo gli orari si tornerebbe al
     // pannello invece che all'elenco da cui si e partiti.
@@ -13790,21 +13835,36 @@ class FaberAutomazioni extends HTMLElement {
     f.scrim.addEventListener("click", e => { if (e.target === f.scrim) indietro(); });
     f.scrim.querySelector("[data-x]").addEventListener("click", indietro);
     const disegna = (esito) => {
-      const mosso = ore.some((o, i) => o.ora !== partenza[i]);
+      const mosso = ore.some((o, i) => valore(o) !== partenza[i]);
       f.corpo.innerHTML = `
         <div class="fhf-nota">Gli orari di <b>${fhEsc(nome)}</b>. Cambiali qui e premi Salva:
           non serve entrare nelle impostazioni di Home Assistant.</div>
         <div class="fho-griglia">
-          ${ore.map((o, i) => `<label class="fho-c${o.ora !== partenza[i] ? " mosso" : ""}">
+          ${ore.map((o, i) => o.sole ? `<label class="fho-c${valore(o) !== partenza[i] ? " mosso" : ""}">
+            <span>${fhEsc(o.nome)}</span>
+            <input type="number" data-o="${i}" value="${o.min}" step="5" min="-180" max="180">
+            <em class="fho-prev">${fhEsc(fhScostamento(o.min))} · ${o.sole === "sunset" ? "stasera" : "domattina"} verso le
+              <b>${fhEsc(fhOraSole(this._hass, o.sole, o.min) || "?")}</b></em>
+          </label>` : `<label class="fho-c${valore(o) !== partenza[i] ? " mosso" : ""}">
             <span>${fhEsc(o.nome)}</span>
             <input type="time" data-o="${i}" value="${fhEsc(o.ora)}">
           </label>`).join("")}
         </div>
+        ${ore.some(o => o.sole) ? `<div class="fhf-nota">Con il sole non c'e un'ora fissa: si sceglie di quanti <b>minuti</b>
+          stare prima (numero negativo) o dopo. L'ora qui sopra e quella del prossimo tramonto e della prossima alba,
+          e si sposta da sola con le stagioni.</div>` : ""}
         ${esito ? `<div class="fho-esito${esito.male ? " male" : ""}">${fhEsc(esito.testo)}</div>` : ""}
         <button type="button" class="fho-salva" data-salva ${mosso ? "" : "disabled"}>${mosso ? "Salva" : "Nessuna modifica"}</button>`;
       f.corpo.querySelectorAll("[data-o]").forEach(x => x.onchange = ev => {
-        if (!/^\d{2}:\d{2}$/.test(ev.target.value)) return;
-        ore[+ev.target.dataset.o].ora = ev.target.value;
+        const o = ore[+ev.target.dataset.o];
+        if (o.sole) {
+          const n = parseInt(ev.target.value, 10);
+          if (!isFinite(n) || Math.abs(n) > 180) return;
+          o.min = n;
+        } else {
+          if (!/^\d{2}:\d{2}$/.test(ev.target.value)) return;
+          o.ora = ev.target.value;
+        }
         disegna();
       });
       const s = f.corpo.querySelector("[data-salva]");
@@ -13812,7 +13872,7 @@ class FaberAutomazioni extends HTMLElement {
         s.disabled = true; s.textContent = "Salvo…";
         const esito = await this._salvaOrari(v, ore);
         if (esito.male) { disegna(esito); return; }
-        partenza.length = 0; ore.forEach(o => partenza.push(o.ora));
+        partenza.length = 0; ore.forEach(o => partenza.push(valore(o)));
         disegna(esito);
       };
     };
@@ -13834,14 +13894,15 @@ class FaberAutomazioni extends HTMLElement {
       return { male: true, testo: "Non riesco a leggere l'automazione: " + (e.message || e) };
     }
     const adesso = fhOrariDi(cfg);
-    if (adesso.length !== ore.length || adesso.some((o, i) => o.i !== ore[i].i || o.k !== ore[i].k)) {
+    if (adesso.length !== ore.length || adesso.some((o, i) => o.i !== ore[i].i || o.k !== ore[i].k || o.sole !== ore[i].sole)) {
       this._cfgAuto[v.entity] = cfg;
       return { male: true, testo: "L'automazione e cambiata da un'altra parte: riapri gli orari e riprova." };
     }
     const tr = cfg.triggers || cfg.trigger;
     ore.forEach(o => {
       const t = tr[o.i];
-      if (o.insieme) t.at[o.k] = o.ora + ":00";
+      if (o.sole) t.offset = fhOffTesto(o.min);
+      else if (o.insieme) t.at[o.k] = o.ora + ":00";
       else t.at = o.ora + ":00";
     });
     this._gesto = true;
@@ -13854,7 +13915,8 @@ class FaberAutomazioni extends HTMLElement {
     }
     this._cfgAuto[v.entity] = cfg;
     if (this._foglio && this._foglio.aperto()) { this._foglio.corpo.__firma = null; this._disegnaLista(this._foglio.corpo); }
-    return { male: false, testo: "Salvato ✓ " + ore.map(o => o.nome + " " + o.ora).join(" · ") };
+    return { male: false, testo: "Salvato ✓ " + ore.map(o => o.nome + " " +
+      (o.sole ? fhScostamento(o.min) + " (verso le " + (fhOraSole(this._hass, o.sole, o.min) || "?") + ")" : o.ora)).join(" · ") };
   }
 
   // Si ridisegna solo se qualcosa di quello che si vede e cambiato: la card
@@ -13862,19 +13924,21 @@ class FaberAutomazioni extends HTMLElement {
   _disegnaLista(corpo) {
     const gruppi = (this._cfg.gruppi || []).map(g => ({ titolo: g.titolo,
       voci: (g.voci || []).map(v => ({ v, r: this._leggi(v), ore: this._orariDi(v.entity) })) }));
-    const firma = JSON.stringify(gruppi.map(g => g.voci.map(({ r, ore }) => [r.on, r.ok, r.sub, r.valore, ore.map(o => o.ora)])));
+    const firma = JSON.stringify(gruppi.map(g => g.voci.map(({ r, ore }) => [r.on, r.ok, r.sub, r.valore,
+      ore.map(o => o.sole ? [o.sole, o.min, fhOraSole(this._hass, o.sole, o.min)] : o.ora)])));
     if (corpo.__firma === firma) return;
     corpo.__firma = firma;
     corpo.innerHTML = gruppi.map((g, gi) => `<div class="fhf-sez">${g.titolo ? `<h4>${fhEsc(g.titolo)}</h4>` : ""}
       ${g.voci.map(({ v, r, ore }, vi) => {
         const col = r.ok === false ? "#ff8a3d" : r.on ? "#ffb020" : r.dom === "binary_sensor" || r.dom === "sensor" ? "#4ade80" : "#93a1b0";
         let ctrl = "";
-        if (r.dom === "automation" && r.st) ctrl = `${ore.length ? `<button type="button" class="fhf-tasto" data-ore="${gi}.${vi}">${ore.length === 1 ? fhEsc(ore[0].ora) : "Orari"}</button>` : ""}<button type="button" class="fhf-sw${r.on ? " on" : ""}" data-sw="${gi}.${vi}" aria-label="Attiva o spegni"></button>`;
+        const quando = o => o.sole ? "≈ " + (fhOraSole(this._hass, o.sole, o.min) || "—") : o.ora;
+        if (r.dom === "automation" && r.st) ctrl = `${ore.length ? `<button type="button" class="fhf-tasto" data-ore="${gi}.${vi}">${ore.length === 1 ? fhEsc(quando(ore[0])) : "Orari"}</button>` : ""}<button type="button" class="fhf-sw${r.on ? " on" : ""}" data-sw="${gi}.${vi}" aria-label="Attiva o spegni"></button>`;
         else if (v.azione) ctrl = `<button type="button" class="fhf-tasto" data-az="${gi}.${vi}">${fhEsc(v.tasto || "Esegui")}</button>`;
         else if (r.dom === "script" && r.st) ctrl = `<button type="button" class="fhf-tasto" data-az="${gi}.${vi}">${fhEsc(v.tasto || "Avvia")}</button>`;
         else if (r.dom === "button" && r.st) ctrl = `<button type="button" class="fhf-tasto" data-az="${gi}.${vi}">${fhEsc(v.tasto || "Premi")}</button>`;
         else if (r.valore) ctrl = `<span class="fhf-val">${fhEsc(r.valore)}</span>`;
-        const sub = r.sub + (ore.length > 1 ? " · " + ore.slice(0, 4).map(o => o.ora).join(", ") + (ore.length > 4 ? "…" : "") : "");
+        const sub = r.sub + (ore.length > 1 ? " · " + ore.slice(0, 4).map(quando).join(", ") + (ore.length > 4 ? "…" : "") : "");
         return `<div class="fhf-riga${r.st ? " cliccabile" : ""}" style="--r-c:${col}" data-info="${fhEsc(v.entity || "")}">
           <div class="fhf-rig-ic"><ha-icon icon="${fhEsc(r.icona)}"></ha-icon></div>
           <div class="fhf-rig-t"><b>${fhEsc(r.nome)}</b>${sub ? `<small>${fhEsc(sub)}</small>` : ""}</div>${ctrl}</div>`;
