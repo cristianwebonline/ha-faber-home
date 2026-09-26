@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.137.0";
+const FH_VERSION = "0.138.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -8758,7 +8758,11 @@ class FaberCarichi extends HTMLElement {
     const k = this._confronto;
     if (!k) return "";
     const p = k.perc;
-    if (Math.abs(p) < 3) return `<button type="button" class="fc-ieri pari" data-ieri>come ieri a quest'ora</button>`;
+    const kwh = n => (Math.round(n * 10) / 10).toLocaleString("it-IT") + " kWh";
+    // Quando oggi e ieri si somigliano la frase c'e lo stesso, e si deve
+    // leggere: sbiadita com'era sembrava sparita (Cristian: "perche nella home
+    // nei consumi non c'e piu il confronto di ieri?" — erano 6,09 contro 6,11).
+    if (Math.abs(p) < 3) return `<button type="button" class="fc-ieri pari" data-ieri title="Perché?">= come ieri · ${kwh(k.oggi)} <span class="fc-perche">perché?</span></button>`;
     const giu = p < 0;
     return `<button type="button" class="fc-ieri ${giu ? "giu" : "su"}" data-ieri title="Perché?">${giu ? "&darr;" : "&uarr;"} ${Math.abs(p)}% di ieri <span class="fc-perche">perché?</span></button>`;
   }
@@ -9069,7 +9073,7 @@ const FC_CSS = `
 
   .fc-ieri.giu{color:#39d98a}
   .fc-ieri.su{color:#ffb020}
-  .fc-ieri.pari{opacity:.55}
+  .fc-ieri.pari{opacity:.85}
   .fh-app.chiaro .fc-ieri.giu{color:#128a52}
   .fh-app.chiaro .fc-ieri.su{color:#a35b00}
   .fc-mtit{font-size:11px;font-weight:900;letter-spacing:.10em;text-transform:uppercase;opacity:.62}
