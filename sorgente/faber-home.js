@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.138.0";
+const FH_VERSION = "0.139.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -9067,7 +9067,11 @@ const FC_CSS = `
   .fc.mini .fc-body{display:flex;flex-direction:column;gap:7px}
   .fc-mtop{display:flex;align-items:baseline;justify-content:space-between;gap:10px}
   .fc-mnum{text-align:right;flex:0 0 auto}
-  .fc-ieri{font-size:10.5px;font-weight:800;letter-spacing:.01em;margin-top:2px;white-space:nowrap;
+  /* color:inherit non e un dettaglio: senza, un <button> prende il colore di
+     default della WebView — bianco. I casi "su" e "giu" hanno un colore loro e
+     si vedevano, "come ieri" no: di giorno spariva nel fondo chiaro, e
+     sembrava che il confronto non ci fosse piu. */
+  .fc-ieri{font-size:10.5px;font-weight:800;letter-spacing:.01em;margin-top:2px;white-space:nowrap;color:inherit;
     background:none;border:none;padding:2px 0;font-family:inherit;cursor:pointer;display:inline-flex;align-items:center;gap:5px}
   .fc-perche{font-size:9.5px;font-weight:800;padding:1px 7px;border-radius:999px;background:color-mix(in srgb,currentColor 16%,transparent)}
 
