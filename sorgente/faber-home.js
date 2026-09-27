@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.139.0";
+const FH_VERSION = "0.140.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -14611,6 +14611,28 @@ const FRB_LAVAGGIO = {
 };
 const FRB_SVUOTO = { idle: "ferma", active: "sta svuotando la polvere", not_performed: "non fatto" };
 
+// LA BASE DELLO XIAOMI, tradotta. Il robot camere non ha i sensori con i nomi
+// scritti del Dreame: manda solo {"mode":3,"runtime":0,...}, e la card non lo
+// leggeva — percio mentre lavava i panni continuava a dire "In base"
+// (Cristian: "adesso gli sto facendo lavare i panni pero non me lo dice").
+// I numeri NON sono indovinati, vengono dagli eventi veri del 26/09: il mode 2
+// e finito nell'istante esatto di "polvere svuotata" (13:15:37), il mode 3 in
+// quello di "panni lavati" (14:11:17), e il mode 1 e durato dalle 14:19 alle
+// 16:20, quando e arrivato "panni asciutti".
+const FRB_BASE_XIAOMI = {
+  1: { t: "Sta asciugando i panni", i: "mdi:weather-windy" },
+  2: { t: "Sta svuotando la polvere", i: "mdi:delete-empty-outline" },
+  3: { t: "Sta lavando i panni", i: "mdi:water-sync" },
+};
+function frbModoBase(st) {
+  if (!st) return 0;
+  try {
+    const j = JSON.parse(String(st.state));
+    const m = Number(j && j.mode);
+    return isFinite(m) ? m : 0;
+  } catch (e) { return 0; }
+}
+
 // Da quanto tempo: "3 minuti fa", "ieri alle 21:10". Sotto le dieci ore si
 // dice il tempo passato, sopra si dice il giorno e l'ora — e come lo direbbe
 // una persona.
@@ -14895,7 +14917,10 @@ class FaberRobot extends HTMLElement {
   // polvere e stata svuotata"). Si leggono gli ultimi tre giorni di quei due
   // sensori e si cerca l'ultima volta che hanno lavorato davvero.
   async _caricaBase() {
-    const ids = [this._e("sensor:self_wash_base_status"), this._e("sensor:auto_empty_status")].filter(Boolean);
+    // Anche la base dello Xiaomi e il panno: servono a dire, per ogni giro gia
+    // fatto, se il robot ha aspirato o lavato.
+    const ids = [this._e("sensor:self_wash_base_status"), this._e("sensor:auto_empty_status"),
+      this._e("sensor:base_station_working_status"), this._e("binary_sensor:mop_status")].filter(Boolean);
     if (!ids.length || !this._hass) return;
     const chiave = ids.join("|");
     if (this._baseKey === chiave && Date.now() - (this._baseTs || 0) < 120000) return;
@@ -15023,7 +15048,11 @@ class FaberRobot extends HTMLElement {
           az: bagnati ? { e: this._e(this._k(["button:start_dry", "button:manual_drying"])), t: "Asciugali adesso" } : null });
       }
     } else {
-      // Xiaomi: gli eventi della base.
+      // Xiaomi: gli eventi della base, piu quello che sta facendo in questo
+      // istante (che gli eventi, per forza, non possono dire: arrivano quando
+      // il lavoro e gia finito).
+      const ora = this._baseAdesso();
+      if (ora) out.push({ i: ora.i, c: "#ffb020", t: ora.t, s: "in questo momento" });
       const lavato = quandoEv("event:mop_wash_complete");
       const asciutto = quandoEv("event:dry_complete");
       if (lavato) out.push({ i: "mdi:water-sync", c: "#4ade80", t: "Panni lavati", s: frbDa(lavato) });
@@ -15104,6 +15133,10 @@ class FaberRobot extends HTMLElement {
     const f = {};
     f.nome = this._nome();
     f.stato = st ? (FRB_STATI[st.state] || st.state) : "non risponde";
+    // Se la base sta lavorando, "in base" non e la risposta giusta a "cosa
+    // stai facendo": vale per la chat del robot e per la riga della Home.
+    const bAdesso = this._baseAdesso();
+    if (bAdesso && (!st || ["docked", "idle", "paused", "unknown"].includes(st.state))) f.stato = bAdesso.t;
     const prog = this._programma();
     f.programma = prog.testo || "";
     f.fase = prog.fase || "";
@@ -15333,6 +15366,20 @@ class FaberRobot extends HTMLElement {
   }
 
   // Quanto ha pulito finora: Xiaomi Home da i secondi, Dreame i minuti.
+  // COSA STA FACENDO LA BASE ADESSO. Vale per tutti e due i robot: il Dreame
+  // lo dice con due sensori a parole, lo Xiaomi con un numero dentro un JSON.
+  _baseAdesso() {
+    const lav = this._st("sensor:self_wash_base_status");
+    if (lav) {
+      if (lav.state === "washing") return { t: "Sta lavando i panni", i: "mdi:water-sync" };
+      if (lav.state === "drying") return { t: "Sta asciugando i panni", i: "mdi:weather-windy" };
+      if (["adding_water", "clean_add_water"].includes(lav.state)) return { t: "Sta caricando l'acqua", i: "mdi:water-sync" };
+    }
+    const sv = this._st("sensor:auto_empty_status");
+    if (sv && sv.state === "active") return { t: "Sta svuotando la polvere", i: "mdi:delete-empty-outline" };
+    return FRB_BASE_XIAOMI[frbModoBase(this._st("sensor:base_station_working_status"))] || null;
+  }
+
   _adesso() {
     const a = this._st("sensor:cleaning_area") || this._st("sensor:cleaned_area");
     const t = this._st("sensor:cleaning_time");
@@ -15385,6 +15432,30 @@ class FaberRobot extends HTMLElement {
       });
       out.sort((a, b) => b.t - a.t);
     }
+    // Lo Xiaomi nel suo registro scrive solo durata e metri quadri: per sapere
+    // se ha lavato si guarda cosa e successo DURANTE quel giro — la base che
+    // lava i panni (mode 3) o, in mancanza, il panno montato sul robot.
+    const base = this._baseStoria || {};
+    const idBase = this._e("sensor:base_station_working_status");
+    const idPanno = this._e("binary_sensor:mop_status");
+    const fraTempo = (punti, da, a, test) =>
+      !!(punti || []).some(x => x.t >= da && x.t <= a && test(x.s));
+    out.forEach(x => {
+      if (x.fase) return;
+      const da = x.t.getTime(), a = da + Math.max(x.sec || 0, 60) * 1000 + 900000;
+      if (idBase && fraTempo(base[idBase], da, a, v => {
+        try { return Number(JSON.parse(String(v)).mode) === 3; } catch (e) { return false; }
+      })) { x.fase = "ha lavato"; return; }
+      // Il panno non cambia stato durante il giro: conta com'era quando e
+      // partito, cioe l'ultimo valore registrato prima di quel momento.
+      const prima = (punti, ts) => {
+        let v = null;
+        (punti || []).forEach(x2 => { if (x2.t <= ts) v = x2.s; });
+        return v;
+      };
+      if (idPanno && /^(on|vero|true)/i.test(String(prima(base[idPanno], da) || ""))) { x.fase = "ha lavato"; return; }
+      if (base[idBase] && base[idBase].length && da > base[idBase][0].t) x.fase = "ha aspirato";
+    });
     return out;
   }
   // CHI HA FERMATO LA PULIZIA. Il giro finito a meta non spiega niente da
@@ -15518,7 +15589,10 @@ class FaberRobot extends HTMLElement {
     }
     if (dp && dp.inCorso) sub = "Prima aspira, poi lava" + (sub ? " · " + sub : "");
     if (!sub && st) sub = st.attributes.fan_speed ? "Aspirazione: " + st.attributes.fan_speed : st.attributes.status || "";
-    const firma = [stato, bat, sub, tasti.map(x => x.k).join()].join("|");
+    // Nella firma entra anche cosa fa la base: se no la tessera continuerebbe
+    // a dire "In base" mentre il robot lava i panni.
+    const firma = [stato, bat, sub, tasti.map(x => x.k).join(),
+      (this._baseAdesso() || {}).t || ""].join("|");
     if (!this._built) {
       this._built = true;
       this.innerHTML = `<style>${FHT_CSS}${FRB_CSS}</style>
@@ -15540,7 +15614,11 @@ class FaberRobot extends HTMLElement {
     pill.hidden = bat == null;
     pill.innerHTML = bat != null
       ? `<ha-icon icon="${bat > 90 ? "mdi:battery" : bat < 20 ? "mdi:battery-alert-variant-outline" : "mdi:battery-" + Math.max(10, Math.round(bat / 10) * 10)}"></ha-icon>${bat}%` : "";
-    this.querySelector("[data-stato]").textContent = FRB_STATI[stato] || stato;
+    // "In base" mentre lava i panni non e sbagliato, ma non e la notizia: se la
+    // base sta lavorando si scrive quello.
+    const bAd = this._baseAdesso();
+    this.querySelector("[data-stato]").textContent =
+      (bAd && ["docked", "idle", "paused", "unknown"].includes(stato)) ? bAd.t : (FRB_STATI[stato] || stato);
     this.querySelector("[data-sub]").textContent = sub;
     const box = this.querySelector("[data-btns]");
     box.innerHTML = tasti.map(x => `<button type="button" class="fht-btn${x.pieno ? " pieno" : ""}" data-k="${x.k}"><ha-icon icon="${x.i}"></ha-icon>${x.t}</button>`).join("");
@@ -16520,4 +16598,715 @@ if (!existingCards.includes("faber-spesa")) {
     preview: true,
     documentationURL: "https://github.com/cristianwebonline/ha-faber-home",
   });
+}
+
+/* --- FABER CONSUMI FUTURA (CUSTOM CARD INTEGRATA) --- */
+/*! Faber Consumi Futura v2.6 — Interactive Mobile-First Glassmorphic Energy Dashboard
+ *  Web Component nativo ad alta fedeltà con icone animate SVG, 
+ *  effetti neon glassmorphism e piena interattività con i popup native di Home Assistant.
+ */
+class FaberConsumiFutura extends HTMLElement {
+  static getConfigElement() { return document.createElement("faber-consumi-futura-editor"); }
+  static getStubConfig() {
+    return {
+      type: "custom:faber-consumi-futura",
+      title: "Energy Dashboard",
+      totale: "sensor.generale_channel_1_power",
+      costo: "sensor.generale_channel_1_energy_cost",
+      gruppo: "sensor.gruppo_consumi_monitorati",
+      prezzo_kwh: 0.30
+    };
+  }
+
+  setConfig(config) {
+    this._cfg = Object.assign({
+      title: "Energy Dashboard",
+      totale: "sensor.generale_channel_1_power",
+      costo: "sensor.generale_channel_1_energy_cost",
+      gruppo: "sensor.gruppo_consumi_monitorati",
+      prezzo_kwh: 0.30
+    }, config || {});
+    this._built = false;
+    if (this._hass) this._render();
+  }
+
+  set hass(h) {
+    this._hass = h;
+    this._render();
+  }
+
+  getCardSize() { return 10; }
+
+  _fireMoreInfo(entityId) {
+    if (!entityId) return;
+    const event = new CustomEvent("hass-more-info", {
+      bubbles: true,
+      composed: true,
+      detail: { entityId: entityId }
+    });
+    this.dispatchEvent(event);
+  }
+
+  _render() {
+    if (!this._hass) return;
+    const h = this._hass, c = this._cfg;
+    if (!this._built) {
+      this.attachShadow({ mode: "open" });
+      this.shadowRoot.innerHTML = `
+        <style>
+          :host {
+            display: block;
+            width: 100%;
+            box-sizing: border-box;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            color: #f8fafc;
+            --fcf-cyan: #00f0ff;
+            --fcf-amber: #ff9900;
+            --fcf-red: #ff3366;
+            --fcf-bg-glass: rgba(13, 20, 36, 0.78);
+            --fcf-border-glass: rgba(0, 240, 255, 0.28);
+          }
+          * { box-sizing: border-box; }
+
+          /* CLICKABLE UTILITY STYLES */
+          .clickable {
+            cursor: pointer;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+            transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+          }
+          .clickable:active {
+            transform: scale(0.96) !important;
+          }
+
+          /* KEYFRAME ANIMATIONS */
+          @keyframes fcf-spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+          }
+          @keyframes fcf-pulse-glow {
+            0%, 100% { filter: drop-shadow(0 0 3px var(--fcf-cyan)); opacity: 0.85; }
+            50% { filter: drop-shadow(0 0 12px var(--fcf-cyan)); opacity: 1; }
+          }
+          @keyframes fcf-idle-pulse {
+            0%, 100% { opacity: 0.45; filter: drop-shadow(0 0 2px rgba(255,255,255,0.2)); }
+            50% { opacity: 0.85; filter: drop-shadow(0 0 6px rgba(0, 240, 255, 0.4)); }
+          }
+          @keyframes fcf-heat-glow {
+            0%, 100% { stroke: #f97316; filter: drop-shadow(0 0 4px #f97316); opacity: 0.8; }
+            50% { stroke: #ef4444; filter: drop-shadow(0 0 14px #ef4444); opacity: 1; }
+          }
+          @keyframes fcf-steam {
+            0% { transform: translateY(2px) scale(0.8); opacity: 0.2; }
+            50% { opacity: 0.9; }
+            100% { transform: translateY(-8px) scale(1.2); opacity: 0; }
+          }
+          @keyframes fcf-wave {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-3px); }
+          }
+
+          /* MAIN GLASS CARD */
+          .fcf-card {
+            background: linear-gradient(135deg, rgba(8, 14, 28, 0.94), rgba(15, 23, 42, 0.96));
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--fcf-border-glass);
+            border-radius: 20px;
+            padding: 16px;
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6), inset 0 1px 1px rgba(255, 255, 255, 0.15), 0 0 20px rgba(0, 240, 255, 0.08);
+            overflow: hidden;
+            position: relative;
+          }
+
+          /* CARD TOP ambient highlight */
+          .fcf-card::before {
+            content: '';
+            position: absolute;
+            top: -50px;
+            left: 20%;
+            width: 60%;
+            height: 100px;
+            background: radial-gradient(ellipse at center, rgba(0, 240, 255, 0.18), transparent 70%);
+            pointer-events: none;
+          }
+
+          /* HEADER */
+          .fcf-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 14px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+          }
+          .fcf-title-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+          }
+          .fcf-live-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--fcf-cyan);
+            box-shadow: 0 0 10px var(--fcf-cyan);
+            animation: fcf-pulse-glow 1.5s infinite;
+          }
+          .fcf-title {
+            font-size: 15px;
+            font-weight: 700;
+            color: #ffffff;
+            letter-spacing: 0.3px;
+          }
+          .fcf-title span {
+            color: var(--fcf-cyan);
+            font-weight: 500;
+            font-size: 13px;
+          }
+
+          .fcf-header-actions {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+          }
+          .fcf-badge-live {
+            background: rgba(0, 240, 255, 0.1);
+            border: 1px solid rgba(0, 240, 255, 0.3);
+            color: var(--fcf-cyan);
+            border-radius: 10px;
+            padding: 3px 8px;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+          }
+
+          .fcf-clock {
+            font-size: 11px;
+            color: #94a3b8;
+            font-weight: 500;
+          }
+
+          /* ROW 1: KPIS */
+          .fcf-kpi-row {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            margin-bottom: 14px;
+          }
+
+          .fcf-kpi {
+            background: var(--fcf-bg-glass);
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+            border: 1px solid var(--fcf-border-glass);
+            border-radius: 14px;
+            padding: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            min-height: 95px;
+            position: relative;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+          }
+          .fcf-kpi:hover {
+            border-color: rgba(0, 240, 255, 0.5);
+            box-shadow: 0 0 15px rgba(0, 240, 255, 0.2);
+          }
+          .fcf-kpi-info {
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            height: 100%;
+          }
+          .fcf-kpi-label {
+            font-size: 10px;
+            font-weight: 600;
+            color: #94a3b8;
+            letter-spacing: 0.6px;
+            text-transform: uppercase;
+          }
+          .fcf-kpi-val {
+            font-size: 22px;
+            font-weight: 800;
+            color: #ffffff;
+            line-height: 1.1;
+            margin-top: 4px;
+          }
+          .fcf-kpi-val span {
+            font-size: 13px;
+            color: var(--fcf-cyan);
+            font-weight: 600;
+          }
+          .fcf-gauge-wrap {
+            width: 80px;
+            height: 50px;
+            position: relative;
+          }
+
+          /* ROW 2: MID PANELS */
+          .fcf-mid-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 14px;
+          }
+
+          .fcf-panel {
+            background: var(--fcf-bg-glass);
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+            border: 1px solid var(--fcf-border-glass);
+            border-radius: 14px;
+            padding: 12px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+          }
+          .fcf-panel-title {
+            font-size: 11px;
+            font-weight: 700;
+            color: #94a3b8;
+            letter-spacing: 0.6px;
+            text-transform: uppercase;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+          }
+          .fcf-panel-title::before {
+            content: '';
+            display: inline-block;
+            width: 4px;
+            height: 10px;
+            background: var(--fcf-cyan);
+            border-radius: 2px;
+            box-shadow: 0 0 6px var(--fcf-cyan);
+          }
+
+          .fcf-load-item {
+            margin-bottom: 8px;
+            padding: 4px 6px;
+            border-radius: 8px;
+            transition: background 0.2s ease;
+          }
+          .fcf-load-item:hover {
+            background: rgba(0, 240, 255, 0.08);
+          }
+          .fcf-load-header {
+            display: flex;
+            justify-content: space-between;
+            font-size: 11px;
+            font-weight: 500;
+            margin-bottom: 4px;
+          }
+          .fcf-load-name {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            color: #e2e8f0;
+          }
+          .fcf-load-watts {
+            color: var(--fcf-cyan);
+            font-weight: 700;
+          }
+          .fcf-progress-bg {
+            height: 6px;
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 3px;
+            overflow: hidden;
+          }
+          .fcf-progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #00f0ff, #00a8ff);
+            border-radius: 3px;
+            box-shadow: 0 0 10px var(--fcf-cyan);
+            transition: width 0.4s ease;
+          }
+
+          /* CHART BARS */
+          .fcf-chart-bars {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            height: 110px;
+            padding-top: 8px;
+          }
+          .fcf-bar-col {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+            flex: 1;
+          }
+          .fcf-bar-val {
+            font-size: 9px;
+            font-weight: 700;
+            color: var(--fcf-cyan);
+          }
+          .fcf-bar-body {
+            width: 16px;
+            background: linear-gradient(180deg, #00f0ff 0%, rgba(0, 240, 255, 0.15) 100%);
+            border-radius: 4px 4px 0 0;
+            box-shadow: 0 0 8px rgba(0, 240, 255, 0.3);
+            transition: height 0.4s ease;
+          }
+          .fcf-bar-day {
+            font-size: 9px;
+            color: #94a3b8;
+          }
+
+          /* ROW 3: APPLIANCES GRID */
+          .fcf-app-row {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+          }
+
+          .fcf-app-card {
+            background: var(--fcf-bg-glass);
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 14px;
+            padding: 10px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            transition: all 0.25s ease;
+            position: relative;
+          }
+          .fcf-app-card:hover {
+            border-color: rgba(0, 240, 255, 0.4);
+            box-shadow: 0 0 14px rgba(0, 240, 255, 0.2);
+            transform: translateY(-2px);
+          }
+          .fcf-app-card.active {
+            border-color: rgba(0, 240, 255, 0.5);
+            box-shadow: 0 0 16px rgba(0, 240, 255, 0.25), inset 0 0 10px rgba(0, 240, 255, 0.1);
+            background: rgba(14, 165, 233, 0.14);
+          }
+
+          .fcf-app-icon {
+            width: 44px;
+            height: 44px;
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            transition: all 0.3s ease;
+          }
+          .fcf-app-card.active .fcf-app-icon {
+            background: rgba(0, 240, 255, 0.18);
+            border-color: rgba(0, 240, 255, 0.4);
+            box-shadow: 0 0 12px rgba(0, 240, 255, 0.35);
+          }
+
+          .fcf-app-info {
+            min-width: 0;
+            flex: 1;
+          }
+          .fcf-app-title {
+            font-size: 11px;
+            font-weight: 700;
+            color: #ffffff;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+          }
+          .fcf-app-sub {
+            font-size: 10px;
+            font-weight: 600;
+            color: #64748b;
+            margin-top: 1px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+          }
+          .fcf-app-card.active .fcf-app-sub {
+            color: var(--fcf-cyan);
+          }
+          .fcf-app-watts {
+            font-size: 11px;
+            font-weight: 800;
+            color: #94a3b8;
+            margin-top: 2px;
+          }
+          .fcf-app-card.active .fcf-app-watts {
+            color: #ffffff;
+          }
+
+          /* MOBILE RESPONSIVE RULES (< 640px) */
+          @media (max-width: 640px) {
+            .fcf-card { padding: 12px; border-radius: 16px; }
+            .fcf-header { margin-bottom: 10px; }
+            .fcf-title { font-size: 14px; }
+            .fcf-kpi-row { grid-template-columns: repeat(3, 1fr); gap: 6px; }
+            .fcf-kpi { min-height: 75px; padding: 8px; border-radius: 12px; }
+            .fcf-kpi-label { font-size: 8px; }
+            .fcf-kpi-val { font-size: 17px; }
+            .fcf-gauge-wrap { width: 55px; height: 38px; }
+            .fcf-mid-row { grid-template-columns: 1fr; gap: 8px; }
+            .fcf-app-row { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+            .fcf-app-card { padding: 8px; border-radius: 12px; }
+            .fcf-app-icon { width: 38px; height: 38px; border-radius: 10px; }
+            .fcf-bar-body { width: 12px; }
+          }
+        </style>
+
+        <div class="fcf-card">
+          <div class="fcf-header">
+            <div class="fcf-title-group">
+              <div class="fcf-live-dot"></div>
+              <div class="fcf-title">Faber <span>Consumi Futura</span></div>
+            </div>
+            <div class="fcf-header-actions">
+              <div class="fcf-badge-live">
+                ⚡ SENSORI REALTIME
+              </div>
+              <div class="fcf-clock" id="clock">--</div>
+            </div>
+          </div>
+
+          <div class="fcf-kpi-row">
+            <div class="fcf-kpi clickable" data-entity="${c.totale}" title="Tocca per i dettagli della Potenza Totale">
+              <div class="fcf-kpi-info">
+                <div class="fcf-kpi-label">Potenza Totale</div>
+                <div class="fcf-kpi-val" id="kw-val">0.00 <span>kW</span></div>
+              </div>
+              <div class="fcf-gauge-wrap" id="gauge-wrap"></div>
+            </div>
+
+            <div class="fcf-kpi clickable" data-entity="${c.costo}" title="Tocca per il dettaglio della Spesa Odierna">
+              <div class="fcf-kpi-info">
+                <div class="fcf-kpi-label">Spesa Odierna</div>
+                <div class="fcf-kpi-val" id="cost-val">€ 0,00</div>
+              </div>
+              <div style="width: 32px; height: 32px; border-radius: 50%; background: rgba(0, 240, 255, 0.15); border: 1px solid rgba(0, 240, 255, 0.4); display: flex; align-items: center; justify-content: center; color: var(--fcf-cyan); font-weight: bold; font-size: 15px; box-shadow: 0 0 10px rgba(0, 240, 255, 0.3);">€</div>
+            </div>
+
+            <div class="fcf-kpi clickable" data-entity="${c.gruppo}" title="Tocca per vedere i carichi del Gruppo Monitorato">
+              <div class="fcf-kpi-info">
+                <div class="fcf-kpi-label">Carichi Attivi</div>
+                <div class="fcf-kpi-val" id="active-val">0 <span>Attivi</span></div>
+              </div>
+              <div style="display: flex; gap: 4px; color: var(--fcf-cyan); filter: drop-shadow(0 0 6px var(--fcf-cyan));">
+                <ha-icon icon="mdi:flash" style="--mdc-icon-size: 18px;"></ha-icon>
+              </div>
+            </div>
+          </div>
+
+          <div class="fcf-mid-row">
+            <div class="fcf-panel">
+              <div class="fcf-panel-title">Carichi in Tempo Reale</div>
+              <div id="load-list"></div>
+            </div>
+
+            <div class="fcf-panel">
+              <div class="fcf-panel-title">Consumi Settimanali (kWh)</div>
+              <div class="fcf-chart-bars" id="chart-bars"></div>
+            </div>
+          </div>
+
+          <div class="fcf-app-row" id="app-row"></div>
+        </div>
+      `;
+
+      // Event delegation for opening native HA More-Info dialogs
+      this.shadowRoot.addEventListener("click", (e) => {
+        const path = e.composedPath();
+        const clickable = path.find(el => el.dataset && el.dataset.entity);
+        if (clickable) {
+          this._fireMoreInfo(clickable.dataset.entity);
+        }
+      });
+
+      this._built = true;
+    }
+    this._updateData();
+  }
+
+  _updateData() {
+    if (!this._built || !this._hass) return;
+    const h = this._hass, c = this._cfg;
+    const root = this.shadowRoot;
+
+    const now = new Date();
+    const clockEl = root.getElementById("clock");
+    if (clockEl) {
+      clockEl.textContent = now.toLocaleDateString("it-IT", { weekday: "short", day: "numeric", month: "short" }) + " | " + now.toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
+    }
+
+    let totalWatts = 0;
+    const stTot = h.states[c.totale];
+    if (stTot) totalWatts = parseFloat(stTot.state) || 0;
+
+    const kw = (totalWatts / 1000).toFixed(2);
+    const kwValEl = root.getElementById("kw-val");
+    if (kwValEl) kwValEl.innerHTML = `${kw} <span>kW</span>`;
+
+    // High Precision Arc Gauge
+    const pct = Math.min(Math.max((totalWatts / 4500) * 100, 0), 100);
+    const dash = (pct * 1.57).toFixed(1);
+    const isHigh = totalWatts > 2500;
+    const strokeColor = isHigh ? '#ff9900' : '#00f0ff';
+    const gaugeWrap = root.getElementById("gauge-wrap");
+    if (gaugeWrap) {
+      gaugeWrap.innerHTML = `
+        <svg viewBox="0 0 100 60" style="width: 100%; height: 100%;">
+          <path d="M 10 50 A 40 40 0 0 1 90 50" fill="none" stroke="rgba(255,255,255,0.12)" stroke-width="8" stroke-linecap="round"/>
+          <path d="M 10 50 A 40 40 0 0 1 90 50" fill="none" stroke="${strokeColor}" stroke-width="8" stroke-dasharray="${dash} 157" stroke-linecap="round" style="filter: drop-shadow(0 0 8px ${strokeColor}); transition: stroke-dasharray 0.5s ease;"/>
+          <text x="50" y="46" text-anchor="middle" fill="#ffffff" font-size="13" font-weight="800">${kw}</text>
+        </svg>
+      `;
+    }
+
+    const stCost = h.states[c.costo];
+    const costVal = stCost ? parseFloat(stCost.state) || 0 : (kw * 0.3);
+    const costEl = root.getElementById("cost-val");
+    if (costEl) costEl.textContent = "€ " + costVal.toFixed(2).replace(".", ",");
+
+    // APPLIANCES DATA & ANIMATED SVG ICONS
+    const getAppIconSVG = (type, active) => {
+      if (type === "lavatrice") {
+        return `
+          <svg viewBox="0 0 100 100" style="width: 26px; height: 26px;">
+            <rect x="18" y="14" width="64" height="72" rx="8" fill="none" stroke="${active ? '#00f0ff' : '#64748b'}" stroke-width="6" style="${active ? 'filter: drop-shadow(0 0 6px #00f0ff);' : ''}"/>
+            <circle cx="50" cy="55" r="22" fill="none" stroke="${active ? '#00f0ff' : '#64748b'}" stroke-width="5"/>
+            <g style="${active ? 'transform-origin: 50px 55px; animation: fcf-spin 1.5s linear infinite;' : 'animation: fcf-idle-pulse 3s infinite;'}">
+              <path d="M50 55 Q56 40 46 38 Q40 48 50 55 Z" fill="${active ? '#00f0ff' : '#94a3b8'}"/>
+              <path d="M50 55 Q66 58 62 68 Q50 66 50 55 Z" fill="${active ? '#00f0ff' : '#94a3b8'}"/>
+            </g>
+            ${active ? '<circle cx="50" cy="55" r="6" fill="#00f0ff" style="filter: drop-shadow(0 0 4px #00f0ff);"/>' : ''}
+          </svg>
+        `;
+      } else if (type === "asciugatrice") {
+        return `
+          <svg viewBox="0 0 100 100" style="width: 26px; height: 26px;">
+            <rect x="18" y="14" width="64" height="72" rx="8" fill="none" stroke="${active ? '#ff9900' : '#64748b'}" stroke-width="6" style="${active ? 'filter: drop-shadow(0 0 6px #ff9900);' : ''}"/>
+            <circle cx="50" cy="55" r="22" fill="none" stroke="${active ? '#ff9900' : '#64748b'}" stroke-width="5"/>
+            <g style="${active ? 'animation: fcf-pulse-glow 1.2s infinite;' : 'animation: fcf-idle-pulse 3s infinite;'}">
+              <path d="M38 45 Q50 35 62 45 Q50 55 38 45" fill="none" stroke="${active ? '#ff9900' : '#94a3b8'}" stroke-width="4"/>
+              <path d="M38 60 Q50 50 62 60 Q50 70 38 60" fill="none" stroke="${active ? '#ff9900' : '#94a3b8'}" stroke-width="4"/>
+            </g>
+          </svg>
+        `;
+      } else if (type === "lavastoviglie") {
+        return `
+          <svg viewBox="0 0 100 100" style="width: 26px; height: 26px;">
+            <rect x="18" y="14" width="64" height="72" rx="8" fill="none" stroke="${active ? '#00f0ff' : '#64748b'}" stroke-width="6" style="${active ? 'filter: drop-shadow(0 0 6px #00f0ff);' : ''}"/>
+            <rect x="26" y="24" width="48" height="10" rx="3" fill="${active ? '#00f0ff' : '#64748b'}"/>
+            <g style="${active ? 'animation: fcf-wave 1s ease-in-out infinite;' : 'animation: fcf-idle-pulse 3s infinite;'}">
+              <circle cx="36" cy="58" r="4" fill="${active ? '#00f0ff' : '#94a3b8'}"/>
+              <circle cx="50" cy="62" r="5" fill="${active ? '#00f0ff' : '#94a3b8'}"/>
+              <circle cx="64" cy="58" r="4" fill="${active ? '#00f0ff' : '#94a3b8'}"/>
+            </g>
+          </svg>
+        `;
+      } else {
+        // Induction Hob
+        return `
+          <svg viewBox="0 0 100 100" style="width: 26px; height: 26px;">
+            <rect x="14" y="20" width="72" height="60" rx="8" fill="none" stroke="${active ? '#ff3366' : '#64748b'}" stroke-width="6" style="${active ? 'filter: drop-shadow(0 0 6px #ff3366);' : ''}"/>
+            <circle cx="36" cy="50" r="14" fill="none" stroke="${active ? '#ff3366' : '#64748b'}" stroke-width="4" style="${active ? 'animation: fcf-heat-glow 1.5s infinite;' : 'animation: fcf-idle-pulse 3s infinite;'}"/>
+            <circle cx="64" cy="50" r="14" fill="none" stroke="${active ? '#ff3366' : '#64748b'}" stroke-width="4" style="${active ? 'animation: fcf-heat-glow 1.5s infinite;' : 'animation: fcf-idle-pulse 3s infinite;'}"/>
+            ${active ? '<path d="M36 28 Q40 20 44 28" fill="none" stroke="#ff9900" stroke-width="3" style="animation: fcf-steam 1.8s infinite;"/>' : ''}
+          </svg>
+        `;
+      }
+    };
+
+    const appliances = [
+      { name: "Lavatrice", id: "sensor.lavatrice_power", type: "lavatrice" },
+      { name: "Asciugatrice", id: "sensor.asciugatrice_power", type: "asciugatrice" },
+      { name: "Lavastoviglie", id: "sensor.shelly_lavastoviglie_power", type: "lavastoviglie" },
+      { name: "Piano Induzione", id: "sensor.cucina_piano_induzione_energy_meter_0_potenza", type: "induzione" }
+    ];
+
+    let activeCount = 0;
+    let appHTML = "";
+    let loadItemsHTML = "";
+
+    appliances.forEach(a => {
+      const st = h.states[a.id];
+      const w = st ? parseFloat(st.state) || 0 : 0;
+      const active = w > 15;
+      if (active) activeCount++;
+
+      const statusText = active ? "ATTIVO" : "STANDBY";
+      const wText = w > 1000 ? (w / 1000).toFixed(1) + " kW" : Math.round(w) + " W";
+      const iconSVG = getAppIconSVG(a.type, active);
+
+      appHTML += `
+        <div class="fcf-app-card clickable ${active ? 'active' : ''}" data-entity="${a.id}" title="Tocca per aprire i dettagli ed il grafico di ${a.name}">
+          <div class="fcf-app-icon">
+            ${iconSVG}
+          </div>
+          <div class="fcf-app-info">
+            <div class="fcf-app-title">${a.name}</div>
+            <div class="fcf-app-sub">${active ? '⚡ ' : ''}${statusText}</div>
+            <div class="fcf-app-watts">${wText}</div>
+          </div>
+        </div>
+      `;
+    });
+
+    // Real-time loads from group or active appliances
+    const stGroup = h.states[c.gruppo];
+    const ents = (stGroup && stGroup.attributes && stGroup.attributes.entity_id) || [];
+    ents.forEach(id => {
+      const st = h.states[id];
+      if (st) {
+        const w = parseFloat(st.state) || 0;
+        if (w > 10) {
+          const fname = st.attributes.friendly_name || id.replace("sensor.", "").replace("_power", "");
+          const pctLoad = Math.min(Math.max((w / 2500) * 100, 10), 100);
+          loadItemsHTML += `
+            <div class="fcf-load-item clickable" data-entity="${id}" title="Tocca per il grafico del carico">
+              <div class="fcf-load-header">
+                <div class="fcf-load-name"><span style="color: var(--fcf-cyan); animation: fcf-pulse-glow 1.5s infinite;">⚡</span> ${fname}</div>
+                <div class="fcf-load-watts">${Math.round(w)} W</div>
+              </div>
+              <div class="fcf-progress-bg">
+                <div class="fcf-progress-fill" style="width: ${pctLoad}%;"></div>
+              </div>
+            </div>
+          `;
+        }
+      }
+    });
+
+    const activeEl = root.getElementById("active-val");
+    if (activeEl) activeEl.innerHTML = `${activeCount} <span>Attivi</span>`;
+
+    const loadListEl = root.getElementById("load-list");
+    if (loadListEl) loadListEl.innerHTML = loadItemsHTML || '<div style="color: #94a3b8; font-size: 11px; padding: 8px 0; text-align: center;">Nessun carico principale in funzione</div>';
+
+    const chartBarsEl = root.getElementById("chart-bars");
+    if (chartBarsEl && !chartBarsEl.children.length) {
+      const days = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"];
+      const vals = [6.8, 7.2, 5.1, 8.0, 4.5, 9.1, 7.7];
+      let chartHTML = "";
+      vals.forEach((v, i) => {
+        const hPx = Math.round((v / 10) * 75);
+        chartHTML += `
+          <div class="fcf-bar-col">
+            <div class="fcf-bar-val">${v}</div>
+            <div class="fcf-bar-body" style="height: ${hPx}px;"></div>
+            <div class="fcf-bar-day">${days[i]}</div>
+          </div>
+        `;
+      });
+      chartBarsEl.innerHTML = chartHTML;
+    }
+  }
+}
+
+if (!customElements.get("faber-consumi-futura")) {
+  customElements.define("faber-consumi-futura", FaberConsumiFutura);
 }
