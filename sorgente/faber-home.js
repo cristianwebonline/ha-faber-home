@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.140.0";
+const FH_VERSION = "0.141.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -13540,6 +13540,11 @@ const FHT_CSS = `
   .fhf-sw.on,.fhf-scrim.chiaro .fhf-sw.on,.fh-app.chiaro .fhf-sw.on{background:#ffb020}
   .fhf-sw.on::after{transform:translateX(19px)}
   .fhf-nota{font-size:11.5px;opacity:.65;line-height:1.4}
+  /* I giorni della raccolta, scrivibili dentro la riga stessa. */
+  .frf-in{width:100%;box-sizing:border-box;margin-top:3px;padding:7px 9px;border-radius:10px;font:inherit;font-size:13px;
+    font-weight:800;color:inherit;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.06)}
+  .fhf-scrim.chiaro .frf-in,.fh-app.chiaro .frf-in{background:#fff;border-color:rgba(15,23,42,.18)}
+  .frf-fondo{display:flex;justify-content:flex-end}
   /* La schermata degli orari: cambiare l'ora di un'automazione senza entrare
      nelle impostazioni di Home Assistant. */
   .fho-griglia{display:grid;grid-template-columns:1fr 1fr;gap:9px}
@@ -13999,6 +14004,11 @@ customElements.define("faber-automazioni", FaberAutomazioni);
 // centro: { nome, orari: { lun: "14:00 - 18:00", ... } }
 // ===========================================================================
 const FR_GIORNI = ["dom", "lun", "mar", "mer", "gio", "ven", "sab"];
+// L'ordine con cui si guarda la settimana (FR_GIORNI segue getDay(), che parte
+// da domenica: buono per i conti, pessimo da leggere).
+const FR_SETT = ["lun", "mar", "mer", "gio", "ven", "sab", "dom"];
+// I suggerimenti del campo: gli stessi nomi che la card sa colorare.
+const FR_SUGG = ["Plastica e Metalli", "Organico", "Indifferenziato", "Vetro", "Carta e Cartone", "Verde"];
 const FR_NOMI = { dom: "Domenica", lun: "Lunedì", mar: "Martedì", mer: "Mercoledì", gio: "Giovedì", ven: "Venerdì", sab: "Sabato" };
 const FR_TIPI = [
   { re: /plastic|metall|lattin/i, c: "#f2b705", i: "mdi:bottle-soda-classic-outline" },
@@ -14117,7 +14127,99 @@ class FaberRifiuti extends HTMLElement {
           <div class="fhf-rig-t"><b>${fhEsc(FR_NOMI[k])}</b><small>${fhEsc(c.orari[k])}</small></div>
           ${k === oggiK ? `<span class="fhf-val">${aperto ? "aperto adesso" : "oggi"}</span>` : ""}</div>`).join("")}</div>`;
     }
-    f.corpo.innerHTML = `<div class="fhf-sez"><h4>Porta a porta · si espone la sera prima</h4>${settimana.map(riga).join("")}</div>${centro}`;
+    f.corpo.innerHTML = `<div class="fhf-sez"><h4>Porta a porta · si espone la sera prima</h4>${settimana.map(riga).join("")}</div>${centro}
+      <div class="frf-fondo"><button type="button" class="fhf-tasto" data-giorni>Cambia i giorni</button></div>`;
+    const cg = f.corpo.querySelector("[data-giorni]");
+    if (cg) cg.onclick = () => this._apriGiorni();
+  }
+
+  // CAMBIARE I GIORNI DELLA RACCOLTA senza entrare in modifica della
+  // dashboard: il calendario del porta a porta cambia quando il Comune lo
+  // decide, e andarlo a correggere nello YAML della card non e una cosa che
+  // si fa dal telefono.
+  _apriGiorni() {
+    const chiaro = !!this.closest(".fh-app.chiaro");
+    const cal = Object.assign({}, this._cfg.calendario || {});
+    const bozza = {};
+    FR_SETT.forEach(k => { bozza[k] = cal[k] || ""; });
+    const partenza = JSON.stringify(bozza);
+    const f = fhFoglio("Giorni della raccolta", chiaro);
+    const indietro = () => setTimeout(() => { if (!f.aperto()) this._apri(); }, 0);
+    f.scrim.addEventListener("click", e => { if (e.target === f.scrim) indietro(); });
+    f.scrim.querySelector("[data-x]").addEventListener("click", indietro);
+
+    const disegna = (esito) => {
+      const cambiato = JSON.stringify(bozza) !== partenza;
+      f.corpo.innerHTML = `
+        <div class="fhf-nota">Scrivi cosa passa in ogni giorno. Lascia vuoto dove non passa nessuno;
+          per due raccolte nello stesso giorno separale con la virgola.</div>
+        <datalist id="frf-tipi">${FR_SUGG.map(x => `<option value="${fhEsc(x)}"></option>`).join("")}</datalist>
+        <div class="fhf-sez">
+          ${FR_SETT.map(k => {
+            const t = frTipi(bozza[k])[0];
+            return `<div class="fhf-riga" style="--r-c:${t ? t.c : "#93a1b0"}">
+              <div class="fhf-rig-ic"><ha-icon icon="${t ? t.i : "mdi:minus-circle-outline"}"></ha-icon></div>
+              <div class="fhf-rig-t"><b>${fhEsc(FR_NOMI[k])}</b>
+                <input class="frf-in" list="frf-tipi" data-g="${k}" value="${fhEsc(bozza[k])}" placeholder="Nessun ritiro"></div>
+            </div>`;
+          }).join("")}
+        </div>
+        ${esito ? `<div class="fho-esito${esito.male ? " male" : ""}">${fhEsc(esito.testo)}</div>` : ""}
+        <button type="button" class="fho-salva" data-salva ${cambiato ? "" : "disabled"}>${cambiato ? "Salva" : "Nessuna modifica"}</button>`;
+      // Il campo si rilegge quando lo lasci, non a ogni lettera: con sette
+      // caselle, ridisegnare a ogni tasto farebbe perdere il cursore.
+      f.corpo.querySelectorAll("[data-g]").forEach(x => x.onchange = ev => {
+        bozza[ev.target.dataset.g] = ev.target.value.trim();
+        disegna();
+      });
+      const b = f.corpo.querySelector("[data-salva]");
+      if (b) b.onclick = async () => {
+        b.disabled = true; b.textContent = "Salvo…";
+        const ok = await this._salvaGiorni(bozza);
+        if (!ok) { disegna({ male: true, testo: "Non sono riuscito a salvare: la card non si trova nella dashboard o il salvataggio e stato rifiutato." }); return; }
+        this._cfg.calendario = Object.assign({}, bozza);
+        this._built = false; this._firma = null;
+        this._update();
+        indietro();
+      };
+    };
+    disegna();
+  }
+
+  // L'UNICO punto che scrive, e solo dentro il tasto Salva. Il calendario sta
+  // nella configurazione della card: si rilegge la dashboard, si cerca questa
+  // card e si cambia solo il calendario, lasciando tutto il resto com'e.
+  async _salvaGiorni(cal) {
+    this._gesto = true;
+    try {
+      const url = (location.pathname.split("/")[1]) || "lovelace";
+      const dash = await this._hass.callWS({ type: "lovelace/config", url_path: url });
+      let quante = 0;
+      const gira = c => {
+        if (!c || typeof c !== "object") return;
+        if (c.type === "custom:faber-rifiuti" &&
+            (!this._cfg.fr_id || c.fr_id === this._cfg.fr_id) &&
+            (!this._cfg.name || !c.name || c.name === this._cfg.name)) {
+          c.calendario = Object.assign({}, cal); quante++;
+        }
+        ["cards", "pages", "rows", "cols"].forEach(k => {
+          if (Array.isArray(c[k])) c[k].forEach(gira);
+        });
+        if (c.fh_popup) gira(c.fh_popup);
+      };
+      (dash.views || []).forEach(v => (v.cards || []).forEach(gira));
+      if (quante !== 1) {
+        console.warn("[faber-rifiuti] trovate " + quante + " card: non salvo per non toccare quella sbagliata");
+        return false;
+      }
+      await this._hass.callWS({ type: "lovelace/config/save", url_path: url, config: dash });
+      return true;
+    } catch (e) {
+      console.warn("[faber-rifiuti] salvataggio non riuscito:", e && e.message);
+      return false;
+    } finally {
+      this._gesto = false;
+    }
   }
 }
 customElements.define("faber-rifiuti", FaberRifiuti);
