@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.142.0";
+const FH_VERSION = "0.143.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -15285,8 +15285,10 @@ class FaberRobot extends HTMLElement {
     f.stanza = stanza ? stanza.state : "";
     f.stanze = this._stanze().map(s => s.nome);
     const g = this._st("sensor:fault") || this._st("sensor:error");
+    // Il guasto detto in italiano: "water_tank_dry" non vuol dire niente a chi
+    // legge la Home.
     f.guasto = g && !/^(no_error|none|0|no_fault|nessun)/i.test(String(g.state))
-      ? (g.attributes.description || String(g.state)) : "";
+      ? (frbErrore(g.state) || g.attributes.description || String(g.state)) : "";
     f.ricambi = [];
     FRB_RICAMBI.forEach(r => (this._entita()[r.k] || []).forEach((e, i) => {
       const s = h.states[e];
