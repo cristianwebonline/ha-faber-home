@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.141.0";
+const FH_VERSION = "0.142.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -14516,10 +14516,31 @@ const FRB_ERR_XIAOMI = {
   "100038": "non riesce a tornare in base: la strada e bloccata",
   "210005": "non e arrivato dove doveva: strada bloccata o porta chiusa",
 };
+// Il robot sala (Dreame) non manda codici numerici ma parole in inglese:
+// "water_tank_dry" compariva cosi com'era. Qui sono tradotte quelle che si
+// vedono davvero; per le altre almeno si tolgono i trattini bassi.
+const FRB_ERR_DREAME = {
+  water_tank_dry: "serbatoio dell'acqua pulita vuoto: va riempito",
+  no_water: "manca l'acqua nella base",
+  dustbin_full: "contenitore della polvere pieno",
+  dust_bag_full: "sacchetto della polvere pieno",
+  dirty_water_tank_full: "serbatoio dell'acqua sporca pieno",
+  mop_pad_removed: "il panno non e montato",
+  blocked: "il robot e bloccato: liberalo",
+  stuck: "il robot si e incastrato",
+  trapped: "il robot e in trappola: spostalo",
+  low_battery: "batteria quasi scarica",
+  charging_error: "non riesce a caricarsi: controlla i contatti della base",
+  filter_blocked: "filtro intasato",
+  brush_tangled: "spazzola aggrovigliata",
+};
 function frbErrore(codice) {
   const c = String(codice || "").trim();
-  if (!c || c === "0") return "";
-  return FRB_ERR_XIAOMI[c] || "";
+  if (!c || c === "0" || /^(no_error|none|nessun|ok)$/i.test(c)) return "";
+  if (FRB_ERR_XIAOMI[c]) return FRB_ERR_XIAOMI[c];
+  const d = FRB_ERR_DREAME[c.toLowerCase()];
+  if (d) return d;
+  return /^[a-z][a-z_ ]+$/i.test(c) ? c.replace(/_/g, " ") : "";
 }
 
 // I GUASTI ATTIVI ADESSO. Il sensore "fault" resta appiccicato all'ultimo
@@ -15200,9 +15221,16 @@ class FaberRobot extends HTMLElement {
       if (svuotato) out.push({ i: "mdi:delete-empty-outline", c: "#4ade80", t: "Polvere svuotata", s: frbDa(svuotato) });
     }
 
+    // L'acqua: il Dreame puo tenere "no_warning" e fermarsi lo stesso con
+    // l'errore water_tank_dry (4 ottobre: robot in pausa, card che non lo
+    // diceva). Si guardano tutti e due.
     const acqua = this._st("sensor:low_water_warning");
-    if (acqua && !/no_warning|no warning|none/i.test(acqua.state)) {
-      out.push({ i: "mdi:water-alert-outline", c: "#ff8a3d", t: "Acqua", s: "il serbatoio e da riempire", guai: true });
+    const errAcqua = String(((this._st("sensor:error") || this._st("sensor:fault") || {}).state) || "");
+    const acquaFinita = (acqua && !/no_warning|no warning|none/i.test(acqua.state)) ||
+      /water_tank_dry|no_water|water_shortage/i.test(errAcqua);
+    if (acquaFinita) {
+      out.push({ i: "mdi:water-alert-outline", c: "#ff8a3d", t: "Acqua",
+        s: "il serbatoio dell'acqua pulita e vuoto: finche non lo riempi il robot non lava", guai: true });
     }
     const det = this._st("sensor:detergent_left") || this._st("sensor:detergent_left_level");
     if (det && isFinite(+det.state)) {
