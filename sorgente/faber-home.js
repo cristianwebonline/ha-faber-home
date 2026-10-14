@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.143.0";
+const FH_VERSION = "0.144.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -3763,6 +3763,259 @@ class FaberHome extends HTMLElement {
   }
 
 
+  // ------------------------------------------------------ sostituisci presa
+  // Quando si cambia una presa, la nuova entra in Home Assistant con nomi
+  // nuovi e tutto quello che usava la vecchia (card, Controllo Carichi,
+  // gruppi dei consumi, cruscotto Energia, automazioni, Powercalc) resta
+  // appeso a entita che non esistono piu. Invece di riscrivere ogni posto,
+  // si da alla presa nuova lo STESSO entity_id della vecchia: cosi ogni
+  // riferimento torna a funzionare da solo, e anche le statistiche
+  // continuano sulla stessa serie. Ruoli abbinati per device_class, mai per nome.
+  _ruoloSost(id, voce) {
+    const dom = id.split(".")[0];
+    const st = this._hass.states[id];
+    let dc = (voce && (voce.device_class || voce.original_device_class)) || (st && st.attributes.device_class) || "";
+    if (!dc && dom === "sensor") {
+      const indovina = [[/(power|potenza)$/, "power"], [/(energy|energia)$/, "energy"], [/(voltage|tensione)$/, "voltage"],
+        [/(current|corrente)$/, "current"], [/(temperature|temperatura)$/, "temperature"]].find(([re]) => re.test(id));
+      dc = indovina ? indovina[1] : "";
+    }
+    if (dom === "switch") {
+      if (/child_lock|backlight|remote_access|identify|led|beep|lock_sound|power_on_state|indicator/i.test(id)) return "";
+      return "switch|";
+    }
+    if (dom === "light") return "light|";
+    if (!dc) return "";
+    const propria = /(^|_)device_(power|energy|current|voltage)$|standby/i.test(id) ? "|propria" : "";
+    return dom + "|" + dc + propria;
+  }
+
+  _nomeRuoloSost(k) {
+    const [dom, dc, propria] = k.split("|");
+    const n = { "switch": "Interruttore", "light": "Luce" }[dom] ||
+      ({ power: "Potenza", energy: "Energia (kWh)", voltage: "Tensione", current: "Corrente", temperature: "Temperatura",
+        power_factor: "Fattore di potenza", frequency: "Frequenza", problem: "Allarme", battery: "Batteria" }[dc] || dc);
+    return n + (propria ? " della presa" : "");
+  }
+
+  async _vocePerSost(id) {
+    try { return await this._hass.callWS({ type: "config/entity_registry/get", entity_id: id }); } catch (e) { return null; }
+  }
+
+  // vecchie: gli entity_id che usava l'apparecchio (dalla card o dal dispositivo spento).
+  async _pianoSostituzione(vecchie, devNuovo) {
+    const h = this._hass;
+    const reg = h.entities || {}, devs = h.devices || {};
+    const voci = {};
+    for (const id of vecchie) voci[id] = await this._vocePerSost(id);
+    // Se la presa vecchia e ancora registrata, si prendono TUTTE le sue entita.
+    const devVecchio = Object.values(voci).map(v => v && v.device_id).find(Boolean) || null;
+    if (devVecchio) {
+      for (const e of Object.values(reg)) {
+        if (e.device_id === devVecchio && !(e.entity_id in voci)) voci[e.entity_id] = await this._vocePerSost(e.entity_id);
+      }
+    }
+    const nuove = Object.values(reg).filter(e => e.device_id === devNuovo).map(e => e.entity_id);
+    const vociNuove = {};
+    for (const id of nuove) vociNuove[id] = await this._vocePerSost(id);
+    const libere = nuove.filter(id => !(id in voci) && vociNuove[id] && !vociNuove[id].disabled_by);
+    const usate = new Set();
+    const coppie = [];
+    Object.keys(voci).forEach(vecchia => {
+      const k = this._ruoloSost(vecchia, voci[vecchia]);
+      if (!k) return;
+      // A parita di ruolo si preferisce la misura principale: l'energia
+      // consumata, non quella restituita o prodotta.
+      const secondaria = n => /return|restitu|export|produc|emess/i.test(n) ? 1 : 0;
+      const nuova = libere.filter(n => !usate.has(n) && this._ruoloSost(n, vociNuove[n]) === k)
+        .sort((a, b) => secondaria(a) - secondaria(b))[0];
+      if (!nuova) return;
+      usate.add(nuova);
+      coppie.push({ vecchia, nuova, ruolo: this._nomeRuoloSost(k), voce: voci[vecchia], voceNuova: vociNuove[nuova] });
+    });
+    // Ordine: interruttore, potenza, energia, il resto.
+    const peso = c => /^Interruttore|^Luce/.test(c.ruolo) ? 0 : /^Potenza/.test(c.ruolo) ? 1 : /^Energia/.test(c.ruolo) ? 2 : 3;
+    coppie.sort((a, b) => peso(a) - peso(b));
+
+    // Da eliminare: l'integrazione della presa vecchia (se serve solo a lei)
+    // e i calcoli Powercalc rimasti attaccati alla presa vecchia.
+    const elimina = [];
+    const dv = devVecchio && devs[devVecchio];
+    if (dv) {
+      for (const ce of (dv.config_entries || [])) {
+        const quanti = Object.values(devs).filter(d => (d.config_entries || []).includes(ce)).length;
+        elimina.push(quanti === 1
+          ? { tipo: "integrazione", id: ce, nome: "Presa vecchia: " + (dv.name_by_user || dv.name || "dispositivo") }
+          : { tipo: "dispositivo", id: ce, dev: devVecchio, nome: "Presa vecchia: " + (dv.name_by_user || dv.name || "dispositivo") });
+      }
+    }
+    // Powercalc: le sue entita che non rispondono e che portano il nome della
+    // presa vecchia. Quelle vive (stima su una presa che non misura) restano:
+    // seguono l'interruttore per entity_id, quindi si aggiornano da sole.
+    const basi = new Set();
+    Object.keys(voci).forEach(id => {
+      const o = id.split(".")[1];
+      basi.add(o.replace(/_(power|energy|potenza|energia|device_power|device_energy)$/, ""));
+    });
+    const pcVisti = new Set();
+    for (const e of Object.values(reg)) {
+      if (e.platform !== "powercalc") continue;
+      const o = e.entity_id.split(".")[1];
+      const st = h.states[e.entity_id];
+      const morta = !st || st.state === "unavailable";
+      const suo = [...basi].some(b => o === b || o.startsWith(b + "_")) || (!!devVecchio && e.device_id === devVecchio);
+      if (!morta || !suo) continue;
+      const v = await this._vocePerSost(e.entity_id);
+      if (!v || !v.config_entry_id || pcVisti.has(v.config_entry_id)) continue;
+      pcVisti.add(v.config_entry_id);
+      elimina.push({ tipo: "integrazione", id: v.config_entry_id, nome: "Powercalc della presa vecchia: " + (st && st.attributes.friendly_name || e.entity_id) });
+    }
+    // Entita vecchie rimaste registrate senza coppia (es. la presa vecchia
+    // aveva un sensore in piu): restano come sono, si dicono.
+    const avanzano = Object.keys(voci).filter(id => voci[id] && !coppie.some(c => c.vecchia === id));
+    return { coppie, elimina, devVecchio, dvVecchio: dv ? Object.assign({}, dv) : null, avanzano };
+  }
+
+  async _sostituisciPresa(vecchie, nome) {
+    vecchie = [...new Set((vecchie || []).filter(e => typeof e === "string" && /^[a-z_]+\.[a-z0-9_]+$/.test(e)))];
+    if (!vecchie.length) return;
+    const finta = { switch: "", power: "", energy: "" };
+    const sh = this._openDeviceStep(finta, async devNuovo => {
+      if (!devNuovo) { sh.remove(); return; }
+      const box = document.createElement("div");
+      box.innerHTML = `<div class="fh-note">Controllo la presa nuova…</div>`;
+      this._sheet("Sostituisci presa", box, false);
+      let piano;
+      try { piano = await this._pianoSostituzione(vecchie, devNuovo); }
+      catch (e) { box.innerHTML = `<div class="fh-note">Non riesco a leggere i dispositivi: ${fhEsc(e.message || e)}</div>`; return; }
+      this._mostraPianoSost(box, piano, devNuovo, nome);
+    });
+    // Il titolo del passo dice cosa si sta facendo.
+    const t = sh && sh.querySelector(".fh-sheettitle");
+    if (t) t.textContent = "Qual e la presa nuova?" + (nome ? " (" + nome + ")" : "");
+  }
+
+  _mostraPianoSost(box, piano, devNuovo, nome) {
+    const h = this._hass;
+    const dn = (h.devices || {})[devNuovo] || {};
+    if (!piano.coppie.length) {
+      box.innerHTML = `<div class="fh-note">La presa scelta (${fhEsc(dn.name_by_user || dn.name || "")}) non ha interruttore, potenza o energia da abbinare alla vecchia. Scegline un'altra.</div>`;
+      return;
+    }
+    const esiste = id => !!h.states[id];
+    box.innerHTML = `
+      <div class="fh-note">La presa nuova prende i <b>nomi della vecchia</b>: card, Controllo Carichi, gruppi dei consumi, cruscotto Energia, automazioni e Powercalc tornano a funzionare da soli, e lo storico continua.</div>
+      <div class="fh-sgroup">Abbinamenti</div>
+      <div class="fh-off-list">${piano.coppie.map((c, i) => `
+        <label class="fh-off-item" style="cursor:pointer">
+          <input type="checkbox" data-coppia="${i}" checked style="width:20px;height:20px;flex:none">
+          <div class="fh-off-info"><span class="fh-off-name">${fhEsc(c.ruolo)}</span>
+            <small class="fh-off-id">${fhEsc(c.nuova)} → <b>${fhEsc(c.vecchia)}</b>${esiste(c.vecchia) ? "" : " (la vecchia non c'e piu)"}</small></div>
+        </label>`).join("")}</div>
+      ${piano.elimina.length ? `<div class="fh-sgroup">Da togliere</div>
+      <div class="fh-off-list">${piano.elimina.map((x, i) => `
+        <label class="fh-off-item" style="cursor:pointer">
+          <input type="checkbox" data-elimina="${i}" checked style="width:20px;height:20px;flex:none">
+          <div class="fh-off-info"><span class="fh-off-name">${fhEsc(x.nome)}</span>
+            <small class="fh-off-id">${x.tipo === "integrazione" ? "si cancella da Home Assistant" : "si stacca il dispositivo"}</small></div>
+        </label>`).join("")}</div>` : ""}
+      ${piano.avanzano.length ? `<div class="fh-note">Restano della presa vecchia, senza un pari nella nuova: ${fhEsc(piano.avanzano.join(", "))}.</div>` : ""}
+      <button type="button" class="fh-btn primary" data-vai style="margin-top:12px">Sostituisci</button>
+      <div class="fh-note" data-esito></div>`;
+    box.querySelector("[data-vai]").addEventListener("click", async ev => {
+      const btn = ev.currentTarget;
+      btn.disabled = true;
+      btn.textContent = "Sostituisco…";
+      const coppie = piano.coppie.filter((c, i) => box.querySelector(`[data-coppia="${i}"]`).checked);
+      const elimina = piano.elimina.filter((x, i) => box.querySelector(`[data-elimina="${i}"]`).checked);
+      const righe = await this._eseguiSost(coppie, elimina, piano, devNuovo);
+      btn.textContent = "Fatto";
+      box.querySelector("[data-esito]").innerHTML = righe.map(r => `<div>${r.ok ? "✓" : "✗"} ${fhEsc(r.t)}</div>`).join("");
+    });
+  }
+
+  async _eseguiSost(coppie, elimina, piano, devNuovo) {
+    const h = this._hass;
+    const righe = [];
+    const ws = async (msg, t) => {
+      try { const r = await h.callWS(msg); if (t) righe.push({ ok: true, t }); return r || true; }
+      catch (e) { righe.push({ ok: false, t: (t || msg.type) + ": " + (e.message || e.code || e) }); return null; }
+    };
+    // 1. Via la presa vecchia (libera i nomi). Le statistiche restano sul nome.
+    for (const x of elimina) {
+      if (x.tipo === "integrazione") await ws({ type: "config_entries/delete", entry_id: x.id }, "Tolto: " + x.nome);
+      else await ws({ type: "config/device_registry/remove_config_entry", device_id: x.dev, config_entry_id: x.id }, "Staccato: " + x.nome);
+    }
+    for (const c of coppie) {
+      if (c.voce && await this._vocePerSost(c.vecchia)) {
+        await ws({ type: "config/entity_registry/remove", entity_id: c.vecchia });
+      }
+    }
+    // 2. La nuova prende nome, etichette, stanza e icona della vecchia.
+    const rinominate = [];
+    for (const c of coppie) {
+      const v = c.voce || {}, n = c.voceNuova || {};
+      const msg = { type: "config/entity_registry/update", entity_id: c.nuova, new_entity_id: c.vecchia,
+        labels: [...new Set([...(n.labels || []), ...(v.labels || [])])] };
+      if (v.area_id && !n.area_id) msg.area_id = v.area_id;
+      if (v.name && !n.name) msg.name = v.name;
+      if (v.icon && !n.icon) msg.icon = v.icon;
+      const r = await ws(msg, c.ruolo + ": " + c.nuova + " → " + c.vecchia);
+      if (r) rinominate.push(c);
+    }
+    // 3. La presa nuova va nella stanza della vecchia, col suo nome.
+    const dn = (h.devices || {})[devNuovo] || {};
+    const dvOld = piano.dvVecchio || null;
+    if (dvOld && (!dn.area_id || !dn.name_by_user)) {
+      const m = { type: "config/device_registry/update", device_id: devNuovo };
+      if (!dn.area_id && dvOld.area_id) m.area_id = dvOld.area_id;
+      if (!dn.name_by_user && dvOld.name_by_user) m.name_by_user = dvOld.name_by_user;
+      if (Object.keys(m).length > 2) await ws(m, "Presa nuova messa nella stanza della vecchia");
+    }
+    // 4. Cruscotto Energia: se la presa nuova era gia stata aggiunta col suo
+    // nome nuovo, ora quella voce e un doppione che non esiste piu.
+    if (rinominate.length) {
+      try {
+        const prefs = await h.callWS({ type: "energy/get_prefs" });
+        const daA = new Map(rinominate.map(c => [c.nuova, c.vecchia]));
+        const lista = (prefs && prefs.device_consumption) || [];
+        const presenti = new Set(lista.map(d => d.stat_consumption));
+        const pulita = [];
+        lista.forEach(d => {
+          const x = Object.assign({}, d);
+          if (daA.has(x.stat_consumption)) {
+            // Doppione della voce che c'era gia col nome di sempre: via.
+            if (presenti.has(daA.get(x.stat_consumption))) return;
+            x.stat_consumption = daA.get(x.stat_consumption);
+          }
+          if (x.included_in_stat && daA.has(x.included_in_stat)) x.included_in_stat = daA.get(x.included_in_stat);
+          if (x.stat_rate && daA.has(x.stat_rate)) x.stat_rate = daA.get(x.stat_rate);
+          pulita.push(x);
+        });
+        const cambiata = JSON.stringify(pulita) !== JSON.stringify(lista);
+        if (cambiata) {
+          await h.callWS({ type: "energy/save_prefs", device_consumption: pulita });
+          righe.push({ ok: true, t: "Cruscotto Energia sistemato" });
+        }
+      } catch (e) { righe.push({ ok: false, t: "Cruscotto Energia: " + (e.message || e) }); }
+      // 5. Se nel pannello qualcuno aveva gia messo i nomi nuovi, tornano i vecchi.
+      const mappa = new Map(rinominate.map(c => [c.nuova, c.vecchia]));
+      let cambiati = 0;
+      const gira = o => {
+        if (Array.isArray(o)) { o.forEach((v, i) => { if (typeof v === "string" && mappa.has(v)) { o[i] = mappa.get(v); cambiati++; } else gira(v); }); return; }
+        if (o && typeof o === "object") Object.keys(o).forEach(k => {
+          const v = o[k];
+          if (typeof v === "string" && mappa.has(v)) { o[k] = mappa.get(v); cambiati++; } else gira(v);
+        });
+      };
+      gira(this._cfg);
+      if (cambiati) { await this._save(true); righe.push({ ok: true, t: "Pannello: " + cambiati + " riferimenti riportati ai nomi di sempre" }); }
+      righe.push({ ok: true, t: "Card, Controllo Carichi, gruppi e automazioni usano gli stessi nomi: niente da cambiare" });
+    }
+    this._renderPage();
+    return righe;
+  }
+
   // --------------------------------------------------------- stanza intera
   // Comporre una pagina un pezzo alla volta e' lungo: qui si sceglie la
   // stanza e si mette dentro una card per ogni dispositivo che ha qualcosa
@@ -4344,6 +4597,18 @@ class FaberHome extends HTMLElement {
         });
       });
       box.appendChild(link);
+      // Presa cambiata: la nuova prende i nomi della vecchia, cosi si
+      // aggiornano anche Controllo Carichi, consumi, Energia e Powercalc.
+      const vecchie = ["switch", "power", "energy"].map(k => cardCfg[k]).filter(Boolean);
+      if (vecchie.length) {
+        const cambia = document.createElement("button");
+        cambia.type = "button";
+        cambia.className = "fh-btn";
+        cambia.textContent = "Ho cambiato la presa";
+        cambia.style.marginTop = "8px";
+        cambia.addEventListener("click", () => this._sostituisciPresa(vecchie, cardCfg.name || ""));
+        box.appendChild(cambia);
+      }
     }
     this._sheet("Configura la card", box, true);
   }
@@ -6096,6 +6361,7 @@ class FaberHome extends HTMLElement {
               <span class="fh-off-name">${fhEsc(g.nome)}</span>
               <small class="fh-off-id">${fhEsc(this._offlineDa(g.giu[0]))}${fhEsc(g.giu.join(", "))}</small>
             </div>
+            <button type="button" class="fh-off-act" data-sostituisci="${fhEsc(g.chiave)}">Sostituisci</button>
             <button type="button" class="fh-off-act" data-ignora="${fhEsc(g.chiave)}">Ignora</button>
           </div>`).join("")}
       </div>`) + (ignorati.length ? `
@@ -6126,6 +6392,11 @@ class FaberHome extends HTMLElement {
       e.stopPropagation();
       const k = b.dataset.ignora;
       cambia(l => l.includes(k) ? l : l.concat([k]));
+    }));
+    box.querySelectorAll("[data-sostituisci]").forEach(b => b.addEventListener("click", e => {
+      e.stopPropagation();
+      const g = offline.find(x => x.chiave === b.dataset.sostituisci);
+      if (g) this._sostituisciPresa(g.giu, g.nome);
     }));
     box.querySelectorAll("[data-ripristina]").forEach(b => b.addEventListener("click", e => {
       e.stopPropagation();
