@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.144.0";
+const FH_VERSION = "0.145.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -2854,6 +2854,9 @@ class FaberHome extends HTMLElement {
           const slot = document.createElement("div");
           slot.className = "fh-slot";
           slot.dataset.slot = `${ri}.${ci}.${di}`;
+          // Card che compare solo quando un'entita e accesa (fh_se). In modifica
+          // resta sempre visibile, senno non si potrebbe ne spostare ne cancellare.
+          if (!this._edit && cardCfg && cardCfg.fh_se) slot.dataset.fhSe = cardCfg.fh_se;
           if (cardCfg && cardCfg.type === "custom:mini-card") slot.classList.add("tessera");
           // Smontando il gruppo la larghezza della colonna deve passare alle
           // CARD, che diventano loro gli elementi della griglia. Senza questo
@@ -2899,7 +2902,31 @@ class FaberHome extends HTMLElement {
       main.appendChild(rowEl);
     });
     if (this._edit) main.appendChild(this._addRowEl());
+    this._aggiornaCondizionate();
     this._misuraQuadre();
+  }
+
+  // Si nasconde l'alloggiamento e non solo la card, senno nella griglia resta
+  // il buco. Se una riga resta senza card sparisce anche lei, col suo spazio.
+  _seAttiva(cfg) {
+    const st = cfg && cfg.fh_se && this._hass ? this._hass.states[cfg.fh_se] : null;
+    return !!st && st.state === "on";
+  }
+
+  _aggiornaCondizionate() {
+    const slots = this.querySelectorAll("[data-fh-se]");
+    if (!slots.length) return;
+    const righe = new Set();
+    slots.forEach(s => {
+      const on = this._seAttiva({ fh_se: s.dataset.fhSe });
+      s.style.display = on ? "" : "none";
+      const r = s.closest(".fh-rowwrap");
+      if (r) righe.add(r);
+    });
+    righe.forEach(r => {
+      const vive = [...r.querySelectorAll(".fh-slot")].some(s => s.style.display !== "none");
+      r.style.display = vive ? "" : "none";
+    });
   }
 
   // Quadrata puo arrivare da quattro chiavi diverse: la nostra (fh_forma), e
@@ -5973,6 +6000,7 @@ class FaberHome extends HTMLElement {
     // configurazione alla card, che potrebbe rifiutare cio che non conosce.
     const pulita = Object.assign({}, cardCfg);
     delete pulita.fh_popup;
+    delete pulita.fh_se;
     try {
       if (helpers && helpers.createCardElement) el = helpers.createCardElement(pulita);
       else if (pulita.type && pulita.type.startsWith("custom:")) {
@@ -6019,6 +6047,7 @@ class FaberHome extends HTMLElement {
       const app = this.querySelector(".fh-app");
       if (app) app.style.background = this._pageBackground();
     }
+    this._aggiornaCondizionate();
     this._updateChips();
     this._aggiornaConsumo();
     this._aggiornaAttenzione();
@@ -6048,7 +6077,12 @@ class FaberHome extends HTMLElement {
       const gira = v => {
         if (typeof v === "string") { if (/^[a-z_]+\.[a-z0-9_]+$/.test(v)) trovate.add(v); return; }
         if (Array.isArray(v)) { v.forEach(gira); return; }
-        if (v && typeof v === "object") Object.keys(v).forEach(k => gira(v[k]));
+        if (v && typeof v === "object") {
+          // Una card nascosta perche la sua presa e spenta non e un guasto:
+          // l'apparecchio e staccato apposta.
+          if (v.fh_se && !this._seAttiva(v)) return;
+          Object.keys(v).forEach(k => gira(v[k]));
+        }
       };
       (this._cfg.pages || []).forEach(p => gira(p.rows));
       lista = [...trovate].filter(e => {
@@ -10477,6 +10511,7 @@ const FK_MODI = {
   auto: { t: "Automatico", i: "mdi:autorenew", c: "#a78bfa", g: "#5b3bb8" },
   dry: { t: "Deumidifica", i: "mdi:water-percent", c: "#ffb020", g: "#9a5b00" },
   fan_only: { t: "Ventola", i: "mdi:fan", c: "#38e08a", g: "#0f7a3d" },
+  unavailable: { t: "Non risponde", i: "mdi:wifi-off", c: "#93a1b0", g: "#4b5563" },
 };
 
 const FK_VENTOLA = {
@@ -10753,7 +10788,10 @@ class FaberClima extends HTMLElement {
     const presaSt = this._cfg.presa ? this._hass.states[this._cfg.presa] : null;
     const presaOn = presaSt ? presaSt.state === "on" : true;
     const senzaCorrente = !!presaSt && !presaOn;
-    const timerAcceso = ["on", "off", "once_on", "once_off"].some(q => {
+    // Corrente c'e ma l'apparecchio non si e ancora collegato: i comandi non
+    // arriverebbero, e meglio dirlo che lasciar premere tasti che non fanno nulla.
+    const nonRisponde = modo === "unavailable" && !senzaCorrente;
+    const timerAcceso =["on", "off", "once_on", "once_off"].some(q => {
       const e = this._timerEntita(q);
       return e && this._hass.states[e].state === "on";
     });
@@ -10781,7 +10819,7 @@ class FaberClima extends HTMLElement {
     // modi (ventola, deumidifica) non ha senso: si nasconde invece di mentire.
     const puoTemp = (f & 1) && obiettivo != null && !["fan_only", "dry", "off"].includes(modo);
 
-    this._card.classList.toggle("staccato", senzaCorrente);
+    this._card.classList.toggle("staccato", senzaCorrente || nonRisponde);
 
     // Ventola, alette, programma e il grafico dei consumi non stanno piu nella
     // card: allungavano una tessera che deve restare bassa e leggibile a
@@ -10811,7 +10849,7 @@ class FaberClima extends HTMLElement {
             <ha-icon icon="mdi:power-plug${presaOn ? "" : "-off"}"></ha-icon>
           </button>` : ""}
           <button type="button" class="fk-power${acceso ? " on" : ""}" data-power
-            ${senzaCorrente ? "disabled" : ""} title="Accendi o spegni">
+            ${senzaCorrente || nonRisponde ? "disabled" : ""} title="Accendi o spegni">
             <ha-icon icon="mdi:power"></ha-icon>
           </button>
         </div>
@@ -10838,6 +10876,11 @@ class FaberClima extends HTMLElement {
         Corrente staccata &mdash; ${tipoDisegno === "stufa" ? "la stufa non riceve comandi"
           : tipoDisegno === "radiatore" ? "il termosifone non riceve comandi"
           : "il condizionatore non risponde al telecomando"}.
+      </div>` : ""}
+
+      ${nonRisponde ? `<div class="fk-staccato">
+        <ha-icon icon="mdi:wifi-off"></ha-icon>
+        ${fhEsc(nome)} non risponde${presaSt ? ": la presa ha corrente, ma l'apparecchio non si è ancora collegato" : ""}.
       </div>` : ""}
 
       <div class="fk-modi">
