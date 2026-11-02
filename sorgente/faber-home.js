@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.146.0";
+const FH_VERSION = "0.147.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -10748,13 +10748,14 @@ class FaberClima extends HTMLElement {
       a.preset_mode, a.hvac_action, (a.hvac_modes || []).join(","),
       v(c.temp), v(c.humidity), v(c.power), v(c.presa),
       c.name, c.mostra_ventola, c.mostra_alette, c.mostra_programmi, c.aspetto,
-      c.energy, c.prezzo_kwh, c.storico_giorni,
+      c.energy, c.prezzo_kwh, c.storico_giorni, this._onceAttivo() ? this._onceOra + this._onceFra() : "",
       ["on", "off"].map(q => { const e = this._timerEntita(q); return e ? this._hass.states[e].state : ""; }).join(",")].join("|");
   }
 
   _render() {
     if (!this._hass || !this._cfg) return;
     const st = this._st();
+    this._onceSync();
 
     // Niente e cambiato: non si tocca nulla. Cosi lo scorrimento resta dove
     // l'hai lasciato e il browser non lavora per niente.
@@ -10873,6 +10874,13 @@ class FaberClima extends HTMLElement {
         <button type="button" class="fk-tbtn" data-t="+">+</button>
       </div>` : ""}
 
+      ${this._onceAttivo() ? `<div class="fk-tinfo">
+        <ha-icon icon="mdi:timer-outline"></ha-icon>
+        <span class="fk-ttesto"><b>Si spegne ${fhEsc(this._onceFra())}</b><small>alle ${fhEsc(this._onceOra)}</small></span>
+        <button type="button" data-tmod>Modifica</button>
+        <button type="button" data-tann>Annulla</button>
+      </div>` : ""}
+
       ${senzaCorrente ? `<div class="fk-staccato">
         <ha-icon icon="mdi:power-plug-off"></ha-icon>
         Corrente staccata &mdash; ${tipoDisegno === "stufa" ? "la stufa non riceve comandi"
@@ -10912,6 +10920,10 @@ class FaberClima extends HTMLElement {
 
     const q = sel => this._body.querySelectorAll(sel);
     this._body.querySelector("[data-timer]").addEventListener("click", () => this._openTimer());
+    const bTmod = this._body.querySelector("[data-tmod]");
+    if (bTmod) bTmod.addEventListener("click", () => this._openTimer());
+    const bTann = this._body.querySelector("[data-tann]");
+    if (bTann) bTann.addEventListener("click", () => this._onceAnnulla());
     const bp = this._body.querySelector("[data-presa]");
     if (bp) bp.addEventListener("click", () => {
       const dom = this._cfg.presa.split(".")[0];
@@ -10922,8 +10934,12 @@ class FaberClima extends HTMLElement {
     this._body.querySelector("[data-power]").addEventListener("click", () => {
       if (senzaCorrente) return;
       const fai = () => {
-        if (acceso) this._srv("set_hvac_mode", { hvac_mode: "off" });
-        else this._srv("set_hvac_mode", { hvac_mode: modi.includes("cool") ? "cool" : modi[0] });
+        if (acceso) {
+          this._srv("set_hvac_mode", { hvac_mode: "off" });
+          // Spento a mano, il timer non serve piu: se restasse, a quell'ora
+          // spegnerebbe anche una riaccensione fatta dopo.
+          if (this._onceAttivo()) this._onceAnnulla();
+        } else this._srv("set_hvac_mode", { hvac_mode: modi.includes("cool") ? "cool" : modi[0] });
       };
       // Il tasto sta proprio dove si tocca la card per aprirla: da spenta,
       // un dito un po' impreciso lo preme per sbaglio invece di aprire il
@@ -10948,6 +10964,51 @@ class FaberClima extends HTMLElement {
     // card si ridisegna si ridisegna anche lui, altrimenti resta indietro e la
     // velocita selezionata la vedresti solo richiudendo e riaprendo.
     if (this._dett) this._dettagliDisegna();
+  }
+
+  // ------------------------------------------- il timer "spegni una volta" si vede
+  // Lo stesso ordine della tessera piccola della stanza: si ritrova dalla sua
+  // automazione. Si rilegge quando cambia e, se e attivo, ogni minuto: spostare
+  // l'orario lascia l'automazione accesa, e dallo stato non si vedrebbe.
+  _onceSync() {
+    if (!this._cfg.climate) return;
+    const e = this._timerEntita("once_off");
+    const firma = e ? this._hass.states[e].state : "";
+    const scaduta = firma === "on" && Date.now() - (this._onceTs || 0) > 60000;
+    if (firma === this._onceFirma && !scaduta) return;
+    this._onceFirma = firma;
+    if (firma !== "on") { this._onceOra = null; return; }
+    this._onceTs = Date.now();
+    this._leggiTimer("once_off").then(c => {
+      const t = ((c && (c.triggers || c.trigger)) || [])[0];
+      const ora = t && typeof t.at === "string" ? this._hhmm(t.at) : null;
+      if (ora !== this._onceOra) { this._onceOra = ora; this._render(); }
+    });
+  }
+
+  _onceAttivo() {
+    if (!this._onceOra) return false;
+    const e = this._timerEntita("once_off");
+    return !!e && this._hass.states[e].state === "on";
+  }
+
+  // Un orario gia passato oggi vale per domani.
+  _onceFra() {
+    const [h, m] = this._onceOra.split(":").map(Number);
+    const d = new Date();
+    const n = ((h * 60 + m - (d.getHours() * 60 + d.getMinutes())) % 1440 + 1440) % 1440;
+    if (n < 1) return "tra meno di un minuto";
+    if (n < 60) return "tra " + n + " min";
+    return "tra " + Math.floor(n / 60) + " h" + (n % 60 ? " " + String(n % 60).padStart(2, "0") : "");
+  }
+
+  async _onceAnnulla() {
+    try {
+      await this._hass.callApi("delete", "config/automation/config/" + this._timerId("once_off"));
+      this._onceOra = null;
+    } catch (e) { /* resta com'era: l'avviso continua a dire la verita */ }
+    this._imp = null;
+    this._render();
   }
 
   // -------------------------------------------------- ventola, alette, consumi
@@ -11703,6 +11764,14 @@ const FK_CSS = `
   .fk-rscroll2::-webkit-scrollbar{display:none}
   .fk-mavviso{font-size:11px;font-weight:600;line-height:1.45;padding:8px 10px;border-radius:10px;
     background:rgba(255,176,32,.13);border:1px solid rgba(255,176,32,.3);color:var(--fh-c-warn,#ffd28a)}
+  .fk-tinfo{display:flex;align-items:center;gap:8px;padding:9px 11px;border-radius:13px;margin-top:10px;
+    background:rgba(167,139,250,.14);border:1px solid rgba(167,139,250,.45);font-size:12px;font-weight:700}
+  .fk-tinfo ha-icon{--mdc-icon-size:18px;flex:0 0 auto;color:#a78bfa}
+  .fk-ttesto{flex:1;min-width:0}
+  .fk-ttesto b{display:block;font-size:13px;font-weight:800}
+  .fk-ttesto small{display:block;font-size:11px;font-weight:700;opacity:.7}
+  .fk-tinfo button{flex:0 0 auto;padding:8px 9px;border-radius:11px;font:inherit;font-size:11.5px;font-weight:800;cursor:pointer;
+    border:1px solid rgba(167,139,250,.45);background:rgba(167,139,250,.14);color:inherit}
   .fk-staccato{display:flex;align-items:center;gap:8px;padding:9px 11px;border-radius:13px;
     font-size:11.5px;font-weight:700;line-height:1.4;
     background:rgba(255,92,92,.12);border:1px solid rgba(255,92,92,.32);color:var(--fh-c-bad,#ffb0a3)}
