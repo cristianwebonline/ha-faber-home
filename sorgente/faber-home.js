@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.145.0";
+const FH_VERSION = "0.146.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -2920,6 +2920,8 @@ class FaberHome extends HTMLElement {
     slots.forEach(s => {
       const on = this._seAttiva({ fh_se: s.dataset.fhSe });
       s.style.display = on ? "" : "none";
+      // Una tessera che sparisce non deve lasciare aperto il suo foglio.
+      if (!on) s.querySelectorAll(".mc-scrim.on").forEach(x => x.classList.remove("on"));
       const r = s.closest(".fh-rowwrap");
       if (r) righe.add(r);
     });
