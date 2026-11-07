@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.148.0";
+const FH_VERSION = "0.149.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -14832,6 +14832,9 @@ const FRB_FOGLIO_CSS = `
     color:inherit;font:inherit;font-size:12px;font-weight:800;cursor:pointer}
   .fhf-scrim.chiaro .frb-chip{background:rgba(15,23,42,.05);border-color:rgba(15,23,42,.14)}
   .frb-chip.sel,.fhf-scrim.chiaro .frb-chip.sel{background:#ffb020;border-color:transparent;color:#1c1400}
+  .frb-ora{font:inherit;font-size:13px;font-weight:800;padding:6px 8px;min-height:36px;border-radius:10px;color:inherit;color-scheme:dark;
+    border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06)}
+  .fhf-scrim.chiaro .frb-ora{color-scheme:light;background:rgba(15,23,42,.05);border-color:rgba(15,23,42,.14)}
   .frb-tasti{display:flex;flex-wrap:wrap;gap:6px}
   /* LA CHAT COL ROBOT. Le stesse bolle della Mini Card, cosi chiedere a un
      apparecchio e sempre la stessa cosa in tutta la casa. */
@@ -15093,11 +15096,19 @@ const FRB_RICAMBI = [
 ];
 // Cosa fanno le scene: il nome da solo ("Quando uscite") non dice le regole.
 const FRB_SCENE = [
-  { re: /quando_uscite/, i: "mdi:home-export-outline", s: "Parte se in casa non c'è nessuno da 10 minuti (8:00–20:30)" },
+  { re: /quando_uscite/, i: "mdi:home-export-outline", s: "Parte quando metti l'allarme fuori casa" },
   { re: /rientro/, i: "mdi:home-import-outline", s: "Quando torna qualcuno, rimanda alla base il robot partito da solo" },
-  { re: /dopo_cena/, i: "mdi:silverware-fork-knife", s: "Alle 21:45 pulisce il piano terra" },
+  { re: /dopo_cena/, i: "mdi:silverware-fork-knife", s: "La sera pulisce il piano terra" },
   { re: /avvisi/, i: "mdi:bell-ring-outline", s: "Ti avvisa se si blocca o se un ricambio è finito" },
 ];
+// Gli helper che regolano le partenze (si cambiano dal foglio, tendina Automatiche).
+const FRB_ORARI = {
+  dalle: "input_datetime.robot_non_prima_delle",
+  alle: "input_datetime.robot_non_dopo_le",
+  attesa: "input_number.robot_attesa_dopo_allarme",
+  cena: "input_datetime.robot_sala_dopo_cena_alle",
+  ore: "input_number.robot_ore_senza_pulizia",
+};
 function frbDisegno() {
   return `<svg class="frb-svg" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
     <g class="frb-corpo">
@@ -15161,7 +15172,7 @@ const FRB_TENDINE = [
   ["domande", "Chiedi al robot", "mdi:comment-question-outline"],
   ["modi", "Come pulisce", "mdi:tune-variant"],
   ["base", "Base di ricarica", "mdi:home-lightning-bolt-outline"],
-  ["scene", "Scene", "mdi:movie-open-play-outline"],
+  ["scene", "Automatiche", "mdi:calendar-clock"],
   ["storia", "Pulizie", "mdi:history"],
   ["ricambi", "Ricambi", "mdi:wrench-outline"],
 ];
@@ -16190,6 +16201,7 @@ class FaberRobot extends HTMLElement {
         <div class="frb-accc" data-s="${n}"></div></section>`).join("")}
       <button type="button" class="fhf-tasto" data-tutto style="align-self:flex-start">Tutte le impostazioni</button>`;
     c.addEventListener("click", e => this._clic(e));
+    c.addEventListener("change", e => this._cambia(e));
     // Invio da tastiera: su un telefono e il tasto che si preme per davvero.
     c.addEventListener("keydown", e => {
       if (e.key !== "Enter" || !e.target.hasAttribute("data-chiedi")) return;
@@ -16342,23 +16354,44 @@ class FaberRobot extends HTMLElement {
 
     // Le scene: automazioni con l'interruttore, e le ore della regola "non
     // ripartire se ha appena pulito" sotto "Quando uscite".
-    const ore = this._cfg.ore && h.states[this._cfg.ore];
+    // Sotto le partenze, le loro regolazioni: sono helper di HA, cosi
+    // l'automazione non ha numeri scritti dentro e si cambia tutto da qui.
+    const oreEnt = this._cfg.ore || FRB_ORARI.ore;
+    const ore = h.states[oreEnt];
     const oreVal = ore ? Math.round(parseFloat(ore.state)) : null;
+    const hm = k => { const s = h.states[FRB_ORARI[k]]; return s ? String(s.state).slice(0, 5) : null; };
+    const ora = k => hm(k) ? `<input type="time" class="frb-ora" data-ora="${FRB_ORARI[k]}" value="${hm(k)}" aria-label="Ora">` : "";
+    const chips = (ent, val, lista) => lista.map(n =>
+      `<button type="button" class="frb-chip${n === val ? " sel" : ""}" data-num="${ent}" data-val="${n}">${n}</button>`).join("");
+    const att = h.states[FRB_ORARI.attesa];
+    const attVal = att ? Math.round(parseFloat(att.state)) : null;
+    const rigaOre = oreVal != null ? `<div class="frb-ore">Non se ha pulito nelle ultime ${chips(oreEnt, oreVal, [2, 4, 6, 12, 24])} ore</div>` : "";
     const scene = this._scene().map(id => {
       const a = h.states[id];
       const on = a.state === "on";
       const info = FRB_SCENE.find(x => x.re.test(id)) || {};
       const nome = String(a.attributes.friendly_name || id).replace(/^robot\s*·\s*/i, "");
       const ult = fhQuando(a.attributes.last_triggered);
+      let spiega = info.s;
+      if (/quando_uscite/.test(id) && hm("dalle") && hm("alle")) spiega = `Parte quando metti l'allarme fuori casa, fra le ${hm("dalle")} e le ${hm("alle")}`;
+      if (/dopo_cena/.test(id) && hm("cena")) spiega = `Alle ${hm("cena")} pulisce il piano terra`;
       const riga = `<div class="fhf-riga" style="--r-c:${on ? "#ffb020" : "#93a1b0"}"><div class="fhf-rig-ic"><ha-icon icon="${info.i || "mdi:robot-vacuum"}"></ha-icon></div>
-        <div class="fhf-rig-t"><b>${fhEsc(nome)}</b><small>${fhEsc(info.s || (on ? "Attiva" : "Spenta"))}${ult ? " · l'ultima volta " + fhEsc(ult) : ""}</small></div>
+        <div class="fhf-rig-t"><b>${fhEsc(nome)}</b><small>${fhEsc(spiega || (on ? "Attiva" : "Spenta"))}${ult ? " · l'ultima volta " + fhEsc(ult) : ""}</small></div>
         <button type="button" class="fhf-sw${on ? " on" : ""}" data-sw="${id}" aria-label="${fhEsc(nome)}"></button></div>`;
-      const conOre = oreVal != null && /quando_uscite|dopo_cena/.test(id);
-      return riga + (conOre ? `<div class="frb-ore">Non se ha pulito nelle ultime ${[2, 4, 6, 12, 24].map(n =>
-        `<button type="button" class="frb-chip${n === oreVal ? " sel" : ""}" data-ore="${n}">${n}</button>`).join("")} ore</div>` : "");
+      let sotto = "";
+      if (/quando_uscite/.test(id)) {
+        if (hm("dalle") && hm("alle")) sotto += `<div class="frb-ore">Solo dalle ${ora("dalle")} alle ${ora("alle")}</div>`;
+        if (attVal != null) sotto += `<div class="frb-ore">Parte ${chips(FRB_ORARI.attesa, attVal, [0, 2, 5, 10, 15])} minuti dopo l'allarme</div>`;
+        sotto += rigaOre;
+      } else if (/dopo_cena/.test(id)) {
+        if (hm("cena")) sotto += `<div class="frb-ore">Parte alle ${ora("cena")}</div>`;
+        sotto += rigaOre;
+      }
+      return riga + sotto;
     });
+    const accese = this._scene().filter(id => h.states[id].state === "on").length;
     this._sez("scene", scene.length ? `<div class="fhf-sez">${scene.join("")}</div>` : "",
-      scene.length === 1 ? "1 scena" : scene.length + " scene");
+      accese === scene.length ? "tutte accese" : accese ? accese + " accese su " + scene.length : "tutte spente");
 
     // Cosa ha fatto e cosa fara.
     const tutte = this._pulizie();
@@ -16516,10 +16549,18 @@ class FaberRobot extends HTMLElement {
       const id = b.dataset.sw;
       h.callService(id.split(".")[0], "toggle", { entity_id: id });
       b.classList.toggle("on");
-    } else if (b.dataset.ore && this._cfg.ore) {
-      h.callService("input_number", "set_value", { entity_id: this._cfg.ore, value: +b.dataset.ore });
+    } else if (b.dataset.num) {
+      h.callService("input_number", "set_value", { entity_id: b.dataset.num, value: +b.dataset.val });
       b.parentElement.querySelectorAll(".frb-chip").forEach(x => x.classList.toggle("sel", x === b));
     }
+  }
+  // Le ore delle partenze: "change" arriva quando l'orologio del telefono
+  // viene confermato, non a ogni giro di rotella.
+  _cambia(e) {
+    const t = e.target;
+    if (!t.dataset || !t.dataset.ora || !/^\d\d:\d\d$/.test(t.value)) return;
+    fhVibra(8);
+    this._hass.callService("input_datetime", "set_datetime", { entity_id: t.dataset.ora, time: t.value + ":00" });
   }
 }
 customElements.define("faber-robot", FaberRobot);
