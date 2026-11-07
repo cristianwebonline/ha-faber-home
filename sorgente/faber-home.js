@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.147.0";
+const FH_VERSION = "0.148.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -14782,6 +14782,8 @@ const FRB_STATI = { cleaning: "Sta pulendo", docked: "In base", returning: "Torn
   idle: "Fermo", error: "Errore", unavailable: "Non raggiungibile", unknown: "Sconosciuto" };
 const FRB_CSS = `
   .frb-svg{width:46px;height:46px;flex:0 0 auto}
+  .fht-btn.solo{flex:0 0 auto;padding-left:11px!important;padding-right:11px!important}
+  .fht-btn.spento,.fh-app.chiaro .fht-btn.spento{color:#ff8a3d;border-color:rgba(255,138,61,.5);background:rgba(255,138,61,.12)}
   .frb-spaz{transform-box:fill-box;transform-origin:center}
   .fht[data-pulisce="1"] .frb-spaz{animation:frbGira .6s linear infinite}
   .fht[data-pulisce="1"] .frb-corpo{animation:frbVai 3.2s ease-in-out infinite}
@@ -16071,6 +16073,13 @@ class FaberRobot extends HTMLElement {
       : Object.keys(h.states).filter(e => e.startsWith("automation.robot_") && !e.includes("registro"));
     return lista.filter(e => h.states[e]);
   }
+  // Solo le automazioni che fanno PARTIRE il robot: avvisi, registro e
+  // "torna alla base" restano accese anche con gente in casa.
+  _partenze() {
+    const h = this._hass;
+    return this._scene().filter(id => /quando_uscite|dopo_cena/.test(id))
+      .map(id => ({ id, on: h.states[id].state === "on" }));
+  }
 
   _update() {
     const h = this._hass;
@@ -16088,6 +16097,12 @@ class FaberRobot extends HTMLElement {
     if (pulisce && (f & 4)) tasti.push({ k: "pause", i: "mdi:pause", t: "Pausa", pieno: true });
     else if (pulisce && (f & 8)) tasti.push({ k: "stop", i: "mdi:stop", t: "Ferma", pieno: true });
     if (st && stato !== "docked" && (f & 16)) tasti.push({ k: "return_to_base", i: "mdi:home-import-outline", t: "Base" });
+    // Le partenze da sole (quando uscite, dopo cena): un tocco le spegne tutte,
+    // per le sere con gente in casa; un altro le riaccende.
+    const auto = this._partenze();
+    const autoOn = auto.some(a => a.on);
+    if (st && auto.length) tasti.push({ k: "auto", i: autoOn ? "mdi:calendar-clock" : "mdi:calendar-remove", t: "", solo: true, spento: !autoOn,
+      a: autoOn ? "Spegni le partenze automatiche" : "Riaccendi le partenze automatiche" });
     let sub = "";
     if (!st) sub = "Robot non trovato";
     else if (pulisce) {
@@ -16106,9 +16121,10 @@ class FaberRobot extends HTMLElement {
     }
     if (dp && dp.inCorso) sub = "Prima aspira, poi lava" + (sub ? " · " + sub : "");
     if (!sub && st) sub = st.attributes.fan_speed ? "Aspirazione: " + st.attributes.fan_speed : st.attributes.status || "";
+    if (auto.length && !autoOn) sub = "Partenze automatiche spente" + (sub ? " · " + sub : "");
     // Nella firma entra anche cosa fa la base: se no la tessera continuerebbe
     // a dire "In base" mentre il robot lava i panni.
-    const firma = [stato, bat, sub, tasti.map(x => x.k).join(),
+    const firma = [stato, bat, sub, tasti.map(x => x.k).join(), autoOn,
       (this._baseAdesso() || {}).t || ""].join("|");
     if (!this._built) {
       this._built = true;
@@ -16138,10 +16154,15 @@ class FaberRobot extends HTMLElement {
       (bAd && ["docked", "idle", "paused", "unknown"].includes(stato)) ? bAd.t : (FRB_STATI[stato] || stato);
     this.querySelector("[data-sub]").textContent = sub;
     const box = this.querySelector("[data-btns]");
-    box.innerHTML = tasti.map(x => `<button type="button" class="fht-btn${x.pieno ? " pieno" : ""}" data-k="${x.k}"><ha-icon icon="${x.i}"></ha-icon>${x.t}</button>`).join("");
+    box.innerHTML = tasti.map(x => `<button type="button" class="fht-btn${x.pieno ? " pieno" : ""}${x.solo ? " solo" : ""}${x.spento ? " spento" : ""}" data-k="${x.k}"${x.a ? ` aria-label="${x.a}" title="${x.a}"` : ""}><ha-icon icon="${x.i}"></ha-icon>${x.t}</button>`).join("");
     box.querySelectorAll("[data-k]").forEach(b => b.addEventListener("click", e => {
       e.stopPropagation();
       fhVibra(10);
+      if (b.dataset.k === "auto") {
+        const p = this._partenze();
+        this._hass.callService("automation", p.some(a => a.on) ? "turn_off" : "turn_on", { entity_id: p.map(a => a.id) });
+        return;
+      }
       // script.turn_on e non script.<nome>: lo script aspetta la fine del giro,
       // e il tocco non deve restare appeso per un'ora.
       if (b.dataset.k === "doppia") this._hass.callService("script", "turn_on", { entity_id: this._cfg.doppia });
