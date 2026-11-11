@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.149.0";
+const FH_VERSION = "0.150.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -10811,7 +10811,8 @@ class FaberClima extends HTMLElement {
     const uman = this._num(this._cfg.humidity);
     const watt = this._num(this._cfg.power);
     const obiettivo = a.temperature;
-    const passo = a.target_temp_step || 0.5;
+    // Cristian: + e - vanno sempre di 1 grado intero (23 -> 24), qualunque
+    // passo dichiari l'apparecchio. Da 23,5 il + porta a 24 e il - a 23.
     const nome = this._cfg.name || a.friendly_name || "Clima";
 
     const modi = (a.hvac_modes || []).filter(x => x !== "off");
@@ -10952,9 +10953,13 @@ class FaberClima extends HTMLElement {
       } else fai();
     });
     q("[data-t]").forEach(b => b.addEventListener("click", () => {
-      const d = b.dataset.t === "+" ? passo : -passo;
-      const v = Math.min(a.max_temp ?? 35, Math.max(a.min_temp ?? 7, obiettivo + d));
-      this._srv("set_temperature", { temperature: Math.round(v * 10) / 10 });
+      // Tocchi veloci: si parte dall'ultimo valore chiesto, non da quello
+      // vecchio che l'apparecchio non ha ancora aggiornato.
+      const base = (this._ctTs && Date.now() - this._ctTs < 5000 && this._ctV != null) ? this._ctV : obiettivo;
+      const g = b.dataset.t === "+" ? Math.floor(base + 1e-6) + 1 : Math.ceil(base - 1e-6) - 1;
+      const v = Math.min(a.max_temp ?? 35, Math.max(a.min_temp ?? 7, g));
+      this._ctV = v; this._ctTs = Date.now();
+      this._srv("set_temperature", { temperature: v });
     }));
     q("[data-modo]").forEach(b => b.addEventListener("click", () => this._srv("set_hvac_mode", { hvac_mode: b.dataset.modo })));
     const bpiu = this._body.querySelector("[data-piu]");
@@ -11312,7 +11317,7 @@ class FaberClima extends HTMLElement {
           }).join("")}
         </div>
         <label class="fk-mriga"><span>Temperatura (vuoto = non la tocca)</span>
-          <input type="number" id="pTemp" min="${a.min_temp ?? 7}" max="${a.max_temp ?? 35}" step="${a.target_temp_step || 1}"
+          <input type="number" id="pTemp" min="${a.min_temp ?? 7}" max="${a.max_temp ?? 35}" step="1"
             value="${p.temp == null ? "" : p.temp}"></label>
 
         ${haPresa ? `
