@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.150.0";
+const FH_VERSION = "0.151.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -834,6 +834,12 @@ class FaberHome extends HTMLElement {
 
   set hass(hass) {
     this._hass = hass;
+    // Tablet a muro (indirizzo con ?tablet=): stessa configurazione, altra faccia.
+    if (this._tabletNome()) {
+      this._ftHass();
+      this._cardEls.forEach(el => { el.hass = hass; });
+      return;
+    }
     if (!this._built) { this._built = true; this._build(); }
     else { this._updateLive(); }
     // Le card figlie sono card HA vere: vogliono l'oggetto hass a ogni giro.
@@ -873,6 +879,7 @@ class FaberHome extends HTMLElement {
     }
   }
   _fermaTutto() {
+    if (this._ftFerma) this._ftFerma();
     if (this._onResizeFinestra) {
       window.removeEventListener("resize", this._onResizeFinestra);
       window.removeEventListener("orientationchange", this._onResizeFinestra);
@@ -5470,6 +5477,7 @@ class FaberHome extends HTMLElement {
       const azi = this._azioniCfg();
       const domAz = { entita: "", scena: "scene.", script: "script.", automazione: "automation." };
       box.innerHTML = `
+        <button type="button" class="fh-btn" id="stTablet" style="width:100%;padding:12px 14px;margin-bottom:6px">Tablet a muro: Plancia, comandi di casa, PIN ›</button>
         <div class="fh-sgroup">Aspetto</div>
         <label class="fh-slab">Giorno o notte</label>
         <div class="fh-seg">
@@ -5919,6 +5927,8 @@ class FaberHome extends HTMLElement {
         }));
       });
 
+      const stTab = box.querySelector("#stTablet");
+      if (stTab) stTab.addEventListener("click", () => this._ftImpostazioni());
       q("#stAddChip").addEventListener("click", () => {
         h.chips.push({ entity: "", icon: "mdi:lightbulb", label: "" }); draw(); this._updateLive();
       });
@@ -7826,6 +7836,1208 @@ const FH_CSS = `
   .fh-app.tel .fh-clock{font-size:34px}
   .fh-app.tel .fh-catlist{grid-template-columns:1fr}
 `;
+
+// ===========================================================================
+// MODALITA TABLET (0.151.0)
+// Il tablet a muro e un ESECUTORE: un tocco e fatto. Non ha una dashboard sua:
+// legge la STESSA configurazione di Faber Home (pagine, stanze, card), quindi
+// cio che si aggiunge dal telefono compare anche qui senza fare niente.
+// Si accende dall'indirizzo: /faber-home/0?tablet=sala (il nome serve quando
+// i tablet saranno piu di uno). Senza "tablet=" Faber Home e quella di sempre.
+// Le scelte del tablet stanno in cfg.tablet: comandi di casa, PIN, pagine
+// nella barra, ordine e gruppi delle stanze. Ordine e gruppi del tablet sono
+// separati da quelli del telefono.
+// ===========================================================================
+const FT_COMANDI = [
+  { icona: "mdi:exit-run", testo: "Esco", tipo: "script", target: "script.risparmio_energetico_uscita_casa" },
+  { icona: "mdi:home-import-outline", testo: "Rientro", tipo: "script", target: "" },
+  { icona: "mdi:weather-night", testo: "Buonanotte", tipo: "scena", target: "scene.scena_a_letto" },
+  { icona: "mdi:gate", testo: "Cancello", tipo: "script", target: "script.apri_cancello_timer", pieno: true, conferma: true },
+  { icona: "mdi:power", testo: "Tutto spento", tipo: "script", target: "", conferma: true },
+];
+const FT_BARRA = ["sicurezza", "clima", "multimedia", "elettrodomestici", "consumi"];
+const FT_GRUPPI = [["luci", "Luci"], ["tv", "TV e musica"], ["prese", "Prese"], ["via", "Nascosta"]];
+const FT_RE_LUCE = /\b(luc[ei]|led|lampad\w*|faretti?|plafonier\w*|abat[- ]?jour|lampione|striscia)\b/i;
+const FT_RE_TV = /\b(tv|televisor\w*|bose|playstation|ps[345]|xbox|sonos|stereo|radio|chromecast|fire ?tv|soundbar|proiettore|cassa|casse|musica|digitale|decoder|sky)\b/i;
+// Prese che dal tablet non si spengono: frigo e congelatore (regola di casa)
+// e la presa del tablet stesso (spegnerla dal tablet lo spegnerebbe).
+const FT_RE_BLOCCO = /\b(frigo\w*|congelator\w*|freezer|tablet a muro|tablet ha|tablet hassistant)\b/i;
+const FT_COLORI = [[255, 217, 160], [255, 243, 224], [255, 84, 66], [255, 176, 32], [56, 224, 138], [58, 160, 255], [138, 92, 255], [255, 79, 184]];
+
+const FT_CSS = `
+  .ft-app{position:fixed;inset:0;overflow:hidden;color:var(--ft-ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+    --ft-ink:#eaf1f8;--ft-mut:#93a1b0;--ft-card:rgba(16,22,34,.78);--ft-brd:rgba(255,255,255,.10);--ft-bar:rgba(30,38,48,.78);
+    --ft-sh:0 10px 28px rgba(0,0,0,.30);--ft-amb:#ffb020;--ft-ok:#38e08a;--ft-bad:#ff5442;--ft-soft:rgba(255,255,255,.07);
+    -webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
+  .ft-app.ft-giorno{--ft-ink:#111827;--ft-mut:#4b5563;--ft-card:rgba(255,255,255,.86);--ft-brd:rgba(17,24,39,.07);--ft-bar:rgba(255,255,255,.88);
+    --ft-sh:0 10px 28px rgba(120,90,40,.14);--ft-soft:rgba(17,24,39,.06)}
+  /* di giorno le chip di Faber Home usano la tavolozza chiara (stessi valori del telefono) */
+  .ft-app.ft-giorno .ft-vista{--fh-c-muted:#4b5563;--fh-c-soft:#7a4a00;--fh-c-acc:#9a5b00;--fh-c-warn:#8a5200;--fh-c-bad:#b3261e;--fh-c-ok:#0f7a3d}
+  .ft-app .fh-bg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+  :where(.ft-app) :where(button){font:inherit;color:inherit;border:0;background:none;padding:0;cursor:pointer}
+  .ft-app .mdi,.ft-app ha-icon{line-height:1}
+  .ft-vista{position:absolute;left:0;right:0;top:0;bottom:0;padding:20px 24px 108px}
+  .ft-vista[hidden]{display:none}
+  .ft-box{background:var(--ft-card);border:1px solid var(--ft-brd);border-radius:24px;box-shadow:var(--ft-sh);
+    -webkit-backdrop-filter:blur(18px) saturate(1.4);backdrop-filter:blur(18px) saturate(1.4)}
+  /* --- Plancia --- */
+  .ft-pl{display:grid;grid-template-columns:330px 1fr;gap:24px;height:100%}
+  .ft-sx{display:flex;flex-direction:column;gap:14px;min-height:0}
+  .ft-ora{font-size:96px;font-weight:800;letter-spacing:-3px;line-height:.95;touch-action:manipulation}
+  .ft-data{font-size:15px;font-weight:600;color:var(--ft-mut);margin-top:4px}
+  .ft-meteo{display:flex;align-items:center;gap:14px;padding:16px 18px}
+  .ft-meteo ha-icon{--mdc-icon-size:52px;color:#9fb2c8}
+  .ft-meteo .t{font-size:40px;font-weight:800}.ft-meteo .c{font-size:13px;color:var(--ft-mut);font-weight:600}
+  .ft-meteo .d{margin-left:auto;text-align:right}.ft-meteo .d b{font-size:22px}
+  .ft-pers{display:flex;gap:10px;padding:14px 16px}
+  .ft-p{flex:1;display:flex;align-items:center;gap:10px;min-width:0}
+  .ft-av{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;border:2px solid var(--ft-ok);color:var(--ft-ok);background:rgba(56,224,138,.10);flex:0 0 auto}
+  .ft-av.via{border-color:#8a96a6;color:#8a96a6;background:rgba(138,150,166,.10)}
+  .ft-p b{display:block;font-size:14px}.ft-p small{font-size:11px;font-weight:800;color:var(--ft-ok)}.ft-p small.via{color:var(--ft-mut)}
+  .ft-cons{padding:16px 18px}
+  .ft-cons .r{display:flex;justify-content:space-between;align-items:baseline}
+  .ft-cons .l{font-size:11px;font-weight:800;letter-spacing:1.5px;color:var(--ft-mut)}
+  .ft-cons .w{font-size:30px;font-weight:800;color:var(--ft-ok)}.ft-cons .w span{font-size:14px}
+  .ft-barra{height:8px;border-radius:9px;background:var(--ft-soft);margin-top:8px;overflow:hidden}
+  .ft-barra i{display:block;height:100%;background:var(--ft-ok);border-radius:9px;transition:width .6s}
+  .ft-cons .sub{font-size:12px;color:var(--ft-mut);margin-top:6px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ft-dx{display:flex;flex-direction:column;gap:14px;min-height:0}
+  .ft-chips{display:flex;gap:10px;justify-content:flex-end;min-height:38px;overflow:hidden}
+  .ft-chips .fh-chips{margin:0;padding:0;justify-content:flex-end}
+  .ft-cmd{display:grid;gap:12px}
+  .ft-bt{height:96px;border-radius:24px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;font-size:15px;font-weight:800;
+    background:var(--ft-card);border:1px solid var(--ft-brd)!important;box-shadow:var(--ft-sh);transition:transform .12s}
+  .ft-bt:active,.ft-st:active,.ft-k:active,.ft-c:active{transform:scale(.96)}
+  .ft-bt ha-icon{--mdc-icon-size:34px;color:var(--ft-amb)}
+  .ft-bt.pieno{background:linear-gradient(135deg,#ffb020,#e09810);color:#1c1400;border:0!important;box-shadow:0 6px 20px rgba(255,176,32,.35)}
+  .ft-bt.pieno ha-icon{color:#1c1400}
+  .ft-bt.vuoto{opacity:.55}
+  .ft-tit{font-size:12px;font-weight:800;letter-spacing:1.5px;color:var(--ft-mut);margin:2px 4px -4px;display:flex;justify-content:space-between}
+  .ft-tit span{letter-spacing:0}
+  .ft-stanze{display:grid;grid-template-columns:repeat(5,1fr);grid-auto-rows:1fr;gap:12px;flex:1;min-height:0}
+  .ft-st{position:relative;border-radius:24px;padding:14px 14px 12px;display:flex;flex-direction:column;text-align:left;min-height:0;transition:transform .12s}
+  .ft-ic{width:46px;height:46px;border-radius:26%;display:grid;place-items:center;background:rgba(147,161,176,.14);color:var(--ft-mut)}
+  .ft-ic ha-icon{--mdc-icon-size:26px}
+  .ft-st .nome{font-size:17px;font-weight:800;margin-top:auto}
+  .ft-st .temp{position:absolute;right:14px;top:16px;font-size:20px;font-weight:800}
+  .ft-st .cosa{font-size:12px;font-weight:700;color:var(--ft-mut);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ft-caldo{background-image:linear-gradient(150deg,rgba(255,140,60,.22),rgba(0,0,0,0) 75%);border-color:rgba(255,140,60,.45)}
+  .ft-caldo .ft-ic{background:rgba(255,140,60,.18);color:#ff8c3c}.ft-caldo .cosa{color:#ffb27a}
+  .ft-freddo{background-image:linear-gradient(150deg,rgba(58,160,255,.22),rgba(0,0,0,0) 75%);border-color:rgba(58,160,255,.45)}
+  .ft-freddo .ft-ic{background:rgba(58,160,255,.18);color:#3aa0ff}.ft-freddo .cosa{color:#8cc6ff}
+  .ft-acceso{background-image:linear-gradient(150deg,rgba(56,224,138,.18),rgba(0,0,0,0) 75%);border-color:rgba(56,224,138,.40)}
+  .ft-acceso .ft-ic{background:rgba(56,224,138,.16);color:var(--ft-ok)}.ft-acceso .cosa{color:var(--ft-ok)}
+  .ft-luce{background-image:linear-gradient(150deg,rgba(255,176,32,.20),rgba(0,0,0,0) 75%);border-color:rgba(255,176,32,.45)}
+  .ft-luce .ft-ic{background:rgba(255,176,32,.16);color:var(--ft-amb)}.ft-luce .cosa{color:#ffcf73}
+  .ft-giorno .ft-caldo .cosa{color:#b4500f}.ft-giorno .ft-acceso .cosa{color:#0f7a3d}.ft-giorno .ft-luce .cosa{color:#9a5b00}.ft-giorno .ft-freddo .cosa{color:#1d63a8}
+  /* --- Stanza --- */
+  .ft-top{display:flex;gap:10px;align-items:center;height:56px;margin-bottom:16px}
+  .ft-ind{height:56px;padding:0 20px 0 14px;border-radius:18px;display:flex;align-items:center;gap:6px;font-size:16px;font-weight:800;flex:0 0 auto}
+  .ft-ind ha-icon{--mdc-icon-size:28px;color:var(--ft-amb)}
+  .ft-tabs{display:flex;gap:8px;overflow-x:auto;flex:1;scrollbar-width:none}.ft-tabs::-webkit-scrollbar{display:none}
+  .ft-tab{height:48px;padding:0 16px;border-radius:999px;display:flex;align-items:center;gap:8px;font-size:14.5px;font-weight:700;color:var(--ft-mut);
+    background:var(--ft-soft);border:1px solid var(--ft-brd)!important;white-space:nowrap;flex:0 0 auto}
+  .ft-tab ha-icon{--mdc-icon-size:20px}
+  .ft-tab.on{color:#1c1400;background:linear-gradient(135deg,#ffb020,#e09810);border:0!important;box-shadow:0 6px 18px rgba(255,176,32,.35)}
+  .ft-orina{font-size:30px;font-weight:800;margin-left:6px;flex:0 0 auto}
+  .ft-sta{display:grid;grid-template-columns:340px 1fr;gap:22px;height:calc(100% - 72px)}
+  .ft-stsx{display:flex;flex-direction:column;gap:14px;min-height:0;overflow:auto;scrollbar-width:none}
+  .ft-hero{padding:18px 20px}.ft-hero h1{margin:0;font-size:32px;font-weight:800;line-height:1.1}
+  .ft-hero .r{display:flex;gap:16px;margin-top:10px;font-size:14px;font-weight:700;color:var(--ft-mut);flex-wrap:wrap}
+  .ft-hero .r b{color:var(--ft-ink);font-size:22px}.ft-hero .r .w b,.ft-hero .r .w{color:var(--ft-ok)}
+  .ft-cl{padding:18px 20px;display:flex;flex-direction:column;gap:12px;flex:1 0 auto}
+  .ft-cl.piccolo{flex:0 0 auto}
+  .ft-cl .t1{display:flex;align-items:center;gap:12px}
+  .ft-cl .nome{font-size:18px;font-weight:800}.ft-cl .stato{font-size:12px;font-weight:800;letter-spacing:.5px;color:var(--ft-mut)}
+  .ft-cl.ft-caldo .stato{color:#ffb27a}.ft-cl.ft-freddo .stato{color:#8cc6ff}
+  .ft-gradi{display:flex;align-items:center;justify-content:space-between;margin:auto 0}
+  .ft-gb{width:78px;height:78px;border-radius:24px;display:grid;place-items:center;background:var(--ft-soft);border:1px solid var(--ft-brd)!important}
+  .ft-gb ha-icon{--mdc-icon-size:40px}
+  .ft-cl.piccolo .ft-gb{width:60px;height:60px}.ft-cl.piccolo .ft-val b{font-size:44px}
+  .ft-val{text-align:center}.ft-val b{font-size:64px;font-weight:800;letter-spacing:-2px}.ft-val div{font-size:13px;color:var(--ft-mut);font-weight:700}
+  .ft-sp{height:62px;border-radius:20px;display:flex;align-items:center;justify-content:center;gap:10px;font-size:17px;font-weight:800;background:var(--ft-soft);border:1px solid var(--ft-brd)!important}
+  .ft-sp ha-icon{--mdc-icon-size:26px;color:#ff8c3c}
+  .ft-sp.acc{background:linear-gradient(135deg,#ffb020,#e09810);color:#1c1400;border:0!important}.ft-sp.acc ha-icon{color:#1c1400}
+  .ft-stdx{display:flex;flex-direction:column;gap:10px;min-height:0;overflow:auto;scrollbar-width:none;padding-bottom:8px}
+  .ft-stdx::-webkit-scrollbar,.ft-stsx::-webkit-scrollbar{display:none}
+  .ft-g4{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+  .ft-k{position:relative;height:106px;border-radius:22px;padding:14px;display:flex;flex-direction:column;justify-content:space-between;text-align:left;transition:transform .12s}
+  .ft-k ha-icon.i{--mdc-icon-size:30px;color:var(--ft-mut)}
+  .ft-k b{font-size:15.5px;font-weight:800;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-right:4px}
+  .ft-k small{display:block;font-size:12px;font-weight:700;color:var(--ft-mut);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ft-sw{position:absolute;right:14px;top:14px;width:46px;height:28px;border-radius:999px;background:rgba(147,161,176,.25)}
+  .ft-sw:after{content:"";position:absolute;left:4px;top:4px;width:20px;height:20px;border-radius:50%;background:#93a1b0;transition:left .15s}
+  .ft-k.on{background-image:linear-gradient(150deg,rgba(56,224,138,.20),rgba(0,0,0,0) 80%);border-color:rgba(56,224,138,.42)}
+  .ft-k.on ha-icon.i{color:var(--ft-ok)}.ft-k.on small{color:var(--ft-ok)}.ft-k.on .ft-sw{background:rgba(56,224,138,.85)}
+  .ft-k.lon{background-image:linear-gradient(150deg,rgba(255,176,32,.26),rgba(0,0,0,0) 80%);border-color:rgba(255,176,32,.5)}
+  .ft-k.lon ha-icon.i{color:var(--ft-amb)}.ft-k.lon small{color:#ffcf73}.ft-k.lon .ft-sw{background:var(--ft-amb)}
+  .ft-giorno .ft-k.lon small{color:#9a5b00}.ft-giorno .ft-k.on small{color:#0f7a3d}
+  .ft-k.on .ft-sw:after,.ft-k.lon .ft-sw:after{left:22px;background:#fff}
+  .ft-k .dots{position:absolute;right:16px;bottom:12px;font-size:11px;font-weight:900;color:var(--ft-mut);letter-spacing:1px}
+  .ft-k.off,.ft-c.off{opacity:.5}
+  .ft-c{height:60px;border-radius:18px;padding:0 14px;display:flex;align-items:center;gap:10px;font-size:14px;font-weight:800;text-align:left;transition:transform .12s;min-width:0}
+  .ft-c ha-icon{--mdc-icon-size:22px;color:var(--ft-mut);flex:0 0 auto}
+  .ft-c span{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ft-c i.pt{width:10px;height:10px;border-radius:50%;background:#4b5563;flex:0 0 auto}
+  .ft-c.on{border-color:rgba(56,224,138,.40);background-image:linear-gradient(150deg,rgba(56,224,138,.14),rgba(0,0,0,0) 80%)}
+  .ft-c.on ha-icon{color:var(--ft-ok)}.ft-c.on i.pt{background:var(--ft-ok);box-shadow:0 0 10px rgba(56,224,138,.8)}
+  .ft-c .lk{--mdc-icon-size:18px}
+  .ft-altro{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+  .ft-vuota{padding:30px;text-align:center;color:var(--ft-mut);font-weight:700}
+  /* in modifica: il gruppo del pezzo si cambia toccandolo */
+  .ft-grp{position:absolute;left:10px;bottom:-8px;padding:4px 10px;border-radius:999px;background:var(--ft-amb);color:#1c1400;font-size:11px;font-weight:900;z-index:2}
+  .ft-c .ft-grp{bottom:auto;top:-10px}
+  .ft-mod .ft-k,.ft-mod .ft-c,.ft-mod .ft-st{outline:2px dashed rgba(255,176,32,.6);outline-offset:2px}
+  .ft-ord{position:absolute;right:8px;top:8px;display:flex;gap:6px;z-index:2}
+  .ft-mod .ft-st .temp{display:none}
+  .ft-ord button{width:40px;height:40px;border-radius:12px;background:var(--ft-amb);color:#1c1400;display:grid;place-items:center}
+  .ft-st.nasc{opacity:.4}
+  /* --- pagine normali dentro il tablet --- */
+  .ft-app .fh-main.ft-pagina{position:absolute;left:0;right:0;top:0;bottom:0;overflow:auto;padding:20px 24px 110px}
+  /* --- barra --- */
+  .ft-nav{position:absolute;left:50%;bottom:16px;transform:translateX(-50%);min-width:640px;height:76px;border-radius:26px;background:var(--ft-bar);z-index:5;
+    border:1px solid var(--ft-brd);box-shadow:0 12px 30px rgba(0,0,0,.45);-webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px);display:flex;justify-content:space-around;align-items:flex-end;padding:0 10px 10px}
+  .ft-giorno .ft-nav{box-shadow:0 12px 30px rgba(120,90,40,.18)}
+  .ft-ni{width:104px;display:flex;flex-direction:column;align-items:center;gap:6px;font-size:11.5px;font-weight:700;color:var(--ft-mut)}
+  .ft-ni ha-icon{--mdc-icon-size:26px}.ft-ni .l{max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ft-ni.on{color:var(--ft-ink)}
+  .ft-ni.on .ft-blob{width:60px;height:60px;margin-top:-34px;border-radius:50%;display:grid;place-items:center;
+    background:linear-gradient(150deg,#ffc55c,#ffb020 55%,#e6890a);border:2px solid var(--ft-bar);box-shadow:0 8px 22px rgba(255,176,32,.42),0 2px 6px rgba(0,0,0,.3)}
+  .ft-ni.on .ft-blob ha-icon{color:#5a3a00;--mdc-icon-size:28px}
+  /* --- veli: foglio luce, conferma, PIN, avviso --- */
+  .ft-velo{position:absolute;inset:0;z-index:20;background:rgba(5,9,16,.58);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center}
+  .ft-fg{width:760px;max-width:92%;border-radius:32px;background:rgba(16,22,34,.95);border:1px solid rgba(255,176,32,.45);padding:26px;box-shadow:0 30px 80px rgba(0,0,0,.6);color:#eaf1f8}
+  .ft-fg .h{display:flex;align-items:center;gap:14px}
+  .ft-fg .h .ft-ic{width:60px;height:60px;border-radius:20px;background:rgba(255,176,32,.16);color:var(--ft-amb)}
+  .ft-fg .h .ft-ic ha-icon{--mdc-icon-size:34px}
+  .ft-fg h2{margin:0;font-size:26px}.ft-fg .h small{color:#ffcf73;font-weight:800;font-size:13px}
+  .ft-x{margin-left:auto;width:56px;height:56px;border-radius:18px;background:rgba(255,255,255,.07)!important;display:grid;place-items:center;color:#93a1b0!important}
+  .ft-x ha-icon{--mdc-icon-size:28px}
+  .ft-lum{margin:22px 0 10px;height:76px;border-radius:22px;background:rgba(255,255,255,.07);position:relative;overflow:hidden;touch-action:none}
+  .ft-lum i{position:absolute;left:0;top:0;bottom:0;background:linear-gradient(90deg,rgba(255,176,32,.35),rgba(255,176,32,.85));pointer-events:none}
+  .ft-lum span{position:absolute;left:22px;top:50%;transform:translateY(-50%);font-size:22px;font-weight:800;pointer-events:none}
+  .ft-pr{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:18px}
+  .ft-pr button{height:56px;border-radius:16px;background:rgba(255,255,255,.07)!important;font-size:16px;font-weight:800;color:#eaf1f8!important}
+  .ft-col{display:flex;gap:12px;flex-wrap:wrap}
+  .ft-col button{width:60px;height:60px;border-radius:50%;border:3px solid rgba(255,255,255,.12)!important}
+  .ft-nota{margin-top:14px;font-size:12px;font-weight:700;color:#93a1b0}
+  .ft-dom{width:520px;text-align:center}
+  .ft-dom h2{font-size:28px;margin:6px 0 20px}
+  .ft-due{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .ft-gr{height:84px;border-radius:22px;display:flex;align-items:center;justify-content:center;gap:12px;font-size:20px;font-weight:850}
+  .ft-gr.si{background:linear-gradient(135deg,#ffb020,#e09810)!important;color:#1c1400!important}
+  .ft-gr.no{background:rgba(255,255,255,.07)!important;color:#eaf1f8!important;border:1px solid rgba(255,255,255,.1)!important}
+  .ft-pin{width:420px;text-align:center}
+  .ft-pin h2{margin:4px 0}.ft-pin p{margin:0 0 16px;color:#93a1b0;font-size:14px;font-weight:600}
+  .ft-pal{display:flex;justify-content:center;gap:16px;margin-bottom:20px}.ft-pal i{width:16px;height:16px;border-radius:50%;border:2px solid #93a1b0}.ft-pal i.pi{background:#ffb020;border-color:#ffb020}
+  .ft-pal.err i{border-color:#ff5442;animation:ftScuoti .3s}
+  @keyframes ftScuoti{25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}
+  .ft-tast{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+  .ft-tast button{height:70px;border-radius:20px;background:rgba(255,255,255,.07)!important;border:1px solid rgba(255,255,255,.08)!important;font-size:28px;font-weight:700;color:#eaf1f8!important}
+  .ft-tast button.x{font-size:15px;color:#93a1b0!important}
+  .ft-modbar{position:absolute;left:50%;top:14px;transform:translateX(-50%);z-index:15;display:flex;align-items:center;gap:12px;padding:10px 12px 10px 20px;border-radius:22px;
+    background:rgba(16,22,34,.95);border:1px solid rgba(255,176,32,.6);color:#eaf1f8;font-weight:800;box-shadow:0 12px 30px rgba(0,0,0,.5)}
+  .ft-modbar button{height:48px;padding:0 18px;border-radius:14px;font-weight:850;background:rgba(255,255,255,.08)!important;color:#eaf1f8!important}
+  .ft-modbar button.si{background:linear-gradient(135deg,#ffb020,#e09810)!important;color:#1c1400!important}
+  .ft-toast{position:absolute;left:50%;bottom:110px;transform:translateX(-50%);z-index:30;padding:14px 22px;border-radius:18px;background:rgba(16,22,34,.95);
+    border:1px solid rgba(255,176,32,.5);color:#eaf1f8;font-weight:700;font-size:15px;box-shadow:0 12px 30px rgba(0,0,0,.5);max-width:80%;text-align:center}
+`;
+
+const FH_TABLET = {
+  // Il nome del tablet, dall'indirizzo. null = non e un tablet.
+  _tabletNome() {
+    if (this._ftChi !== undefined) return this._ftChi;
+    let n = null;
+    try { n = new URLSearchParams(location.search).get("tablet"); } catch (e) { n = null; }
+    this._ftChi = n == null ? null : (n.trim() || "tablet");
+    return this._ftChi;
+  },
+
+  _ftCfg() {
+    const t = this._cfg.tablet || {};
+    return {
+      comandi: Array.isArray(t.comandi) ? t.comandi : FT_COMANDI,
+      pin: t.pin ? String(t.pin) : "",
+      ritorno: t.ritorno == null ? 60 : Number(t.ritorno) || 0,
+      barra: Array.isArray(t.barra) ? t.barra : FT_BARRA,
+      ordine: Array.isArray(t.ordine) ? t.ordine : [],
+      nascoste: Array.isArray(t.nascoste) ? t.nascoste : [],
+      gruppi: t.gruppi && typeof t.gruppi === "object" ? t.gruppi : {},
+      bloccate: Array.isArray(t.bloccate) ? t.bloccate : [],
+    };
+  },
+  // Scrive in cfg.tablet SOLO la chiave cambiata: le altre restano ai valori di partenza
+  // (cosi se un giorno cambiano i comandi di partenza, chi non li ha toccati li riceve).
+  _ftSet(k, v) {
+    if (!this._cfg.tablet || typeof this._cfg.tablet !== "object") this._cfg.tablet = {};
+    this._cfg.tablet[k] = v;
+  },
+
+  _ftStato(e) { return e && this._hass && this._hass.states[e]; },
+  _ftAcceso(e) {
+    const s = this._ftStato(e);
+    if (!s) return false;
+    if (e.startsWith("climate.")) return !["off", "unavailable", "unknown"].includes(s.state);
+    if (e.startsWith("media_player.")) return !["off", "standby", "unavailable", "unknown", "idle"].includes(s.state);
+    return ["on", "open", "playing", "unlocked", "heat", "cool"].includes(s.state);
+  },
+  _ftNome(e) {
+    const s = this._ftStato(e);
+    return (s && s.attributes && s.attributes.friendly_name) || e;
+  },
+  _ftW(e) {
+    const s = this._ftStato(e);
+    const v = s ? parseFloat(s.state) : NaN;
+    return isNaN(v) ? null : v;
+  },
+  _ftVibra(ms) { try { fhVibra(ms || 10); } catch (e) { /* niente */ } },
+
+  // Le stanze del tablet: le pagine "stanza" di Faber Home, nell'ordine del
+  // tablet (se Cristian l'ha cambiato) e senza quelle nascoste sul tablet.
+  _ftStanze(conNascoste) {
+    const c = this._ftCfg();
+    let st = (this._cfg.pages || []).filter(p => p.stanza);
+    if (c.ordine.length) {
+      const pos = id => { const i = c.ordine.indexOf(id); return i < 0 ? 999 : i; };
+      st = st.map((p, i) => ({ p, i })).sort((a, b) => (pos(a.p.id) - pos(b.p.id)) || (a.i - b.i)).map(x => x.p);
+    }
+    if (!conNascoste) st = st.filter(p => !c.nascoste.includes(p.id));
+    return st;
+  },
+
+  // I pezzi di una stanza, letti dalle sue card e divisi per tipo. Niente da
+  // configurare: e lo stesso contenuto della pagina del telefono.
+  _ftPezzi(pg) {
+    const c = this._ftCfg();
+    const out = { luci: [], tv: [], prese: [], clima: [], altro: [], via: [] };
+    const visti = new Set();
+    const climi = new Set();
+    const nascostaSe = cd => cd.fh_se && !this._ftAcceso(cd.fh_se);
+    const gira = cd => {
+      if (!cd || typeof cd !== "object") return;
+      if (Array.isArray(cd.cards) && !cd.type) { cd.cards.forEach(gira); return; }
+      if (Array.isArray(cd.cards) && /stack|grid/.test(cd.type || "")) { cd.cards.forEach(gira); return; }
+      if (nascostaSe(cd)) return;
+      const tipo = cd.type || "";
+      if (cd.climate && (tipo === "custom:mini-card" || tipo === "custom:faber-clima" || !tipo)) {
+        if (!climi.has(cd.climate) && this._ftStato(cd.climate)) {
+          // la presa staccata = clima che non si comanda: si salta, come sul telefono
+          const presa = tipo === "custom:faber-clima" ? cd.presa : (cd.fh_se || "");
+          if (presa && this._ftStato(presa) && !this._ftAcceso(presa)) return;
+          climi.add(cd.climate);
+          out.clima.push({ climate: cd.climate, nome: cd.name || this._ftNome(cd.climate), presa });
+        }
+        return;
+      }
+      if (tipo === "custom:mini-card") {
+        const ent = cd.switch || cd.entity || "";
+        if (!ent || !ent.includes(".") || visti.has(ent)) return;
+        const dom = ent.split(".")[0];
+        if (!["light", "switch", "fan", "input_boolean", "media_player", "cover"].includes(dom)) return;
+        visti.add(ent);
+        const nome = cd.name || this._ftNome(ent);
+        let g = c.gruppi[ent];
+        if (!g) {
+          if (dom === "light" || FT_RE_LUCE.test(nome)) g = "luci";
+          else if (dom === "media_player" || FT_RE_TV.test(nome)) g = "tv";
+          else g = "prese";
+        }
+        const p = {
+          ent, nome, power: cd.power || "", icona: cd.icon && cd.icon !== "auto" ? cd.icon : "",
+          blocco: c.bloccate.includes(ent) || FT_RE_BLOCCO.test(nome),
+        };
+        (out[g] || out.prese).push(p);
+        return;
+      }
+      out.altro.push(cd);
+    };
+    (pg.rows || []).forEach(r => (r.cols || []).forEach(col => (col.cards || []).forEach(gira)));
+    // Nessun clima nella stanza: si guarda la sua pagina Clima (tasto della
+    // barra), prendendo da li SOLO i climi.
+    if (!out.clima.length) {
+      const soloClima = cd => {
+        if (!cd || typeof cd !== "object") return;
+        if (Array.isArray(cd.cards)) { cd.cards.forEach(soloClima); return; }
+        if (!cd.climate || climi.has(cd.climate) || !this._ftStato(cd.climate) || nascostaSe(cd)) return;
+        const presa = cd.type === "custom:faber-clima" ? cd.presa : (cd.fh_se || "");
+        if (presa && this._ftStato(presa) && !this._ftAcceso(presa)) return;
+        climi.add(cd.climate);
+        out.clima.push({ climate: cd.climate, nome: cd.name || this._ftNome(cd.climate), presa });
+      };
+      (pg.barra || []).filter(b => /^clima_/.test(b)).forEach(id => {
+        const cp = (this._cfg.pages || []).find(p => p.id === id);
+        if (cp) (cp.rows || []).forEach(r => (r.cols || []).forEach(col => (col.cards || []).forEach(soloClima)));
+      });
+    }
+    return out;
+  },
+
+  _ftIconaPezzo(p, gruppo) {
+    if (p.icona) return p.icona;
+    const n = p.nome.toLowerCase();
+    if (gruppo === "luci") return /led|striscia/.test(n) ? "mdi:led-strip-variant" : "mdi:lightbulb-outline";
+    if (/bose|cassa|casse|sonos|stereo|musica|radio/.test(n)) return /bluetooth/.test(n) ? "mdi:bluetooth-audio" : "mdi:speaker";
+    if (/playstation|ps[345]|xbox/.test(n)) return "mdi:controller";
+    if (/tv|televis|decoder|digitale|fire/.test(n)) return "mdi:television";
+    if (/tablet/.test(n)) return "mdi:tablet";
+    if (/stampante/.test(n)) return "mdi:printer-3d";
+    if (/usb/.test(n)) return "mdi:usb-port";
+    if (/batteri|carica/.test(n)) return "mdi:battery-charging";
+    if (/alexa|echo/.test(n)) return "mdi:account-voice";
+    if (/robot|base/.test(n)) return "mdi:robot-vacuum";
+    if (/ciabatta/.test(n)) return "mdi:power-socket-it";
+    if (/caff|macchina/.test(n)) return "mdi:coffee-maker-outline";
+    if (/forno/.test(n)) return "mdi:stove";
+    if (/microonde|micronde/.test(n)) return "mdi:microwave";
+    if (/lavatric/.test(n)) return "mdi:washing-machine";
+    if (/asciugatric/.test(n)) return "mdi:tumble-dryer";
+    if (/stufa|scald|termo/.test(n)) return "mdi:radiator";
+    if (/broadlink|telecomando/.test(n)) return "mdi:remote";
+    return "mdi:power-socket-it";
+  },
+
+  // Il riassunto di una stanza per la Plancia: cosa c'e acceso che conta.
+  _ftRiassunto(pg) {
+    const pz = this._ftPezzi(pg);
+    const cose = [];
+    let cls = "";
+    pz.clima.forEach(cl => {
+      const s = this._ftStato(cl.climate);
+      if (!s || ["off", "unavailable", "unknown"].includes(s.state)) return;
+      const az = (s.attributes && s.attributes.hvac_action) || s.state;
+      const caldo = /heat/.test(az) || s.state === "heat";
+      cls = cls || (caldo ? "ft-caldo" : (/cool/.test(az) || s.state === "cool" ? "ft-freddo" : "ft-acceso"));
+      const tg = s.attributes && s.attributes.temperature;
+      cose.push(tg != null ? `${cl.nome} ${Math.round(tg)}°` : `${cl.nome} in funzione`);
+    });
+    const luci = pz.luci.filter(p => this._ftAcceso(p.ent)).length;
+    if (luci) { cose.push(luci === 1 ? "1 luce accesa" : `${luci} luci accese`); cls = cls || "ft-luce"; }
+    pz.tv.forEach(p => {
+      if (!this._ftAcceso(p.ent) || !/tv|televis/i.test(p.nome)) return;
+      cose.push("TV accesa"); cls = cls || "ft-acceso";
+    });
+    // cio che sta lavorando davvero: consuma piu di 20 W (non le prese sempre accese)
+    const lavora = [];
+    pz.prese.forEach(p => { const w = this._ftW(p.power); if (w != null && w > 20 && this._ftAcceso(p.ent)) lavora.push(p.nome); });
+    pz.altro.forEach(cd => { const w = this._ftW(cd.power); if (w != null && w > (Number(cd.soglia) || 20)) lavora.push(cd.name || this._ftNome(cd.power)); });
+    lavora.forEach(n => { if (!cose.some(x => x.startsWith("TV") && /tv/i.test(n))) cose.push(`${n} in funzione`); });
+    if (lavora.length) cls = cls || "ft-acceso";
+    const testo = cose.length ? (cose.slice(0, 2).join(" · ") + (cose.length > 2 ? ` · +${cose.length - 2}` : "")) : "Tutto spento";
+    return { testo, cls };
+  },
+
+  // =========================================================================
+  // COSTRUZIONE
+  // =========================================================================
+  _ftBuild() {
+    this.innerHTML = `<style>${FH_CSS}${FT_CSS}</style>
+      <div class="fh-app ft-app">
+        <canvas class="fh-bg"></canvas>
+        <section class="ft-vista" data-ftv="plancia"></section>
+        <section class="ft-vista" data-ftv="stanza" hidden></section>
+        <main class="fh-main ft-pagina" data-main hidden></main>
+        <nav class="ft-nav" data-ftnav></nav>
+      </div>`;
+    const canvas = this.querySelector(".fh-bg");
+    if (canvas && typeof FhSky !== "undefined") {
+      this._skyfx = new FhSky(canvas);
+      this._skyfx.setScene(this._weatherMode(), this._isDark(), this._forzaCielo());
+      this._ro = new ResizeObserver(() => { this._skyfx.resize(); this._skyfx.draw(0); });
+      this._ro.observe(canvas);
+      this._skyfx.start();
+      this._skyfx.resize();
+    }
+    this._applyScene(false);
+    this._watchTheme();
+    const app = this.querySelector(".ft-app");
+    if (app) app.classList.toggle("ft-giorno", !this._isDark());
+    this._ftVista = "plancia";
+    this._ftStanzaId = null;
+    this._ftRenderPlancia();
+    this._ftRenderNav();
+    this._ftAscoltaTocchi();
+    this._ftOrologio();
+  },
+
+  _ftOrologio() {
+    if (this._ftTimer) clearInterval(this._ftTimer);
+    this._ftTimer = setInterval(() => {
+      this.querySelectorAll("[data-ftora]").forEach(t => { t.textContent = this._timeText(); });
+      const d = this.querySelector("[data-ftdata]"); if (d) d.textContent = this._dateText();
+      const app = this.querySelector(".ft-app");
+      if (app) app.classList.toggle("ft-giorno", !this._isDark());
+    }, 20000);
+  },
+
+  _ftFerma() {
+    if (this._ftTimer) { clearInterval(this._ftTimer); this._ftTimer = null; }
+    if (this._ftInattivo) { clearTimeout(this._ftInattivo); this._ftInattivo = null; }
+    if (this._ftModTimer) { clearTimeout(this._ftModTimer); this._ftModTimer = null; }
+  },
+
+  // Ad ogni giro di stato: si ridisegna solo cio che si vede.
+  _ftHass() {
+    if (!this._ftBuilt) { this._ftBuilt = true; this._ftBuild(); return; }
+    if (this._ftTocca) return;   // un dito sta tenendo premuto: non si ridisegna sotto
+    const app = this.querySelector(".ft-app");
+    if (app) app.classList.toggle("ft-giorno", !this._isDark());
+    if (this._ftVista === "plancia") this._ftRenderPlancia();
+    else if (this._ftVista === "stanza") this._ftAggiornaStanza();
+    else { try { this._updateLive(); } catch (e) { /* pagina normale */ } }
+    if (this._ftLuce) this._ftAggiornaLuce();
+  },
+
+  // =========================================================================
+  // PLANCIA
+  // =========================================================================
+  _ftMeteoHTML() {
+    const h = this._cfg.header || {};
+    const w = this._ftStato(this._meteoAdesso());
+    const dentro = this._ftW(h.temperature);
+    const t = w && w.attributes ? w.attributes.temperature : null;
+    const cond = w ? w.state : "";
+    return `<div class="ft-box ft-meteo">
+        <ha-icon icon="${FH_WEATHER_ICON[cond] || "mdi:weather-cloudy"}"></ha-icon>
+        <div><div class="t">${t != null ? Math.round(t) + "°" : "—"}</div><div class="c">${fhEsc(FH_WEATHER_IT[cond] || "")} · fuori</div></div>
+        ${dentro != null ? `<div class="d"><b>${dentro.toFixed(1).replace(".", ",")}°</b><div class="c">in casa</div></div>` : ""}
+      </div>`;
+  },
+
+  _ftPersone() {
+    const out = [];
+    const gira = cd => {
+      if (!cd || typeof cd !== "object") return;
+      if (typeof cd.person === "string" && cd.person.startsWith("person.") && !out.some(x => x.e === cd.person)) out.push({ e: cd.person, nome: cd.name });
+      ["cards", "rows", "cols"].forEach(k => { if (Array.isArray(cd[k])) cd[k].forEach(gira); });
+    };
+    (this._cfg.pages || []).forEach(p => (p.rows || []).forEach(gira));
+    if (!out.length && this._hass) Object.keys(this._hass.states).filter(e => e.startsWith("person.")).slice(0, 4).forEach(e => out.push({ e }));
+    return out.slice(0, 4);
+  },
+
+  _ftPersoneHTML() {
+    const pp = this._ftPersone();
+    if (!pp.length) return "";
+    return `<div class="ft-box ft-pers">${pp.map(p => {
+      const s = this._ftStato(p.e);
+      const casa = s && s.state === "home";
+      const dove = !s ? "—" : casa ? "A CASA" : s.state === "not_home" ? "FUORI CASA" : String(s.state).toUpperCase();
+      return `<div class="ft-p"><div class="ft-av${casa ? "" : " via"}"><ha-icon icon="mdi:account"></ha-icon></div>
+        <div style="min-width:0"><b>${fhEsc(p.nome || this._ftNome(p.e))}</b><small class="${casa ? "" : "via"}">${fhEsc(dove)}</small></div></div>`;
+    }).join("")}</div>`;
+  },
+
+  _ftConsumoHTML() {
+    // Il totale di casa: quello della card "Adesso in casa" di Faber Home
+    let tot = null, alto = 3000;
+    const gira = cd => {
+      if (!cd || typeof cd !== "object") return;
+      if (cd.type === "custom:faber-carichi" && cd.totale && tot == null) { tot = cd.totale; alto = Number(cd.soglia_alta) || alto; }
+      ["cards", "rows", "cols"].forEach(k => { if (Array.isArray(cd[k])) cd[k].forEach(gira); });
+    };
+    (this._cfg.pages || []).forEach(p => (p.rows || []).forEach(gira));
+    const w = this._ftW(tot);
+    if (w == null) return "";
+    // chi consuma: le prese delle stanze che hanno un sensore e lavorano
+    const chi = [];
+    this._ftStanze(true).forEach(pg => {
+      const pz = this._ftPezzi(pg);
+      [...pz.luci, ...pz.tv, ...pz.prese].forEach(p => { const v = this._ftW(p.power); if (v != null && v > 20) chi.push([p.nome, v]); });
+      pz.altro.forEach(cd => { const v = this._ftW(cd.power); if (v != null && v > 20) chi.push([cd.name || this._ftNome(cd.power), v]); });
+    });
+    chi.sort((a, b) => b[1] - a[1]);
+    const unici = [];
+    chi.forEach(x => { if (!unici.some(y => y[0] === x[0])) unici.push(x); });
+    return `<div class="ft-box ft-cons">
+        <div class="r"><span class="l">ADESSO IN CASA</span><span class="w">${Math.round(w)}<span> W</span></span></div>
+        <div class="ft-barra"><i style="width:${Math.max(2, Math.min(100, w / alto * 100)).toFixed(0)}%"></i></div>
+        ${unici.length ? `<div class="sub">${unici.slice(0, 3).map(x => `${fhEsc(x[0])} ${Math.round(x[1])} W`).join(" · ")}</div>` : ""}
+      </div>`;
+  },
+
+  _ftRenderPlancia() {
+    const v = this.querySelector('[data-ftv="plancia"]');
+    if (!v) return;
+    const c = this._ftCfg();
+    const mod = !!this._ftMod;
+    const stanze = mod ? this._ftStanze(true) : this._ftStanze();
+    const cmd = c.comandi.slice(0, 6);
+    const html = `<div class="ft-pl${mod ? " ft-mod" : ""}">
+      <div class="ft-sx">
+        <div><div class="ft-ora" data-ftora data-ftpin>${this._timeText()}</div><div class="ft-data" data-ftdata>${this._dateText()}</div></div>
+        ${this._ftMeteoHTML()}
+        ${this._ftPersoneHTML()}
+        ${this._ftConsumoHTML()}
+      </div>
+      <div class="ft-dx">
+        <div class="ft-chips"><div class="fh-chips" data-chips>${this._chipsHTML()}</div></div>
+        ${cmd.length ? `<div class="ft-cmd" style="grid-template-columns:repeat(${cmd.length},1fr)">${cmd.map((k, i) => `
+          <button type="button" class="ft-bt${k.pieno ? " pieno" : ""}${k.target ? "" : " vuoto"}" data-ftcmd="${i}">
+            <ha-icon icon="${fhEsc(k.icona || "mdi:gesture-tap-button")}"></ha-icon>${fhEsc(k.testo || "")}</button>`).join("")}</div>` : ""}
+        <div class="ft-tit">STANZE${mod ? "<span>Frecce = sposta · occhio = mostra o nascondi</span>" : ""}</div>
+        <div class="ft-stanze" style="grid-template-rows:repeat(${Math.max(1, Math.ceil(stanze.length / 5))},1fr)">${stanze.map((pg, i) => {
+          const r = this._ftRiassunto(pg);
+          const t = this._tempDiPagina(pg.id);
+          const nasc = c.nascoste.includes(pg.id);
+          return `<button type="button" class="ft-box ft-st ${r.cls}${nasc ? " nasc" : ""}" data-ftst="${fhEsc(pg.id)}">
+            <div class="ft-ic"><ha-icon icon="${fhEsc(pg.icon || "mdi:home")}"></ha-icon></div>
+            ${t != null ? `<div class="temp">${t.toFixed(1).replace(".", ",")}°</div>` : ""}
+            <div class="nome">${fhEsc((pg.title || "").trim())}</div><div class="cosa">${fhEsc(r.testo)}</div>
+            ${mod ? `<div class="ft-ord"><span role="button" data-ftsposta="-1" data-i="${i}"><ha-icon icon="mdi:chevron-left"></ha-icon></span>
+              <span role="button" data-ftocchio="${fhEsc(pg.id)}"><ha-icon icon="${nasc ? "mdi:eye-off" : "mdi:eye"}"></ha-icon></span>
+              <span role="button" data-ftsposta="1" data-i="${i}"><ha-icon icon="mdi:chevron-right"></ha-icon></span></div>` : ""}
+          </button>`;
+        }).join("")}</div>
+      </div></div>`;
+    // si ridisegna solo se e cambiato qualcosa (orologio a parte): niente sfarfallio
+    const impronta = html.replace(/data-ftora data-ftpin>[^<]*</, "");
+    if (impronta === this._ftImpPlancia && v.firstChild) return;
+    this._ftImpPlancia = impronta;
+    v.innerHTML = html;
+    if (mod) v.querySelectorAll(".ft-ord span").forEach(s => { s.style.cssText = "width:40px;height:40px;border-radius:12px;background:#ffb020;color:#1c1400;display:grid;place-items:center"; });
+    try { this._wireChips(); } catch (e) { /* chip */ }
+  },
+
+  // =========================================================================
+  // STANZA
+  // =========================================================================
+  _ftApriStanza(id) {
+    this._ftVista = "stanza";
+    this._ftStanzaId = id;
+    this._ftMostra();
+    this._ftRenderStanza();
+    this._ftRenderNav();
+  },
+
+  _ftClimaHTML(cl, piccolo) {
+    const s = this._ftStato(cl.climate);
+    const a = (s && s.attributes) || {};
+    const spento = !s || ["off", "unavailable", "unknown"].includes(s.state);
+    const az = a.hvac_action || (s && s.state) || "";
+    const cls = spento ? "" : (/heat/.test(az) || s.state === "heat" ? "ft-caldo" : /cool/.test(az) || s.state === "cool" ? "ft-freddo" : "ft-acceso");
+    const stato = !s ? "NON TROVATO" : s.state === "unavailable" ? "NON RISPONDE" : spento ? "SPENTO" :
+      (/heat/.test(az) ? "ACCESO · SCALDA" : /cool/.test(az) ? "ACCESO · RAFFRESCA" : /idle/.test(az) ? "ACCESO · IN PAUSA" : "ACCESO");
+    const target = a.temperature;
+    const ora = a.current_temperature;
+    const icona = /stufa|pellet|camino/i.test(cl.nome) ? "mdi:fireplace" : /scald|stufett|termo/i.test(cl.nome) ? "mdi:radiator" : "mdi:air-conditioner";
+    return `<div class="ft-box ft-cl ${cls}${piccolo ? " piccolo" : ""}" data-ftcl="${fhEsc(cl.climate)}">
+        <div class="t1"><div class="ft-ic"><ha-icon icon="${icona}"></ha-icon></div>
+          <div><div class="nome">${fhEsc(cl.nome)}</div><div class="stato">${stato}</div></div></div>
+        ${target != null ? `<div class="ft-gradi">
+          <button type="button" class="ft-gb" data-ftgradi="-1"><ha-icon icon="mdi:minus"></ha-icon></button>
+          <div class="ft-val"><b>${Math.round(target * 10) / 10}°</b>${ora != null ? `<div>ora ${Number(ora).toFixed(1).replace(".", ",")}°</div>` : ""}</div>
+          <button type="button" class="ft-gb" data-ftgradi="1"><ha-icon icon="mdi:plus"></ha-icon></button></div>` : ""}
+        ${s && s.state !== "unavailable" ? `<button type="button" class="ft-sp${spento ? " acc" : ""}" data-ftclpow>
+          <ha-icon icon="mdi:power"></ha-icon>${spento ? "Accendi" : "Spegni"}</button>` : ""}
+      </div>`;
+  },
+
+  _ftPezzoHTML(p, gruppo) {
+    const s = this._ftStato(p.ent);
+    const on = this._ftAcceso(p.ent);
+    const w = this._ftW(p.power);
+    const mod = !!this._ftMod;
+    const nomeGr = (FT_GRUPPI.find(g => g[0] === gruppo) || ["", ""])[1];
+    const grp = mod ? `<span class="ft-grp">${fhEsc(nomeGr)} ›</span>` : "";
+    const nonc = !s || s.state === "unavailable";
+    if (gruppo === "prese" || gruppo === "via") {
+      return `<button type="button" class="ft-box ft-c${on ? " on" : ""}${nonc || gruppo === "via" ? " off" : ""}" data-ftent="${fhEsc(p.ent)}" data-ftgr="${gruppo}" style="position:relative">
+        ${grp}<ha-icon icon="${this._ftIconaPezzo(p, gruppo)}"></ha-icon><span>${fhEsc(p.nome)}</span>
+        ${p.blocco ? `<ha-icon class="lk" icon="mdi:lock"></ha-icon>` : `<i class="pt"></i>`}</button>`;
+    }
+    const luce = gruppo === "luci";
+    let sub = nonc ? "Non risponde" : on ? (luce ? "Accesa" : "Acceso") : (luce ? "Spenta" : "Spento");
+    if (on && luce && s.attributes && s.attributes.brightness != null) sub += ` · ${Math.round(s.attributes.brightness / 2.55)}%`;
+    if (on && w != null && w > 1) sub += ` · ${Math.round(w)} W`;
+    const regolabile = luce && p.ent.startsWith("light.") && s && (s.attributes.supported_color_modes || []).some(m => m !== "onoff");
+    return `<button type="button" class="ft-box ft-k${on ? (luce ? " lon" : " on") : ""}${nonc ? " off" : ""}" data-ftent="${fhEsc(p.ent)}" data-ftgr="${gruppo}" data-ftnome="${fhEsc(p.nome)}"${regolabile ? " data-ftreg" : ""}>
+        ${grp}<ha-icon class="i" icon="${this._ftIconaPezzo(p, gruppo)}"></ha-icon>${p.blocco ? `<ha-icon icon="mdi:lock" style="position:absolute;right:16px;top:16px;color:var(--ft-mut)"></ha-icon>` : `<div class="ft-sw"></div>`}
+        <div><b>${fhEsc(p.nome)}</b><small>${fhEsc(sub)}</small></div>${regolabile ? `<div class="dots">•••</div>` : ""}</button>`;
+  },
+
+  _ftStanzaHTML(pg) {
+    const pz = this._ftPezzi(pg);
+    const t = this._tempDiPagina(pg.id);
+    let um = null;
+    try { const cs = this._climaStanza(pg); if (cs && cs.humidity != null) um = parseFloat(cs.humidity); } catch (e) { um = null; }
+    let w = 0;
+    try { w = this._consumoDiPagina(pg); } catch (e) { w = 0; }
+    const sez = (titolo, lista, gr, classe) => {
+      if (!lista.length) return "";
+      const accese = lista.filter(p => this._ftAcceso(p.ent)).length;
+      return `<div class="ft-tit">${titolo}<span>${gr === "luci" && accese ? (accese === 1 ? "1 accesa" : accese + " accese") : ""}</span></div>
+        <div class="${classe}">${lista.map(p => this._ftPezzoHTML(p, gr)).join("")}</div>`;
+    };
+    const mod = !!this._ftMod;
+    const nient = !pz.luci.length && !pz.tv.length && !pz.prese.length && !pz.altro.length && !(mod && pz.via.length);
+    return `<div class="ft-sta${mod ? " ft-mod" : ""}">
+        <div class="ft-stsx">
+          <div class="ft-box ft-hero"><h1>${fhEsc((pg.title || "").trim())}</h1>
+            <div class="r">${t != null ? `<span><b>${t.toFixed(1).replace(".", ",")}°</b></span>` : ""}
+              ${um != null && !isNaN(um) ? `<span><b>${Math.round(um)}%</b> umidità</span>` : ""}
+              ${w > 0 ? `<span class="w"><b>${Math.round(w)}</b> W</span>` : ""}</div></div>
+          ${pz.clima.map(cl => this._ftClimaHTML(cl, pz.clima.length > 1)).join("")}
+        </div>
+        <div class="ft-stdx">
+          ${sez("LUCI", pz.luci, "luci", "ft-g4")}
+          ${sez("TV E MUSICA", pz.tv, "tv", "ft-g4")}
+          ${sez("PRESE", pz.prese, "prese", "ft-g4")}
+          ${mod ? sez("NASCOSTE SUL TABLET", pz.via, "via", "ft-g4") : ""}
+          ${pz.altro.length ? `<div class="ft-tit">ALTRO</div><div class="ft-altro" data-ftaltro></div>` : ""}
+          ${nient ? `<div class="ft-vuota">In questa stanza non ci sono comandi da tablet.</div>` : ""}
+        </div></div>`;
+  },
+
+  _ftRenderStanza() {
+    const v = this.querySelector('[data-ftv="stanza"]');
+    if (!v) return;
+    const pg = (this._cfg.pages || []).find(p => p.id === this._ftStanzaId);
+    if (!pg) { this._ftPlancia(); return; }
+    const stanze = this._ftStanze();
+    v.innerHTML = `<div class="ft-top">
+        <button type="button" class="ft-box ft-ind" data-ftplancia><ha-icon icon="mdi:chevron-left"></ha-icon>Plancia</button>
+        <div class="ft-tabs">${stanze.map(s => `<button type="button" class="ft-tab${s.id === pg.id ? " on" : ""}" data-fttab="${fhEsc(s.id)}">
+          <ha-icon icon="${fhEsc(s.icon || "mdi:home")}"></ha-icon>${fhEsc((s.title || "").trim())}</button>`).join("")}</div>
+        <div class="ft-orina" data-ftora data-ftpin>${this._timeText()}</div>
+      </div><div data-ftcorpo>${this._ftStanzaHTML(pg)}</div>`;
+    this._ftImpStanza = this._ftStanzaHTML(pg);
+    const tab = v.querySelector(".ft-tab.on");
+    if (tab) try { tab.scrollIntoView({ inline: "center", block: "nearest" }); } catch (e) { /* niente */ }
+    this._ftAltro(pg);
+  },
+
+  // Le card che non sono comandi semplici (robot, elettrodomestici...) si
+  // mostrano vere, come sul telefono.
+  async _ftAltro(pg) {
+    const box = this.querySelector("[data-ftaltro]");
+    if (!box) return;
+    const pz = this._ftPezzi(pg);
+    const helpers = await this._helpers();
+    if (!box.isConnected) return;
+    box.innerHTML = "";
+    this._cardEls = this._cardEls || new Map();
+    pz.altro.forEach((cd, i) => {
+      const el = this._createCard(cd, helpers);
+      el.hass = this._hass;
+      this._cardEls.set("ft-altro-" + pg.id + "-" + i, el);
+      box.appendChild(el);
+    });
+  },
+
+  _ftAggiornaStanza() {
+    const pg = (this._cfg.pages || []).find(p => p.id === this._ftStanzaId);
+    const corpo = this.querySelector("[data-ftcorpo]");
+    if (!pg || !corpo) return;
+    const html = this._ftStanzaHTML(pg);
+    if (html === this._ftImpStanza) return;
+    // le card vere ("altro") non si ricostruiscono: si sposta il loro contenitore
+    const altro = corpo.querySelector("[data-ftaltro]");
+    const scorre = corpo.querySelector(".ft-stdx");
+    const su = scorre ? scorre.scrollTop : 0;
+    this._ftImpStanza = html;
+    corpo.innerHTML = html;
+    const nuovo = corpo.querySelector("[data-ftaltro]");
+    if (altro && nuovo) nuovo.replaceWith(altro);
+    else if (nuovo) this._ftAltro(pg);
+    const sc2 = corpo.querySelector(".ft-stdx");
+    if (sc2) sc2.scrollTop = su;
+  },
+
+  // =========================================================================
+  // NAVIGAZIONE
+  // =========================================================================
+  _ftPlancia() {
+    this._ftVista = "plancia";
+    this._ftStanzaId = null;
+    this._page = 0;
+    this._ftMostra();
+    this._ftImpPlancia = null;
+    this._ftRenderPlancia();
+    this._ftRenderNav();
+  },
+
+  _ftApriPagina(i) {
+    this._ftVista = "pagina";
+    this._page = i;
+    this._pageId = this._cfg.pages[i] ? this._cfg.pages[i].id : null;
+    this._ftMostra();
+    this._ftRenderNav();
+    try { this._renderPage(); } catch (e) { /* niente */ }
+    const m = this.querySelector("[data-main]");
+    if (m) m.scrollTop = 0;
+  },
+
+  _ftMostra() {
+    const pl = this.querySelector('[data-ftv="plancia"]');
+    const st = this.querySelector('[data-ftv="stanza"]');
+    const m = this.querySelector("[data-main]");
+    if (pl) pl.hidden = this._ftVista !== "plancia";
+    if (st) st.hidden = this._ftVista !== "stanza";
+    if (m) m.hidden = this._ftVista !== "pagina";
+    if (this._ftVista !== "stanza" && st) st.innerHTML = "";
+  },
+
+  _ftRenderNav() {
+    const nav = this.querySelector("[data-ftnav]");
+    if (!nav) return;
+    const c = this._ftCfg();
+    const voci = [{ id: "plancia", titolo: "Plancia", icona: "mdi:view-dashboard-outline" }];
+    c.barra.forEach(id => {
+      const i = (this._cfg.pages || []).findIndex(p => p.id === id);
+      if (i >= 0) voci.push({ id, i, titolo: this._cfg.pages[i].title, icona: this._cfg.pages[i].icon || "mdi:circle-outline" });
+    });
+    const ora = this._ftVista === "plancia" || this._ftVista === "stanza" ? "plancia" : (this._cfg.pages[this._page] || {}).id;
+    nav.innerHTML = voci.slice(0, 7).map(v => `<button type="button" class="ft-ni${v.id === ora ? " on" : ""}" data-ftnav="${fhEsc(v.id)}">
+      ${v.id === ora ? `<span class="ft-blob"><ha-icon icon="${fhEsc(v.icona)}"></ha-icon></span>` : `<ha-icon icon="${fhEsc(v.icona)}"></ha-icon>`}
+      <span class="l">${fhEsc((v.titolo || "").trim())}</span></button>`).join("");
+  },
+
+  // =========================================================================
+  // TOCCHI: un solo ascoltatore per tutto il tablet
+  // =========================================================================
+  _ftAscoltaTocchi() {
+    const app = this.querySelector(".ft-app");
+    if (!app || app.__ft) return;
+    app.__ft = true;
+    let timer = null, lungo = false, x0 = 0, y0 = 0, bersaglio = null;
+    const fine = () => { if (timer) { clearTimeout(timer); timer = null; } this._ftTocca = false; };
+    app.addEventListener("pointerdown", e => {
+      this._ftRiarma();
+      lungo = false; x0 = e.clientX; y0 = e.clientY;
+      const pin = e.target.closest("[data-ftpin]");
+      const reg = e.target.closest("[data-ftreg]");
+      bersaglio = pin || reg;
+      if (!bersaglio || this._ftMod) return;
+      this._ftTocca = true;
+      timer = setTimeout(() => {
+        lungo = true; this._ftTocca = false; timer = null;
+        this._ftVibra(20);
+        if (pin) this._ftChiediPin();
+        else if (reg) this._ftApriLuce(reg.dataset.ftent, reg.dataset.ftnome);
+      }, pin ? 3000 : 550);
+    });
+    app.addEventListener("pointermove", e => { if (timer && Math.hypot(e.clientX - x0, e.clientY - y0) > 12) fine(); });
+    app.addEventListener("pointerup", fine);
+    app.addEventListener("pointercancel", fine);
+    app.addEventListener("pointerleave", fine);
+    app.addEventListener("contextmenu", e => { if (e.target.closest("[data-ftreg],[data-ftpin]")) e.preventDefault(); });
+    app.addEventListener("click", e => {
+      if (lungo) { lungo = false; e.preventDefault(); e.stopPropagation(); return; }
+      this._ftClick(e);
+    }, true);
+  },
+
+  _ftClick(e) {
+    const t = e.target;
+    const el = s => t.closest(s);
+    let b;
+    if (t.closest(".ft-velo")) return;   // i veli hanno i loro tasti
+    if ((b = el("[data-ftsposta]"))) { e.stopPropagation(); this._ftSposta(parseInt(b.dataset.i, 10), parseInt(b.dataset.ftsposta, 10)); return; }
+    if ((b = el("[data-ftocchio]"))) { e.stopPropagation(); this._ftOcchio(b.dataset.ftocchio); return; }
+    if ((b = el("[data-ftnav]")) && b.classList.contains("ft-ni")) {
+      const id = b.dataset.ftnav;
+      if (id === "plancia") this._ftPlancia();
+      else { const i = (this._cfg.pages || []).findIndex(p => p.id === id); if (i >= 0) this._ftApriPagina(i); }
+      this._ftVibra(8);
+      return;
+    }
+    if (el("[data-ftplancia]")) { this._ftPlancia(); this._ftVibra(8); return; }
+    if ((b = el("[data-fttab]"))) { this._ftApriStanza(b.dataset.fttab); this._ftVibra(8); return; }
+    if ((b = el("[data-ftst]"))) { if (!this._ftMod) { this._ftApriStanza(b.dataset.ftst); this._ftVibra(8); } return; }
+    if ((b = el("[data-ftcmd]"))) { this._ftComando(parseInt(b.dataset.ftcmd, 10)); return; }
+    if ((b = el("[data-ftent]"))) {
+      if (this._ftMod) { this._ftCambiaGruppo(b.dataset.ftent, b.dataset.ftgr); return; }
+      this._ftInterruttore(b.dataset.ftent);
+      return;
+    }
+    if ((b = el("[data-ftgradi]"))) { const cl = b.closest("[data-ftcl]"); if (cl) this._ftGradi(cl.dataset.ftcl, parseInt(b.dataset.ftgradi, 10)); return; }
+    if ((b = el("[data-ftclpow]"))) { const cl = b.closest("[data-ftcl]"); if (cl) this._ftClimaPow(cl.dataset.ftcl); return; }
+  },
+
+  // Dopo un minuto senza tocchi si torna alla Plancia, con i veli chiusi.
+  _ftRiarma() {
+    if (this._ftInattivo) clearTimeout(this._ftInattivo);
+    const sec = this._ftCfg().ritorno;
+    if (!sec || this._ftMod) return;
+    this._ftInattivo = setTimeout(() => {
+      this.querySelectorAll(".ft-velo").forEach(v => v.remove());
+      this._ftLuce = null;
+      const s = this.querySelector(".fh-scrim"); if (s) s.remove();
+      if (this._ftVista !== "plancia") this._ftPlancia();
+    }, sec * 1000);
+  },
+
+  _ftAvviso(testo) {
+    const app = this.querySelector(".ft-app");
+    if (!app) return;
+    const vecchio = app.querySelector(".ft-toast"); if (vecchio) vecchio.remove();
+    const d = document.createElement("div");
+    d.className = "ft-toast"; d.textContent = testo;
+    app.appendChild(d);
+    setTimeout(() => d.remove(), 3500);
+  },
+
+  // =========================================================================
+  // COMANDI
+  // =========================================================================
+  _ftInterruttore(ent) {
+    const pg = (this._cfg.pages || []).find(p => p.id === this._ftStanzaId);
+    const pz = pg ? this._ftPezzi(pg) : null;
+    const p = pz && [...pz.luci, ...pz.tv, ...pz.prese, ...pz.via].find(x => x.ent === ent);
+    if (p && p.blocco) { this._ftAvviso(`${p.nome}: dal tablet non si spegne.`); this._ftVibra(30); return; }
+    const s = this._ftStato(ent);
+    if (!s || s.state === "unavailable") { this._ftAvviso(`${p ? p.nome : ent} non risponde.`); return; }
+    const dom = ent.split(".")[0];
+    this._ftVibra(10);
+    if (["light", "switch", "fan", "input_boolean", "media_player", "cover"].includes(dom)) this._hass.callService(dom, "toggle", { entity_id: ent });
+    else this._hass.callService("homeassistant", "toggle", { entity_id: ent });
+  },
+
+  _ftGradi(ent, verso) {
+    const s = this._ftStato(ent);
+    if (!s || s.attributes.temperature == null) return;
+    // sempre di un grado intero, come in Faber Home (da 23,5 il + va a 24)
+    const ora = Number(s.attributes.temperature);
+    let t = verso > 0 ? Math.floor(ora) + 1 : Math.ceil(ora) - 1;
+    const mn = s.attributes.min_temp != null ? Number(s.attributes.min_temp) : 7;
+    const mx = s.attributes.max_temp != null ? Number(s.attributes.max_temp) : 35;
+    t = Math.max(mn, Math.min(mx, t));
+    this._ftVibra(8);
+    this._hass.callService("climate", "set_temperature", { entity_id: ent, temperature: t });
+  },
+
+  _ftClimaPow(ent) {
+    const s = this._ftStato(ent);
+    if (!s) return;
+    const spento = ["off", "unavailable", "unknown"].includes(s.state);
+    this._ftVibra(12);
+    this._hass.callService("climate", spento ? "turn_on" : "turn_off", { entity_id: ent });
+  },
+
+  _ftComando(i) {
+    const k = this._ftCfg().comandi[i];
+    if (!k) return;
+    if (!k.target) { this._ftAvviso(`«${k.testo}» non è ancora collegato: sceglilo dal telefono in Impostazioni → Tablet.`); return; }
+    const fai = () => {
+      try { this._fallAzione(k); } catch (e) { this._ftAvviso("Il comando non è partito."); return; }
+      this._ftAvviso(`${k.testo}: fatto.`);
+    };
+    if (k.conferma) this._ftConferma(k.testo + "?", k.icona, fai);
+    else fai();
+  },
+
+  _ftConferma(domanda, icona, siFn) {
+    const app = this.querySelector(".ft-app");
+    const v = document.createElement("div");
+    v.className = "ft-velo";
+    v.innerHTML = `<div class="ft-fg ft-dom"><div class="ft-ic" style="margin:0 auto;width:64px;height:64px;border-radius:20px;background:rgba(255,176,32,.16);color:#ffb020">
+        <ha-icon icon="${fhEsc(icona || "mdi:help")}" style="--mdc-icon-size:36px"></ha-icon></div>
+      <h2>${fhEsc(domanda)}</h2>
+      <div class="ft-due"><button type="button" class="ft-gr no" data-no><ha-icon icon="mdi:close"></ha-icon>No</button>
+        <button type="button" class="ft-gr si" data-si><ha-icon icon="mdi:check"></ha-icon>Sì</button></div></div>`;
+    v.addEventListener("click", e => {
+      if (e.target.closest("[data-si]")) { v.remove(); siFn(); }
+      else if (e.target.closest("[data-no]") || e.target === v) v.remove();
+    });
+    app.appendChild(v);
+  },
+
+  // =========================================================================
+  // FOGLIO DELLA LUCE (dito tenuto)
+  // =========================================================================
+  _ftApriLuce(ent, nome) {
+    const s = this._ftStato(ent);
+    if (!s) return;
+    const app = this.querySelector(".ft-app");
+    const v = document.createElement("div");
+    v.className = "ft-velo";
+    const modi = s.attributes.supported_color_modes || [];
+    const colori = modi.some(m => ["rgb", "rgbw", "rgbww", "hs", "xy"].includes(m));
+    const bianchi = modi.includes("color_temp");
+    v.innerHTML = `<div class="ft-fg">
+        <div class="h"><div class="ft-ic"><ha-icon icon="mdi:lightbulb-on-outline"></ha-icon></div>
+          <div><h2>${fhEsc(nome || this._ftNome(ent))}</h2><small data-ftlst></small></div>
+          <button type="button" class="ft-x" data-x><ha-icon icon="mdi:close"></ha-icon></button></div>
+        <div class="ft-lum" data-ftlum><i></i><span></span></div>
+        <div class="ft-pr">${[["Notte", 3], ["25", 25], ["50", 50], ["75", 75], ["100", 100]].map(([n, p]) =>
+          `<button type="button" data-ftpct="${p}">${n}</button>`).join("")}</div>
+        ${colori ? `<div class="ft-col">${FT_COLORI.map(c => `<button type="button" data-ftrgb="${c.join(",")}" style="background:rgb(${c.join(",")})"></button>`).join("")}</div>` : ""}
+        ${bianchi && !colori ? `<div class="ft-col">${[["Calda", "min"], ["Neutra", "mid"], ["Fredda", "max"]].map(([n, k]) =>
+          `<button type="button" data-ftct="${k}" style="width:auto;padding:0 18px;border-radius:18px;background:rgba(255,255,255,.07)!important;color:#eaf1f8!important;font-weight:800">${n}</button>`).join("")}</div>` : ""}
+        <div class="ft-nota">Gli effetti e le regolazioni fini restano sul telefono.</div></div>`;
+    app.appendChild(v);
+    this._ftLuce = { ent, v, pct: null, fino: 0 };
+    this._ftAggiornaLuce();
+    const lum = v.querySelector("[data-ftlum]");
+    const daX = x => { const r = lum.getBoundingClientRect(); return Math.max(1, Math.min(100, Math.round((x - r.left) / r.width * 100))); };
+    let tira = false;
+    lum.addEventListener("pointerdown", e => { tira = true; lum.setPointerCapture(e.pointerId); this._ftLumMostra(daX(e.clientX)); });
+    lum.addEventListener("pointermove", e => { if (tira) this._ftLumMostra(daX(e.clientX)); });
+    lum.addEventListener("pointerup", e => { if (!tira) return; tira = false; this._ftLumManda(daX(e.clientX)); });
+    v.addEventListener("click", e => {
+      const b = e.target.closest("button");
+      if (e.target === v || (b && b.hasAttribute("data-x"))) { v.remove(); this._ftLuce = null; return; }
+      if (!b) return;
+      if (b.dataset.ftpct) this._ftLumManda(parseInt(b.dataset.ftpct, 10));
+      else if (b.dataset.ftrgb) { this._ftVibra(8); this._hass.callService("light", "turn_on", { entity_id: ent, rgb_color: b.dataset.ftrgb.split(",").map(Number) }); }
+      else if (b.dataset.ftct) {
+        const a = this._ftStato(ent).attributes;
+        const mn = a.min_color_temp_kelvin || 2700, mx = a.max_color_temp_kelvin || 6500;
+        const k = b.dataset.ftct === "min" ? mn : b.dataset.ftct === "max" ? mx : Math.round((mn + mx) / 2);
+        this._hass.callService("light", "turn_on", { entity_id: ent, color_temp_kelvin: k });
+      }
+    });
+  },
+  _ftLumMostra(p) {
+    const L = this._ftLuce; if (!L) return;
+    L.pct = p; L.fino = Date.now() + 6000;
+    const i = L.v.querySelector(".ft-lum i"), sp = L.v.querySelector(".ft-lum span");
+    if (i) i.style.width = p + "%";
+    if (sp) sp.textContent = p + "%";
+  },
+  _ftLumManda(p) {
+    const L = this._ftLuce; if (!L) return;
+    this._ftLumMostra(p);
+    this._ftVibra(8);
+    this._hass.callService("light", "turn_on", { entity_id: L.ent, brightness_pct: p });
+  },
+  _ftAggiornaLuce() {
+    const L = this._ftLuce;
+    if (!L || !L.v.isConnected) { this._ftLuce = null; return; }
+    const s = this._ftStato(L.ent);
+    const on = s && s.state === "on";
+    // per 6 secondi vale il valore scelto (le luci Bluetooth rispondono piano)
+    const p = Date.now() < L.fino && L.pct != null ? L.pct : (on && s.attributes.brightness != null ? Math.round(s.attributes.brightness / 2.55) : 0);
+    const st = L.v.querySelector("[data-ftlst]");
+    if (st) st.textContent = !s ? "" : s.state === "unavailable" ? "NON RISPONDE" : on ? `ACCESA · ${p}%` : "SPENTA";
+    const i = L.v.querySelector(".ft-lum i"), sp = L.v.querySelector(".ft-lum span");
+    if (i) i.style.width = p + "%";
+    if (sp) sp.textContent = on || Date.now() < L.fino ? p + "%" : "Spenta";
+  },
+
+  // =========================================================================
+  // MODIFICA DAL TABLET (dito 3 secondi sull'ora + PIN)
+  // =========================================================================
+  _ftChiediPin() {
+    const c = this._ftCfg();
+    if (!c.pin) { this._ftAvviso("Prima scegli il PIN dal telefono: Impostazioni → Tablet."); return; }
+    const app = this.querySelector(".ft-app");
+    const v = document.createElement("div");
+    v.className = "ft-velo";
+    let scritto = "";
+    const draw = err => {
+      v.innerHTML = `<div class="ft-fg ft-pin"><h2>Modifica il tablet</h2><p>Scrivi il PIN per spostare le cose</p>
+        <div class="ft-pal${err ? " err" : ""}">${[0, 1, 2, 3].map(i => `<i class="${i < scritto.length ? "pi" : ""}"></i>`).join("")}</div>
+        <div class="ft-tast">${["1", "2", "3", "4", "5", "6", "7", "8", "9"].map(n => `<button type="button" data-n="${n}">${n}</button>`).join("")}
+          <button type="button" class="x" data-no>Annulla</button><button type="button" data-n="0">0</button>
+          <button type="button" class="x" data-del><ha-icon icon="mdi:backspace-outline"></ha-icon></button></div></div>`;
+    };
+    draw(false);
+    v.addEventListener("click", e => {
+      const b = e.target.closest("button");
+      if (e.target === v || (b && b.hasAttribute("data-no"))) { v.remove(); return; }
+      if (!b) return;
+      if (b.hasAttribute("data-del")) scritto = scritto.slice(0, -1);
+      else if (b.dataset.n && scritto.length < 4) scritto += b.dataset.n;
+      this._ftVibra(6);
+      if (scritto.length === 4) {
+        if (scritto === c.pin) { v.remove(); this._ftEntraMod(); return; }
+        scritto = ""; draw(true); this._ftVibra(60); return;
+      }
+      draw(false);
+    });
+    app.appendChild(v);
+  },
+
+  _ftEntraMod() {
+    this._ftMod = true;
+    this._ftPrima = JSON.stringify(this._cfg.tablet || {});
+    const app = this.querySelector(".ft-app");
+    const bar = document.createElement("div");
+    bar.className = "ft-modbar";
+    bar.innerHTML = `<span>Stai modificando il tablet</span><button type="button" data-annulla>Annulla</button><button type="button" class="si" data-salva>Salva</button>`;
+    bar.addEventListener("click", async e => {
+      if (e.target.closest("[data-annulla]")) this._ftEsciMod(false);
+      else if (e.target.closest("[data-salva]")) this._ftEsciMod(true);
+    });
+    app.appendChild(bar);
+    if (this._ftInattivo) clearTimeout(this._ftInattivo);
+    this._ftRiarmaMod();
+    this._ftRidisegna();
+  },
+
+  _ftRiarmaMod() {
+    if (this._ftModTimer) clearTimeout(this._ftModTimer);
+    // lasciato in modifica: dopo 2 minuti esce da solo SENZA salvare
+    this._ftModTimer = setTimeout(() => { if (this._ftMod) this._ftEsciMod(false); }, 120000);
+  },
+
+  async _ftEsciMod(salva) {
+    if (this._ftModTimer) { clearTimeout(this._ftModTimer); this._ftModTimer = null; }
+    const bar = this.querySelector(".ft-modbar"); if (bar) bar.remove();
+    this._ftMod = false;
+    if (salva) {
+      const ok = await this._save(true);
+      this._ftAvviso(ok ? "Salvato." : "Non sono riuscito a salvare: riprova.");
+    } else {
+      try { this._cfg.tablet = JSON.parse(this._ftPrima || "{}"); } catch (e) { /* niente */ }
+    }
+    this._ftRidisegna();
+    this._ftRiarma();
+  },
+
+  _ftRidisegna() {
+    this._ftImpPlancia = null;
+    this._ftImpStanza = null;
+    if (this._ftVista === "plancia") this._ftRenderPlancia();
+    else if (this._ftVista === "stanza") this._ftRenderStanza();
+  },
+
+  _ftSposta(i, verso) {
+    this._ftRiarmaMod();
+    const ids = this._ftStanze(true).map(p => p.id);
+    const j = i + verso;
+    if (j < 0 || j >= ids.length) return;
+    [ids[i], ids[j]] = [ids[j], ids[i]];
+    this._ftSet("ordine", ids);
+    this._ftRidisegna();
+  },
+
+  _ftOcchio(id) {
+    this._ftRiarmaMod();
+    const l = new Set(this._ftCfg().nascoste);
+    if (l.has(id)) l.delete(id); else l.add(id);
+    this._ftSet("nascoste", [...l]);
+    this._ftRidisegna();
+  },
+
+  _ftCambiaGruppo(ent, ora) {
+    this._ftRiarmaMod();
+    const ordine = FT_GRUPPI.map(g => g[0]);
+    const dopo = ordine[(ordine.indexOf(ora) + 1) % ordine.length];
+    const g = Object.assign({}, this._ftCfg().gruppi);
+    g[ent] = dopo;
+    this._ftSet("gruppi", g);
+    this._ftRidisegna();
+  },
+
+  // =========================================================================
+  // IMPOSTAZIONI → TABLET (dal telefono)
+  // =========================================================================
+  _ftImpostazioni() {
+    const box = document.createElement("div");
+    const pagine = (this._cfg.pages || []).filter(p => !p.stanza);
+    const base = location.pathname.split("/").filter(Boolean);
+    const indirizzo = `${location.origin}/${base[0] || "faber-home"}/${base[1] || "0"}?tablet=sala`;
+    const draw = () => {
+      const c = this._ftCfg();
+      box.innerHTML = `
+        <div class="fh-sgroup">Come si apre</div>
+        <div class="fh-note">Nell'app Faber Kiosk del tablet (gesto a 4 dita → indirizzo) metti:</div>
+        <input class="fh-input" readonly style="width:100%;box-sizing:border-box" value="${fhEsc(indirizzo)}" onclick="this.select()">
+        <div class="fh-note">«sala» è il nome del tablet: per un secondo tablet usa un altro nome (per esempio ?tablet=sopra). Senza «?tablet=» Faber Home resta quella del telefono.</div>
+        <button type="button" class="fh-btn" id="ftAnte" style="margin:8px 0">Guarda come lo vede il tablet</button>
+        <div id="ftAnteBox"></div>
+
+        <div class="fh-sgroup">Comandi di casa (in alto nella Plancia)</div>
+        ${c.comandi.map((k, i) => `<div class="fh-attrow" data-k="${i}" style="display:grid;gap:6px;padding:10px 0;border-bottom:1px solid rgba(127,127,127,.2)">
+          <div class="fh-srow">
+            <div class="fh-sfield"><label class="fh-slab">Scritta</label><input class="fh-input" data-f="testo" value="${fhEsc(k.testo || "")}"></div>
+            <div class="fh-sfield"><label class="fh-slab">Icona</label><input class="fh-input" data-f="icona" value="${fhEsc(k.icona || "")}"></div>
+          </div>
+          <div class="fh-srow">
+            <div class="fh-sfield"><label class="fh-slab">Cosa fa</label><select class="fh-input" data-f="tipo">
+              ${[["script", "Script"], ["scena", "Scena"], ["automazione", "Automazione"], ["entita", "Accendi/spegni"]].map(([v, n]) =>
+                `<option value="${v}"${(k.tipo || "entita") === v ? " selected" : ""}>${n}</option>`).join("")}</select></div>
+            <div class="fh-sfield" style="flex:2"><label class="fh-slab">Collegato a</label>
+              <input class="fh-input" data-f="target" list="ftEnt${i}" value="${fhEsc(k.target || "")}" placeholder="non ancora collegato">
+              <datalist id="ftEnt${i}">${this._ftElenco(k.tipo).map(e => `<option value="${fhEsc(e)}">${fhEsc(this._ftNome(e))}</option>`).join("")}</datalist></div>
+          </div>
+          <div class="fh-srow" style="align-items:center">
+            <label class="fh-check"><input type="checkbox" data-f="conferma"${k.conferma ? " checked" : ""}> Chiede conferma</label>
+            <label class="fh-check"><input type="checkbox" data-f="pieno"${k.pieno ? " checked" : ""}> Giallo pieno</label>
+            <span style="flex:1"></span>
+            <button type="button" class="fh-ic" data-a="up"><ha-icon icon="mdi:arrow-up"></ha-icon></button>
+            <button type="button" class="fh-ic" data-a="down"><ha-icon icon="mdi:arrow-down"></ha-icon></button>
+            <button type="button" class="fh-ic" data-a="del"><ha-icon icon="mdi:delete-outline"></ha-icon></button>
+          </div></div>`).join("")}
+        ${c.comandi.length < 6 ? `<button type="button" class="fh-btn" id="ftAdd" style="margin-top:8px">+ Aggiungi un comando</button>` : ""}
+
+        <div class="fh-sgroup">Pagine nella barra del tablet</div>
+        <div class="fh-note">La Plancia c'è sempre. Le stanze si aprono toccandole nella Plancia.</div>
+        ${pagine.filter(p => p.id !== "casa").map(p => `<label class="fh-check"><input type="checkbox" data-barra="${fhEsc(p.id)}"${c.barra.includes(p.id) ? " checked" : ""}> ${fhEsc(p.title)}</label>`).join("")}
+
+        <div class="fh-sgroup">Modifica dal tablet</div>
+        <div class="fh-srow">
+          <div class="fh-sfield"><label class="fh-slab">PIN (4 cifre)</label>
+            <input class="fh-input" id="ftPin" inputmode="numeric" maxlength="4" value="${fhEsc(c.pin)}" placeholder="nessuno"></div>
+          <div class="fh-sfield"><label class="fh-slab">Torna alla Plancia dopo</label>
+            <select class="fh-input" id="ftRit">${[[30, "30 secondi"], [60, "1 minuto"], [120, "2 minuti"], [300, "5 minuti"], [0, "Mai"]].map(([v, n]) =>
+              `<option value="${v}"${c.ritorno === v ? " selected" : ""}>${n}</option>`).join("")}</select></div>
+        </div>
+        <div class="fh-note">Sul tablet: dito 3 secondi sull'ora grande → PIN → sposti le stanze e cambi il gruppo dei pezzi. Dopo 2 minuti esce da solo senza salvare.</div>
+        ${Object.keys(c.gruppi).length || c.ordine.length || c.nascoste.length ? `<button type="button" class="fh-btn" id="ftReset" style="margin-top:8px">Rimetti stanze e gruppi come all'inizio</button>` : ""}
+      `;
+      const apply = () => { if (this._ftBuilt) this._ftRidisegna(); };
+      box.querySelectorAll("[data-k]").forEach(row => {
+        const i = parseInt(row.dataset.k, 10);
+        const lista = () => { const l = this._ftCfg().comandi.map(x => Object.assign({}, x)); return l; };
+        row.querySelectorAll("[data-f]").forEach(inp => inp.addEventListener("change", () => {
+          const l = lista();
+          const k = inp.dataset.f;
+          l[i][k] = inp.type === "checkbox" ? inp.checked : inp.value.trim();
+          if (inp.type === "checkbox" && !inp.checked) delete l[i][k];
+          this._ftSet("comandi", l);
+          if (k === "tipo") draw();
+          apply();
+        }));
+        row.querySelectorAll("[data-a]").forEach(b => b.addEventListener("click", () => {
+          const l = lista(), a = b.dataset.a;
+          if (a === "up" && i > 0) { const [x] = l.splice(i, 1); l.splice(i - 1, 0, x); }
+          else if (a === "down" && i < l.length - 1) { const [x] = l.splice(i, 1); l.splice(i + 1, 0, x); }
+          else if (a === "del") l.splice(i, 1);
+          this._ftSet("comandi", l); draw(); apply();
+        }));
+      });
+      const add = box.querySelector("#ftAdd");
+      if (add) add.addEventListener("click", () => {
+        const l = this._ftCfg().comandi.map(x => Object.assign({}, x));
+        l.push({ icona: "mdi:gesture-tap-button", testo: "Nuovo", tipo: "script", target: "" });
+        this._ftSet("comandi", l); draw(); apply();
+      });
+      box.querySelectorAll("[data-barra]").forEach(cb => cb.addEventListener("change", () => {
+        const scelte = [...box.querySelectorAll("[data-barra]")].filter(x => x.checked).map(x => x.dataset.barra);
+        this._ftSet("barra", scelte); apply();
+      }));
+      box.querySelector("#ftPin").addEventListener("change", e => {
+        const v = e.target.value.replace(/\D/g, "").slice(0, 4);
+        e.target.value = v;
+        if (v && v.length !== 4) { e.target.value = ""; return; }
+        this._ftSet("pin", v);
+      });
+      box.querySelector("#ftRit").addEventListener("change", e => this._ftSet("ritorno", parseInt(e.target.value, 10)));
+      const rs = box.querySelector("#ftReset");
+      if (rs) rs.addEventListener("click", () => { this._ftSet("gruppi", {}); this._ftSet("ordine", []); this._ftSet("nascoste", []); draw(); apply(); });
+      box.querySelector("#ftAnte").addEventListener("click", () => {
+        const ab = box.querySelector("#ftAnteBox");
+        if (ab.firstChild) { ab.innerHTML = ""; return; }
+        const w = Math.max(240, ab.clientWidth || box.clientWidth || 340);
+        const sc = w / 1280;
+        ab.innerHTML = `<div style="width:${w}px;height:${Math.round(800 * sc)}px;overflow:hidden;border-radius:14px;border:1px solid rgba(127,127,127,.3)">
+          <iframe src="${fhEsc(location.pathname + "?tablet=anteprima")}" style="width:1280px;height:800px;border:0;transform:scale(${sc});transform-origin:0 0"></iframe></div>
+          <div class="fh-note">Anteprima: mostra quello che è SALVATO. Dopo un cambio premi Salva, poi riaprila.</div>`;
+      });
+    };
+    draw();
+    this._sheet("Tablet a muro", box, true);
+  },
+
+  _ftElenco(tipo) {
+    if (!this._hass) return [];
+    const pre = { script: "script.", scena: "scene.", automazione: "automation." }[tipo || "entita"];
+    return Object.keys(this._hass.states).filter(e => pre ? e.startsWith(pre) : /^(switch|light|input_boolean|lock|cover|fan)\./.test(e)).sort().slice(0, 400);
+  },
+};
+Object.assign(FaberHome.prototype, FH_TABLET);
 
 customElements.define("faber-home", FaberHome);
 
