@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.151.1";
+const FH_VERSION = "0.152.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -865,6 +865,7 @@ class FaberHome extends HTMLElement {
         const voluta = decodeURIComponent((location.hash || "").slice(1));
         if (!voluta || voluta === this._pageId) return;
         const i = this._cfg.pages.findIndex(pg => pg.id === voluta);
+        if (this._tabletNome()) { if (i >= 0 && this._ftBuilt) this._ftApriPagina(i); return; }
         if (i >= 0 && i !== this._page) {
           this._page = i;
           this._pageId = voluta;
@@ -7876,8 +7877,10 @@ const FT_CSS = `
   .ft-app .fh-bg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
   :where(.ft-app) :where(button){font:inherit;color:inherit;border:0;background:none;padding:0;cursor:pointer}
   .ft-app .mdi,.ft-app ha-icon{line-height:1}
-  .ft-vista{position:absolute;left:0;right:0;top:0;bottom:0;padding:20px 24px 108px}
+  .ft-vista{position:absolute;left:0;right:0;top:0;bottom:0;padding:20px 24px 120px}
   .ft-vista[hidden]{display:none}
+  /* qui il cerchio giallo della barra sta sotto le stanze: un po piu di aria */
+  .ft-vista[data-ftv="stanze"],.ft-vista[data-ftv="stanza"]{padding-bottom:136px}
   .ft-box{background:var(--ft-card);border:1px solid var(--ft-brd);border-radius:24px;box-shadow:var(--ft-sh);
     -webkit-backdrop-filter:blur(18px) saturate(1.4);backdrop-filter:blur(18px) saturate(1.4)}
   /* --- Plancia --- */
@@ -7934,6 +7937,12 @@ const FT_CSS = `
   .ft-luce{background-image:linear-gradient(150deg,rgba(255,176,32,.20),rgba(0,0,0,0) 75%);border-color:rgba(255,176,32,.45)}
   .ft-luce .ft-ic{background:rgba(255,176,32,.16);color:var(--ft-amb)}.ft-luce .cosa{color:#ffcf73}
   .ft-giorno .ft-caldo .cosa{color:#b4500f}.ft-giorno .ft-acceso .cosa{color:#0f7a3d}.ft-giorno .ft-luce .cosa{color:#9a5b00}.ft-giorno .ft-freddo .cosa{color:#1d63a8}
+  /* --- Stanze (tutte, in grande) --- */
+  .ft-tutte-h{display:flex;align-items:center;justify-content:space-between;height:56px;margin-bottom:16px}
+  .ft-tutte-h h1{margin:0 4px;font-size:32px;font-weight:800}
+  .ft-stanze.ft-tutte{height:calc(100% - 72px);gap:16px}
+  .ft-tutte .ft-st{padding:18px 18px 16px}.ft-tutte .ft-ic{width:56px;height:56px}.ft-tutte .ft-ic ha-icon{--mdc-icon-size:32px}
+  .ft-tutte .ft-st .nome{font-size:21px}.ft-tutte .ft-st .cosa{font-size:13.5px}.ft-tutte .ft-st .temp{font-size:24px;right:18px;top:20px}
   /* --- Stanza --- */
   .ft-top{display:flex;gap:10px;align-items:center;height:56px;margin-bottom:16px}
   .ft-ind{height:56px;padding:0 20px 0 14px;border-radius:18px;display:flex;align-items:center;gap:6px;font-size:16px;font-weight:800;flex:0 0 auto}
@@ -7997,25 +8006,10 @@ const FT_CSS = `
   .ft-mod .ft-st .temp{display:none}
   .ft-ord button{width:40px;height:40px;border-radius:12px;background:var(--ft-amb);color:#1c1400;display:grid;place-items:center}
   .ft-st.nasc{opacity:.4}
-  /* tablet piu piccoli (sotto 1150 punti di larghezza o 700 di altezza): tutto un po' piu stretto */
-  @media (max-width:1150px),(max-height:700px){
-    .ft-vista{padding:14px 16px 102px}
-    .ft-ora{font-size:76px;letter-spacing:-2px}
-    .ft-meteo{padding:12px 14px}.ft-meteo ha-icon{--mdc-icon-size:42px}.ft-meteo .t{font-size:34px}.ft-meteo .d b{font-size:19px}
-    .ft-pers{padding:10px 12px}.ft-cons{padding:12px 14px}.ft-cons .w{font-size:26px}
-    .ft-bt{height:78px;border-radius:20px;font-size:14px;gap:5px}.ft-bt ha-icon{--mdc-icon-size:28px}
-    .ft-st{padding:11px 11px 10px;border-radius:20px}.ft-ic{width:38px;height:38px}.ft-ic ha-icon{--mdc-icon-size:22px}
-    .ft-st .nome{font-size:15px}.ft-st .temp{font-size:16px;right:10px;top:12px}.ft-st .cosa{font-size:11px}
-    .ft-g4{grid-template-columns:repeat(3,minmax(0,1fr))}
-    .ft-k{height:96px}.ft-gb{width:64px;height:64px}.ft-val b{font-size:52px}
-    .ft-nav{height:68px;bottom:12px;min-width:0;width:min(640px,calc(100% - 32px))}.ft-ni{width:auto;flex:1;min-width:0}
-    .ft-app .fh-main.ft-pagina{padding:14px 16px 102px}
-  }
-  @media (max-height:640px){.ft-ora{font-size:64px}.ft-bt{height:68px}.ft-bt ha-icon{--mdc-icon-size:24px}.ft-sx,.ft-dx{gap:10px}}
   /* --- pagine normali dentro il tablet --- */
-  .ft-app .fh-main.ft-pagina{position:absolute;left:0;right:0;top:0;bottom:0;overflow:auto;padding:20px 24px 110px}
+  .ft-app .fh-main.ft-pagina{position:absolute;left:0;right:0;top:0;bottom:0;overflow:auto;padding:20px 24px 120px}
   /* --- barra --- */
-  .ft-nav{position:absolute;left:50%;bottom:16px;transform:translateX(-50%);min-width:640px;height:76px;border-radius:26px;background:var(--ft-bar);z-index:5;
+  .ft-nav{position:absolute;left:50%;bottom:16px;transform:translateX(-50%);min-width:640px;height:76px;box-sizing:border-box;border-radius:26px;background:var(--ft-bar);z-index:5;
     border:1px solid var(--ft-brd);box-shadow:0 12px 30px rgba(0,0,0,.45);-webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px);display:flex;justify-content:space-around;align-items:flex-end;padding:0 10px 10px}
   .ft-giorno .ft-nav{box-shadow:0 12px 30px rgba(120,90,40,.18)}
   .ft-ni{width:104px;display:flex;flex-direction:column;align-items:center;gap:6px;font-size:11.5px;font-weight:700;color:var(--ft-mut)}
@@ -8060,6 +8054,22 @@ const FT_CSS = `
   .ft-modbar button.si{background:linear-gradient(135deg,#ffb020,#e09810)!important;color:#1c1400!important}
   .ft-toast{position:absolute;left:50%;bottom:110px;transform:translateX(-50%);z-index:30;padding:14px 22px;border-radius:18px;background:rgba(16,22,34,.95);
     border:1px solid rgba(255,176,32,.5);color:#eaf1f8;font-weight:700;font-size:15px;box-shadow:0 12px 30px rgba(0,0,0,.5);max-width:80%;text-align:center}
+  /* tablet piu piccoli (sotto 1150 punti di larghezza o 700 di altezza): tutto un po' piu stretto */
+  @media (max-width:1150px),(max-height:700px){
+    .ft-vista{padding:14px 16px 104px}
+    .ft-vista[data-ftv="stanze"],.ft-vista[data-ftv="stanza"]{padding-bottom:120px}
+    .ft-ora{font-size:76px;letter-spacing:-2px}
+    .ft-meteo{padding:12px 14px}.ft-meteo ha-icon{--mdc-icon-size:42px}.ft-meteo .t{font-size:34px}.ft-meteo .d b{font-size:19px}
+    .ft-pers{padding:10px 12px}.ft-cons{padding:12px 14px}.ft-cons .w{font-size:26px}
+    .ft-bt{height:78px;border-radius:20px;font-size:14px;gap:5px}.ft-bt ha-icon{--mdc-icon-size:28px}
+    .ft-st{padding:11px 11px 10px;border-radius:20px}.ft-ic{width:38px;height:38px}.ft-ic ha-icon{--mdc-icon-size:22px}
+    .ft-st .nome{font-size:15px}.ft-st .temp{font-size:16px;right:10px;top:12px}.ft-st .cosa{font-size:11px}
+    .ft-g4{grid-template-columns:repeat(3,minmax(0,1fr))}
+    .ft-k{height:96px}.ft-gb{width:64px;height:64px}.ft-val b{font-size:52px}
+    .ft-nav{height:68px;bottom:12px;min-width:0;width:min(800px,calc(100% - 32px))}.ft-ni{width:auto;flex:1;min-width:0}
+    .ft-app .fh-main.ft-pagina{padding:14px 16px 104px}
+  }
+  @media (max-height:640px){.ft-ora{font-size:64px}.ft-bt{height:68px}.ft-bt ha-icon{--mdc-icon-size:24px}.ft-sx,.ft-dx{gap:10px}}
 `;
 
 const FH_TABLET = {
@@ -8253,6 +8263,7 @@ const FH_TABLET = {
       <div class="fh-app ft-app">
         <canvas class="fh-bg"></canvas>
         <section class="ft-vista" data-ftv="plancia"></section>
+        <section class="ft-vista" data-ftv="stanze" hidden></section>
         <section class="ft-vista" data-ftv="stanza" hidden></section>
         <main class="fh-main ft-pagina" data-main hidden></main>
         <nav class="ft-nav" data-ftnav></nav>
@@ -8286,10 +8297,33 @@ const FH_TABLET = {
       const app = this.querySelector(".ft-app");
       if (app) app.classList.toggle("ft-giorno", !this._isDark());
     }, 20000);
+    // Guardia ogni 5 secondi. Se fra un giro e l'altro e passato molto di piu,
+    // il tablet ha dormito (schermo spento): al risveglio si riparte dalla Plancia.
+    // Fa anche da riserva al ritorno dopo un minuto, se quel timer si e perso.
+    if (this._ftGuardia) clearInterval(this._ftGuardia);
+    this._ftUltimoGiro = Date.now();
+    this._ftGuardia = setInterval(() => {
+      const ora = Date.now();
+      const salto = ora - (this._ftUltimoGiro || ora);
+      this._ftUltimoGiro = ora;
+      if (salto > 30000) { this._ftTornaCasa(); return; }
+      const sec = this._ftCfg().ritorno;
+      if (sec && !this._ftMod && this._ftVista !== "plancia" && ora - (this._ftUltimoTocco || 0) > sec * 1000 + 3000) this._ftTornaCasa();
+    }, 5000);
+    // Schermo spento e riacceso: la pagina torna visibile -> Plancia.
+    if (!this._ftVis) {
+      this._ftVis = () => {
+        if (!this.isConnected || !this._tabletNome()) return;
+        if (document.hidden) this._ftNascosto = Date.now();
+        else if (this._ftNascosto) { this._ftNascosto = 0; this._ftTornaCasa(); }
+      };
+      document.addEventListener("visibilitychange", this._ftVis);
+    }
   },
 
   _ftFerma() {
     if (this._ftTimer) { clearInterval(this._ftTimer); this._ftTimer = null; }
+    if (this._ftGuardia) { clearInterval(this._ftGuardia); this._ftGuardia = null; }
     if (this._ftInattivo) { clearTimeout(this._ftInattivo); this._ftInattivo = null; }
     if (this._ftModTimer) { clearTimeout(this._ftModTimer); this._ftModTimer = null; }
   },
@@ -8301,6 +8335,7 @@ const FH_TABLET = {
     const app = this.querySelector(".ft-app");
     if (app) app.classList.toggle("ft-giorno", !this._isDark());
     if (this._ftVista === "plancia") this._ftRenderPlancia();
+    else if (this._ftVista === "stanze") this._ftRenderStanze();
     else if (this._ftVista === "stanza") this._ftAggiornaStanza();
     else { try { this._updateLive(); } catch (e) { /* pagina normale */ } }
     if (this._ftLuce) this._ftAggiornaLuce();
@@ -8394,19 +8429,7 @@ const FH_TABLET = {
           <button type="button" class="ft-bt${k.pieno ? " pieno" : ""}${k.target ? "" : " vuoto"}" data-ftcmd="${i}">
             <ha-icon icon="${fhEsc(k.icona || "mdi:gesture-tap-button")}"></ha-icon>${fhEsc(k.testo || "")}</button>`).join("")}</div>` : ""}
         <div class="ft-tit">STANZE${mod ? "<span>Frecce = sposta · occhio = mostra o nascondi</span>" : ""}</div>
-        <div class="ft-stanze" style="grid-template-rows:repeat(${Math.max(1, Math.ceil(stanze.length / 5))},1fr)">${stanze.map((pg, i) => {
-          const r = this._ftRiassunto(pg);
-          const t = this._tempDiPagina(pg.id);
-          const nasc = c.nascoste.includes(pg.id);
-          return `<button type="button" class="ft-box ft-st ${r.cls}${nasc ? " nasc" : ""}" data-ftst="${fhEsc(pg.id)}">
-            <div class="ft-ic"><ha-icon icon="${fhEsc(pg.icon || "mdi:home")}"></ha-icon></div>
-            ${t != null ? `<div class="temp">${t.toFixed(1).replace(".", ",")}°</div>` : ""}
-            <div class="nome">${fhEsc((pg.title || "").trim())}</div><div class="cosa">${fhEsc(r.testo)}</div>
-            ${mod ? `<div class="ft-ord"><span role="button" data-ftsposta="-1" data-i="${i}"><ha-icon icon="mdi:chevron-left"></ha-icon></span>
-              <span role="button" data-ftocchio="${fhEsc(pg.id)}"><ha-icon icon="${nasc ? "mdi:eye-off" : "mdi:eye"}"></ha-icon></span>
-              <span role="button" data-ftsposta="1" data-i="${i}"><ha-icon icon="mdi:chevron-right"></ha-icon></span></div>` : ""}
-          </button>`;
-        }).join("")}</div>
+        <div class="ft-stanze" style="grid-template-rows:repeat(${Math.max(1, Math.ceil(stanze.length / 5))},1fr)">${stanze.map((pg, i) => this._ftTesseraHTML(pg, i, mod, c)).join("")}</div>
       </div></div>`;
     // si ridisegna solo se e cambiato qualcosa (orologio a parte): niente sfarfallio
     const impronta = html.replace(/data-ftora data-ftpin>[^<]*</, "");
@@ -8415,6 +8438,56 @@ const FH_TABLET = {
     v.innerHTML = html;
     if (mod) v.querySelectorAll(".ft-ord span").forEach(s => { s.style.cssText = "width:40px;height:40px;border-radius:12px;background:#ffb020;color:#1c1400;display:grid;place-items:center"; });
     try { this._wireChips(); } catch (e) { /* chip */ }
+  },
+
+  // Una stanza come tessera: la usano la Plancia e la pagina Stanze.
+  _ftTesseraHTML(pg, i, mod, c) {
+    const r = this._ftRiassunto(pg);
+    const t = this._tempDiPagina(pg.id);
+    const nasc = c.nascoste.includes(pg.id);
+    return `<button type="button" class="ft-box ft-st ${r.cls}${nasc ? " nasc" : ""}" data-ftst="${fhEsc(pg.id)}">
+            <div class="ft-ic"><ha-icon icon="${fhEsc(pg.icon || "mdi:home")}"></ha-icon></div>
+            ${t != null ? `<div class="temp">${t.toFixed(1).replace(".", ",")}°</div>` : ""}
+            <div class="nome">${fhEsc((pg.title || "").trim())}</div><div class="cosa">${fhEsc(r.testo)}</div>
+            ${mod ? `<div class="ft-ord"><span role="button" data-ftsposta="-1" data-i="${i}"><ha-icon icon="mdi:chevron-left"></ha-icon></span>
+              <span role="button" data-ftocchio="${fhEsc(pg.id)}"><ha-icon icon="${nasc ? "mdi:eye-off" : "mdi:eye"}"></ha-icon></span>
+              <span role="button" data-ftsposta="1" data-i="${i}"><ha-icon icon="mdi:chevron-right"></ha-icon></span></div>` : ""}
+          </button>`;
+  },
+
+  // Pagina Stanze (tasto nella barra in basso): tutte le stanze in grande.
+  _ftTutteStanze() {
+    this._ftVista = "stanze";
+    this._ftStanzaId = null;
+    this._ftMostra();
+    this._ftImpStanze = null;
+    this._ftRenderStanze();
+    this._ftRenderNav();
+  },
+
+  _ftRenderStanze() {
+    const v = this.querySelector('[data-ftv="stanze"]');
+    if (!v) return;
+    const c = this._ftCfg();
+    const stanze = this._ftStanze();
+    const col = stanze.length <= 8 ? 4 : 5;
+    const righe = Math.max(1, Math.ceil(stanze.length / col));
+    const html = `<div class="ft-tutte-h"><h1>Stanze</h1><div class="ft-orina" data-ftora data-ftpin>${this._timeText()}</div></div>
+      <div class="ft-stanze ft-tutte" style="grid-template-columns:repeat(${col},minmax(0,1fr));grid-template-rows:repeat(${righe},minmax(0,1fr))">${stanze.map((pg, i) => this._ftTesseraHTML(pg, i, false, c)).join("")}</div>`;
+    const impronta = html.replace(/data-ftora data-ftpin>[^<]*</, "");
+    if (impronta === this._ftImpStanze && v.firstChild) return;
+    this._ftImpStanze = impronta;
+    v.innerHTML = html;
+  },
+
+  // Torna alla Plancia pulita: veli chiusi, modifica annullata.
+  // La usano il ritorno dopo un minuto e il risveglio dallo standby.
+  _ftTornaCasa() {
+    this.querySelectorAll(".ft-velo").forEach(v => v.remove());
+    this._ftLuce = null;
+    const s = this.querySelector(".fh-scrim"); if (s) s.remove();
+    if (this._ftMod) this._ftEsciMod(false);
+    if (this._ftVista !== "plancia") this._ftPlancia();
   },
 
   // =========================================================================
@@ -8589,8 +8662,10 @@ const FH_TABLET = {
   _ftMostra() {
     const pl = this.querySelector('[data-ftv="plancia"]');
     const st = this.querySelector('[data-ftv="stanza"]');
+    const sz = this.querySelector('[data-ftv="stanze"]');
     const m = this.querySelector("[data-main]");
     if (pl) pl.hidden = this._ftVista !== "plancia";
+    if (sz) sz.hidden = this._ftVista !== "stanze";
     if (st) st.hidden = this._ftVista !== "stanza";
     if (m) m.hidden = this._ftVista !== "pagina";
     if (this._ftVista !== "stanza" && st) st.innerHTML = "";
@@ -8600,12 +8675,13 @@ const FH_TABLET = {
     const nav = this.querySelector("[data-ftnav]");
     if (!nav) return;
     const c = this._ftCfg();
-    const voci = [{ id: "plancia", titolo: "Plancia", icona: "mdi:view-dashboard-outline" }];
+    const voci = [{ id: "plancia", titolo: "Plancia", icona: "mdi:view-dashboard-outline" },
+      { id: "ft-stanze", titolo: "Stanze", icona: "mdi:home-group" }];
     c.barra.forEach(id => {
       const i = (this._cfg.pages || []).findIndex(p => p.id === id);
       if (i >= 0) voci.push({ id, i, titolo: this._cfg.pages[i].title, icona: this._cfg.pages[i].icon || "mdi:circle-outline" });
     });
-    const ora = this._ftVista === "plancia" || this._ftVista === "stanza" ? "plancia" : (this._cfg.pages[this._page] || {}).id;
+    const ora = this._ftVista === "plancia" ? "plancia" : (this._ftVista === "stanze" || this._ftVista === "stanza") ? "ft-stanze" : (this._cfg.pages[this._page] || {}).id;
     nav.innerHTML = voci.slice(0, 7).map(v => `<button type="button" class="ft-ni${v.id === ora ? " on" : ""}" data-ftnav="${fhEsc(v.id)}">
       ${v.id === ora ? `<span class="ft-blob"><ha-icon icon="${fhEsc(v.icona)}"></ha-icon></span>` : `<ha-icon icon="${fhEsc(v.icona)}"></ha-icon>`}
       <span class="l">${fhEsc((v.titolo || "").trim())}</span></button>`).join("");
@@ -8621,6 +8697,7 @@ const FH_TABLET = {
     let timer = null, lungo = false, x0 = 0, y0 = 0, bersaglio = null;
     const fine = () => { if (timer) { clearTimeout(timer); timer = null; } this._ftTocca = false; };
     app.addEventListener("pointerdown", e => {
+      this._ftUltimoTocco = Date.now();
       this._ftRiarma();
       lungo = false; x0 = e.clientX; y0 = e.clientY;
       const pin = e.target.closest("[data-ftpin]");
@@ -8656,6 +8733,7 @@ const FH_TABLET = {
     if ((b = el("[data-ftnav]")) && b.classList.contains("ft-ni")) {
       const id = b.dataset.ftnav;
       if (id === "plancia") this._ftPlancia();
+      else if (id === "ft-stanze") this._ftTutteStanze();
       else { const i = (this._cfg.pages || []).findIndex(p => p.id === id); if (i >= 0) this._ftApriPagina(i); }
       this._ftVibra(8);
       return;
@@ -8678,12 +8756,7 @@ const FH_TABLET = {
     if (this._ftInattivo) clearTimeout(this._ftInattivo);
     const sec = this._ftCfg().ritorno;
     if (!sec || this._ftMod) return;
-    this._ftInattivo = setTimeout(() => {
-      this.querySelectorAll(".ft-velo").forEach(v => v.remove());
-      this._ftLuce = null;
-      const s = this.querySelector(".fh-scrim"); if (s) s.remove();
-      if (this._ftVista !== "plancia") this._ftPlancia();
-    }, sec * 1000);
+    this._ftInattivo = setTimeout(() => this._ftTornaCasa(), sec * 1000);
   },
 
   _ftAvviso(testo) {
@@ -8869,6 +8942,8 @@ const FH_TABLET = {
   },
 
   _ftEntraMod() {
+    // la modifica delle stanze si fa sulla Plancia
+    if (this._ftVista === "stanze") this._ftPlancia();
     this._ftMod = true;
     this._ftPrima = JSON.stringify(this._cfg.tablet || {});
     const app = this.querySelector(".ft-app");
@@ -8908,7 +8983,9 @@ const FH_TABLET = {
   _ftRidisegna() {
     this._ftImpPlancia = null;
     this._ftImpStanza = null;
+    this._ftImpStanze = null;
     if (this._ftVista === "plancia") this._ftRenderPlancia();
+    else if (this._ftVista === "stanze") this._ftRenderStanze();
     else if (this._ftVista === "stanza") this._ftRenderStanza();
   },
 
