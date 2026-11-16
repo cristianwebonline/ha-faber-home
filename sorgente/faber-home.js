@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.151.0";
+const FH_VERSION = "0.151.1";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -7881,7 +7881,7 @@ const FT_CSS = `
   .ft-box{background:var(--ft-card);border:1px solid var(--ft-brd);border-radius:24px;box-shadow:var(--ft-sh);
     -webkit-backdrop-filter:blur(18px) saturate(1.4);backdrop-filter:blur(18px) saturate(1.4)}
   /* --- Plancia --- */
-  .ft-pl{display:grid;grid-template-columns:330px 1fr;gap:24px;height:100%}
+  .ft-pl{display:grid;grid-template-columns:clamp(250px,28vw,330px) minmax(0,1fr);gap:clamp(14px,2vw,24px);height:100%}
   .ft-sx{display:flex;flex-direction:column;gap:14px;min-height:0}
   .ft-ora{font-size:96px;font-weight:800;letter-spacing:-3px;line-height:.95;touch-action:manipulation}
   .ft-data{font-size:15px;font-weight:600;color:var(--ft-mut);margin-top:4px}
@@ -7901,9 +7901,13 @@ const FT_CSS = `
   .ft-barra{height:8px;border-radius:9px;background:var(--ft-soft);margin-top:8px;overflow:hidden}
   .ft-barra i{display:block;height:100%;background:var(--ft-ok);border-radius:9px;transition:width .6s}
   .ft-cons .sub{font-size:12px;color:var(--ft-mut);margin-top:6px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .ft-dx{display:flex;flex-direction:column;gap:14px;min-height:0}
+  .ft-dx{display:flex;flex-direction:column;gap:14px;min-height:0;min-width:0}
   .ft-chips{display:flex;gap:10px;justify-content:flex-end;min-height:38px;overflow:hidden}
-  .ft-chips .fh-chips{margin:0;padding:0;justify-content:flex-end}
+  .ft-chips{min-width:0}
+  .ft-chips .fh-chips{margin:0;padding:0;justify-content:normal;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;min-width:0;width:100%}
+  .ft-chips .fh-chips::-webkit-scrollbar{display:none}
+  .ft-chips .fh-chips>:first-child{margin-left:auto}
+  .ft-chips .fh-chips>*{flex:0 0 auto}
   .ft-cmd{display:grid;gap:12px}
   .ft-bt{height:96px;border-radius:24px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;font-size:15px;font-weight:800;
     background:var(--ft-card);border:1px solid var(--ft-brd)!important;box-shadow:var(--ft-sh);transition:transform .12s}
@@ -7914,11 +7918,11 @@ const FT_CSS = `
   .ft-bt.vuoto{opacity:.55}
   .ft-tit{font-size:12px;font-weight:800;letter-spacing:1.5px;color:var(--ft-mut);margin:2px 4px -4px;display:flex;justify-content:space-between}
   .ft-tit span{letter-spacing:0}
-  .ft-stanze{display:grid;grid-template-columns:repeat(5,1fr);grid-auto-rows:1fr;gap:12px;flex:1;min-height:0}
-  .ft-st{position:relative;border-radius:24px;padding:14px 14px 12px;display:flex;flex-direction:column;text-align:left;min-height:0;transition:transform .12s}
+  .ft-stanze{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));grid-auto-rows:1fr;gap:12px;flex:1;min-height:0}
+  .ft-st{position:relative;border-radius:24px;padding:14px 14px 12px;display:flex;flex-direction:column;text-align:left;min-height:0;min-width:0;transition:transform .12s}
   .ft-ic{width:46px;height:46px;border-radius:26%;display:grid;place-items:center;background:rgba(147,161,176,.14);color:var(--ft-mut)}
   .ft-ic ha-icon{--mdc-icon-size:26px}
-  .ft-st .nome{font-size:17px;font-weight:800;margin-top:auto}
+  .ft-st .nome{font-size:17px;font-weight:800;margin-top:auto;line-height:1.2;overflow-wrap:anywhere}
   .ft-st .temp{position:absolute;right:14px;top:16px;font-size:20px;font-weight:800}
   .ft-st .cosa{font-size:12px;font-weight:700;color:var(--ft-mut);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .ft-caldo{background-image:linear-gradient(150deg,rgba(255,140,60,.22),rgba(0,0,0,0) 75%);border-color:rgba(255,140,60,.45)}
@@ -7940,7 +7944,8 @@ const FT_CSS = `
   .ft-tab ha-icon{--mdc-icon-size:20px}
   .ft-tab.on{color:#1c1400;background:linear-gradient(135deg,#ffb020,#e09810);border:0!important;box-shadow:0 6px 18px rgba(255,176,32,.35)}
   .ft-orina{font-size:30px;font-weight:800;margin-left:6px;flex:0 0 auto}
-  .ft-sta{display:grid;grid-template-columns:340px 1fr;gap:22px;height:calc(100% - 72px)}
+  .ft-sta{display:grid;grid-template-columns:clamp(260px,29vw,340px) minmax(0,1fr);grid-template-rows:minmax(0,1fr);gap:22px;height:100%}
+  .ft-vista [data-ftcorpo]{height:calc(100% - 72px);min-height:0}
   .ft-stsx{display:flex;flex-direction:column;gap:14px;min-height:0;overflow:auto;scrollbar-width:none}
   .ft-hero{padding:18px 20px}.ft-hero h1{margin:0;font-size:32px;font-weight:800;line-height:1.1}
   .ft-hero .r{display:flex;gap:16px;margin-top:10px;font-size:14px;font-weight:700;color:var(--ft-mut);flex-wrap:wrap}
@@ -7992,6 +7997,21 @@ const FT_CSS = `
   .ft-mod .ft-st .temp{display:none}
   .ft-ord button{width:40px;height:40px;border-radius:12px;background:var(--ft-amb);color:#1c1400;display:grid;place-items:center}
   .ft-st.nasc{opacity:.4}
+  /* tablet piu piccoli (sotto 1150 punti di larghezza o 700 di altezza): tutto un po' piu stretto */
+  @media (max-width:1150px),(max-height:700px){
+    .ft-vista{padding:14px 16px 102px}
+    .ft-ora{font-size:76px;letter-spacing:-2px}
+    .ft-meteo{padding:12px 14px}.ft-meteo ha-icon{--mdc-icon-size:42px}.ft-meteo .t{font-size:34px}.ft-meteo .d b{font-size:19px}
+    .ft-pers{padding:10px 12px}.ft-cons{padding:12px 14px}.ft-cons .w{font-size:26px}
+    .ft-bt{height:78px;border-radius:20px;font-size:14px;gap:5px}.ft-bt ha-icon{--mdc-icon-size:28px}
+    .ft-st{padding:11px 11px 10px;border-radius:20px}.ft-ic{width:38px;height:38px}.ft-ic ha-icon{--mdc-icon-size:22px}
+    .ft-st .nome{font-size:15px}.ft-st .temp{font-size:16px;right:10px;top:12px}.ft-st .cosa{font-size:11px}
+    .ft-g4{grid-template-columns:repeat(3,minmax(0,1fr))}
+    .ft-k{height:96px}.ft-gb{width:64px;height:64px}.ft-val b{font-size:52px}
+    .ft-nav{height:68px;bottom:12px;min-width:0;width:min(640px,calc(100% - 32px))}.ft-ni{width:auto;flex:1;min-width:0}
+    .ft-app .fh-main.ft-pagina{padding:14px 16px 102px}
+  }
+  @media (max-height:640px){.ft-ora{font-size:64px}.ft-bt{height:68px}.ft-bt ha-icon{--mdc-icon-size:24px}.ft-sx,.ft-dx{gap:10px}}
   /* --- pagine normali dentro il tablet --- */
   .ft-app .fh-main.ft-pagina{position:absolute;left:0;right:0;top:0;bottom:0;overflow:auto;padding:20px 24px 110px}
   /* --- barra --- */
@@ -8370,7 +8390,7 @@ const FH_TABLET = {
       </div>
       <div class="ft-dx">
         <div class="ft-chips"><div class="fh-chips" data-chips>${this._chipsHTML()}</div></div>
-        ${cmd.length ? `<div class="ft-cmd" style="grid-template-columns:repeat(${cmd.length},1fr)">${cmd.map((k, i) => `
+        ${cmd.length ? `<div class="ft-cmd" style="grid-template-columns:repeat(${cmd.length},minmax(0,1fr))">${cmd.map((k, i) => `
           <button type="button" class="ft-bt${k.pieno ? " pieno" : ""}${k.target ? "" : " vuoto"}" data-ftcmd="${i}">
             <ha-icon icon="${fhEsc(k.icona || "mdi:gesture-tap-button")}"></ha-icon>${fhEsc(k.testo || "")}</button>`).join("")}</div>` : ""}
         <div class="ft-tit">STANZE${mod ? "<span>Frecce = sposta · occhio = mostra o nascondi</span>" : ""}</div>
