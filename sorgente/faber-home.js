@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.153.0";
+const FH_VERSION = "0.153.1";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -11066,6 +11066,8 @@ const PC_HELPER = {
   impegnata: { e: "input_number.controllo_carichi_potenza_impegnata", t: "Potenza impegnata del contatore" },
   tolleranza: { e: "input_number.controllo_carichi_tolleranza_contatore", t: "Tolleranza del contatore" },
   margine: { e: "input_number.controllo_carichi_margine_prima_del_picco", t: "Margine prima del picco" },
+  avviso: { e: "input_number.controllo_carichi_avviso_sopra", t: "Avviso sopra" },
+  fra_stop: { e: "input_number.attesa_stop", t: "Attesa fra un distacco e l'altro" },
   acceso: { e: "input_number.controllo_carichi_carico_acceso_sopra", t: "Un carico e acceso sopra" },
   pausa: { e: "input_number.controllo_carichi_non_ripetere_prima_di", t: "Minuti fra due avvisi" },
   voce_quando: { e: "input_select.controllo_carichi_voce_quando", t: "Quando parla a voce" },
@@ -11235,6 +11237,8 @@ class FaberPC extends HTMLElement {
       tol: this._n(this._h("tolleranza")) || 0,
       mar: this._n(this._h("margine")) || 0,
       acceso: this._n(this._h("acceso")) || 0,
+      avv: this._n(this._h("avviso")) || 0,
+      fraStop: this._n(this._h("fra_stop")) || 0,
       voce: this._s(this._h("voce")) === "on",
       pausa: this._n(this._h("pausa")) || 30,
       voceQuando: this._s(this._h("voce_quando")) || PC_VOCE_QUANDO[0],
@@ -11415,16 +11419,17 @@ class FaberPC extends HTMLElement {
         <div class="pc-gr">
           <div><label>Potenza impegnata (W)</label><input type="number" data-k="imp" value="${b.imp}" step="100"></div>
           <div><label>Tolleranza contatore (%)</label><input type="number" data-k="tol" value="${b.tol}" step="1"></div>
-          <div><label>Margine prima del picco (%)</label><input type="number" data-k="mar" value="${b.mar}" step="1"></div>
+          <div><label>Picco contatore sopra la disponibile (%)</label><input type="number" data-k="mar" value="${b.mar}" step="1"></div>
           <div class="pc-calc">
             <span>disponibile <b>${pcW(b.imp * (1 + b.tol / 100))} W</b></span>
             <span>picco contatore <b>${pcW(b.imp * (1 + b.tol / 100) * (1 + b.mar / 100))} W</b></span>
           </div>
         </div>
         <button type="button" class="pc-add" data-calcola>Ricava le soglie da questi numeri</button>
-        <div class="pc-nota">Sotto la <b>disponibile</b> il contatore tiene senza limiti di tempo.
-          Sopra parte il conto alla rovescia; oltre il <b>picco</b> stacca in pochi minuti.
-          Le soglie qui sotto stanno apposta un filo piu in basso, per intervenire prima del contatore.</div>
+        <div class="pc-nota">Regola del contatore (guida e-distribuzione): sotto la <b>disponibile</b>
+          tiene senza limiti di tempo; fra la disponibile e il <b>picco</b> regge circa 3 ore; oltre il
+          picco stacca entro 2 minuti. Il picco e un terzo in piu del contratto, cioe il 21% sopra la
+          disponibile. Le soglie qui sotto stanno apposta un filo piu in basso, per intervenire prima del contatore.</div>
 
         <div class="pc-lab">Soglie</div>
         <div class="pc-gr">
@@ -11434,10 +11439,14 @@ class FaberPC extends HTMLElement {
           <div><label>per (minuti)</label><input type="number" data-k="tRit" value="${b.tRit}" step="10"></div>
           <div><label>Riaccende dopo (min)</label><input type="number" data-k="tStart" value="${b.tStart}" step="1"></div>
           <div><label>Carico acceso sopra (W)</label><input type="number" data-k="acceso" value="${b.acceso}" step="1"></div>
+          <div><label>Avviso sopra (W)</label><input type="number" data-k="avv" value="${b.avv}" step="50"></div>
+          <div><label>Fra un distacco e l'altro (s)</label><input type="number" data-k="fraStop" value="${b.fraStop}" step="5"></div>
         </div>
         <div class="pc-nota"><b>Riaccende dopo</b>: i minuti di calma sotto soglia prima che i carichi
           staccati tornino su, uno alla volta. <b>Carico acceso sopra</b>: sotto questi watt un carico
-          e considerato spento e viene saltato, senza sprecare un distacco.</div>
+          e considerato spento e viene saltato, senza sprecare un distacco. <b>Avviso sopra</b>: solo un
+          avviso, non stacca niente. Un avviso arriva anche 30 minuti prima del distacco lungo e 45 secondi
+          prima di quello rapido.</div>
 
         <div class="pc-lab">Avvisi <small>chi riceve la notifica sul telefono</small></div>
         <div class="pc-dest">
@@ -11541,7 +11550,8 @@ class FaberPC extends HTMLElement {
     if (calc) calc.onclick = () => {
       const disp = b.imp * (1 + b.tol / 100);
       b.rit = Math.max(0, Math.floor(disp / 50) * 50 - 50);
-      b.imm = Math.floor((disp * (1 + b.mar / 100)) / 50) * 50;
+      // 50 W sotto il picco del contatore, arrotondato ai 50 (3,5 kW: picco 4.659 -> 4.600)
+      b.imm = Math.floor((disp * (1 + b.mar / 100) - 50) / 50) * 50;
       this._disegnaPopup();
     };
     const aggiornaSalva = () => {
@@ -11631,6 +11641,8 @@ class FaberPC extends HTMLElement {
       ["input_number.controllo_carichi_tolleranza_contatore", b.tol],
       ["input_number.controllo_carichi_margine_prima_del_picco", b.mar],
       ["input_number.controllo_carichi_carico_acceso_sopra", b.acceso],
+      ["input_number.controllo_carichi_avviso_sopra", b.avv],
+      ["input_number.attesa_stop", b.fraStop],
       [this._h("pausa"), b.pausa],
     ];
     numeri.forEach(([ent, v]) => {
