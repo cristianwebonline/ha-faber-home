@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.152.0";
+const FH_VERSION = "0.153.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -7926,8 +7926,11 @@ const FT_CSS = `
   .ft-ic{width:46px;height:46px;border-radius:26%;display:grid;place-items:center;background:rgba(147,161,176,.14);color:var(--ft-mut)}
   .ft-ic ha-icon{--mdc-icon-size:26px}
   .ft-st .nome{font-size:17px;font-weight:800;margin-top:auto;line-height:1.2;overflow-wrap:anywhere}
-  .ft-st .temp{position:absolute;right:14px;top:16px;font-size:20px;font-weight:800}
-  .ft-st .cosa{font-size:12px;font-weight:700;color:var(--ft-mut);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ft-st .dati{position:absolute;right:14px;top:14px;text-align:right}
+  .ft-st .temp{font-size:20px;font-weight:800;line-height:1.15}
+  .ft-st .dati small{display:block;font-size:11.5px;font-weight:700;color:var(--ft-mut);line-height:1.35;white-space:nowrap}
+  .ft-st .dati small.w{color:var(--ft-ok)}.ft-giorno .ft-st .dati small.w{color:#0f7a3d}
+  .ft-st .cosa{font-size:12px;font-weight:700;color:var(--ft-mut);margin-top:3px;line-height:1.3;overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2}
   .ft-caldo{background-image:linear-gradient(150deg,rgba(255,140,60,.22),rgba(0,0,0,0) 75%);border-color:rgba(255,140,60,.45)}
   .ft-caldo .ft-ic{background:rgba(255,140,60,.18);color:#ff8c3c}.ft-caldo .cosa{color:#ffb27a}
   .ft-freddo{background-image:linear-gradient(150deg,rgba(58,160,255,.22),rgba(0,0,0,0) 75%);border-color:rgba(58,160,255,.45)}
@@ -7942,7 +7945,7 @@ const FT_CSS = `
   .ft-tutte-h h1{margin:0 4px;font-size:32px;font-weight:800}
   .ft-stanze.ft-tutte{height:calc(100% - 72px);gap:16px}
   .ft-tutte .ft-st{padding:18px 18px 16px}.ft-tutte .ft-ic{width:56px;height:56px}.ft-tutte .ft-ic ha-icon{--mdc-icon-size:32px}
-  .ft-tutte .ft-st .nome{font-size:21px}.ft-tutte .ft-st .cosa{font-size:13.5px}.ft-tutte .ft-st .temp{font-size:24px;right:18px;top:20px}
+  .ft-tutte .ft-st .nome{font-size:21px}.ft-tutte .ft-st .cosa{font-size:13.5px}.ft-tutte .ft-st .temp{font-size:24px}.ft-tutte .ft-st .dati{right:18px;top:18px}.ft-tutte .ft-st .dati small{font-size:13px}.ft-tutte .ft-st .cosa{-webkit-line-clamp:3}
   /* --- Stanza --- */
   .ft-top{display:flex;gap:10px;align-items:center;height:56px;margin-bottom:16px}
   .ft-ind{height:56px;padding:0 20px 0 14px;border-radius:18px;display:flex;align-items:center;gap:6px;font-size:16px;font-weight:800;flex:0 0 auto}
@@ -7956,7 +7959,24 @@ const FT_CSS = `
   .ft-sta{display:grid;grid-template-columns:clamp(260px,29vw,340px) minmax(0,1fr);grid-template-rows:minmax(0,1fr);gap:22px;height:100%}
   .ft-vista [data-ftcorpo]{height:calc(100% - 72px);min-height:0}
   .ft-stsx{display:flex;flex-direction:column;gap:14px;min-height:0;overflow:auto;scrollbar-width:none}
-  .ft-hero{padding:18px 20px}.ft-hero h1{margin:0;font-size:32px;font-weight:800;line-height:1.1}
+  .ft-hero{padding:18px 20px}.ft-hero h1{margin:0;font-size:32px;font-weight:800;line-height:1.1;min-width:0;overflow-wrap:anywhere}
+  .ft-hero .h{display:flex;align-items:center;justify-content:space-between;gap:12px}
+  .ft-hero .ft-orina{margin:0;color:var(--ft-mut);touch-action:manipulation}
+  .ft-sp.ft-lof{flex:0 0 auto;height:56px;font-size:16px}.ft-sp.ft-lof ha-icon{color:var(--ft-amb)}
+  .ft-chi{padding:16px 18px;flex:0 0 auto}
+  .ft-chi .l{font-size:11px;font-weight:800;letter-spacing:1.5px;color:var(--ft-mut);margin-bottom:4px}
+  .ft-chi .rg{margin-top:10px}.ft-chi .n{display:flex;justify-content:space-between;gap:10px;font-size:14px;font-weight:700}
+  .ft-chi .n span{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ft-chi .n b{color:var(--ft-ok);flex:0 0 auto}
+  .ft-giorno .ft-chi .n b{color:#0f7a3d}.ft-chi .ft-barra{height:6px;margin-top:5px}
+  .ft-chi .nn{font-size:13.5px;font-weight:700;color:var(--ft-mut);margin-top:8px}
+  /* stanza senza clima e senza misuratori: una colonna sola, nome in una riga in alto */
+  .ft-sta.una{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);gap:14px}
+  .ft-sta.una .ft-stsx{overflow:visible;flex-direction:row;align-items:stretch}
+  .ft-sta.una .ft-hero{flex:1;display:flex;align-items:center;gap:22px;padding:12px 20px}
+  .ft-sta.una .ft-hero .h{display:contents}.ft-sta.una .ft-hero h1{font-size:28px}
+  .ft-sta.una .ft-hero .r{margin-top:0;order:1}.ft-sta.una .ft-hero .ft-orina{order:2;margin-left:auto}
+  .ft-sta.una .ft-sp.ft-lof{padding:0 22px;height:auto}
+  .ft-sta.una .ft-g4{grid-template-columns:repeat(5,minmax(0,1fr))}
   .ft-hero .r{display:flex;gap:16px;margin-top:10px;font-size:14px;font-weight:700;color:var(--ft-mut);flex-wrap:wrap}
   .ft-hero .r b{color:var(--ft-ink);font-size:22px}.ft-hero .r .w b,.ft-hero .r .w{color:var(--ft-ok)}
   .ft-cl{padding:18px 20px;display:flex;flex-direction:column;gap:12px;flex:1 0 auto}
@@ -8003,7 +8023,7 @@ const FT_CSS = `
   .ft-c .ft-grp{bottom:auto;top:-10px}
   .ft-mod .ft-k,.ft-mod .ft-c,.ft-mod .ft-st{outline:2px dashed rgba(255,176,32,.6);outline-offset:2px}
   .ft-ord{position:absolute;right:8px;top:8px;display:flex;gap:6px;z-index:2}
-  .ft-mod .ft-st .temp{display:none}
+  .ft-mod .ft-st .dati{display:none}
   .ft-ord button{width:40px;height:40px;border-radius:12px;background:var(--ft-amb);color:#1c1400;display:grid;place-items:center}
   .ft-st.nasc{opacity:.4}
   /* --- pagine normali dentro il tablet --- */
@@ -8063,8 +8083,9 @@ const FT_CSS = `
     .ft-pers{padding:10px 12px}.ft-cons{padding:12px 14px}.ft-cons .w{font-size:26px}
     .ft-bt{height:78px;border-radius:20px;font-size:14px;gap:5px}.ft-bt ha-icon{--mdc-icon-size:28px}
     .ft-st{padding:11px 11px 10px;border-radius:20px}.ft-ic{width:38px;height:38px}.ft-ic ha-icon{--mdc-icon-size:22px}
-    .ft-st .nome{font-size:15px}.ft-st .temp{font-size:16px;right:10px;top:12px}.ft-st .cosa{font-size:11px}
-    .ft-g4{grid-template-columns:repeat(3,minmax(0,1fr))}
+    .ft-st .nome{font-size:15px}.ft-st .temp{font-size:16px}.ft-st .dati{right:10px;top:10px}.ft-st .dati small{font-size:10.5px}.ft-st .cosa{font-size:11px}
+    .ft-g4{grid-template-columns:repeat(3,minmax(0,1fr))}.ft-sta.una .ft-g4{grid-template-columns:repeat(4,minmax(0,1fr))}
+    .ft-hero h1{font-size:26px}.ft-hero .ft-orina{font-size:24px}
     .ft-k{height:96px}.ft-gb{width:64px;height:64px}.ft-val b{font-size:52px}
     .ft-nav{height:68px;bottom:12px;min-width:0;width:min(800px,calc(100% - 32px))}.ft-ni{width:auto;flex:1;min-width:0}
     .ft-app .fh-main.ft-pagina{padding:14px 16px 104px}
@@ -8252,7 +8273,7 @@ const FH_TABLET = {
     lavora.forEach(n => { if (!cose.some(x => x.startsWith("TV") && /tv/i.test(n))) cose.push(`${n} in funzione`); });
     if (lavora.length) cls = cls || "ft-acceso";
     const testo = cose.length ? (cose.slice(0, 2).join(" · ") + (cose.length > 2 ? ` · +${cose.length - 2}` : "")) : "Tutto spento";
-    return { testo, cls };
+    return { testo, cls, lungo: cose.length ? cose.join(" · ") : "Tutto spento" };
   },
 
   // =========================================================================
@@ -8445,10 +8466,16 @@ const FH_TABLET = {
     const r = this._ftRiassunto(pg);
     const t = this._tempDiPagina(pg.id);
     const nasc = c.nascoste.includes(pg.id);
+    let um = null, w = 0;
+    try { const cs = this._climaStanza(pg); if (cs && cs.humidity != null) um = parseFloat(cs.humidity); } catch (e) { um = null; }
+    try { w = this._consumoDiPagina(pg) || 0; } catch (e) { w = 0; }
+    const dati = (t != null ? `<div class="temp">${t.toFixed(1).replace(".", ",")}°</div>` : "")
+      + (um != null && !isNaN(um) ? `<small>${Math.round(um)}% umidità</small>` : "")
+      + (w >= 1 ? `<small class="w">${Math.round(w)} W</small>` : "");
     return `<button type="button" class="ft-box ft-st ${r.cls}${nasc ? " nasc" : ""}" data-ftst="${fhEsc(pg.id)}">
             <div class="ft-ic"><ha-icon icon="${fhEsc(pg.icon || "mdi:home")}"></ha-icon></div>
-            ${t != null ? `<div class="temp">${t.toFixed(1).replace(".", ",")}°</div>` : ""}
-            <div class="nome">${fhEsc((pg.title || "").trim())}</div><div class="cosa">${fhEsc(r.testo)}</div>
+            ${dati ? `<div class="dati">${dati}</div>` : ""}
+            <div class="nome">${fhEsc((pg.title || "").trim())}</div><div class="cosa">${fhEsc(r.lungo)}</div>
             ${mod ? `<div class="ft-ord"><span role="button" data-ftsposta="-1" data-i="${i}"><ha-icon icon="mdi:chevron-left"></ha-icon></span>
               <span role="button" data-ftocchio="${fhEsc(pg.id)}"><ha-icon icon="${nasc ? "mdi:eye-off" : "mdi:eye"}"></ha-icon></span>
               <span role="button" data-ftsposta="1" data-i="${i}"><ha-icon icon="mdi:chevron-right"></ha-icon></span></div>` : ""}
@@ -8562,13 +8589,27 @@ const FH_TABLET = {
     };
     const mod = !!this._ftMod;
     const nient = !pz.luci.length && !pz.tv.length && !pz.prese.length && !pz.altro.length && !(mod && pz.via.length);
-    return `<div class="ft-sta${mod ? " ft-mod" : ""}">
+    // chi sta consumando nella stanza (solo cio che ha un misuratore)
+    const mis = [];
+    [...pz.luci, ...pz.tv, ...pz.prese].forEach(p => { if (p.power) mis.push({ nome: p.nome, w: this._ftW(p.power) }); });
+    pz.altro.forEach(cd => { if (cd && cd.power) mis.push({ nome: cd.name || this._ftNome(cd.power), w: this._ftW(cd.power) }); });
+    const cons = mis.filter(m => m.w != null && m.w >= 1).sort((a, b) => b.w - a.w).slice(0, 6);
+    const maxW = cons.length ? cons[0].w : 1;
+    const luciOn = pz.luci.filter(p => !p.blocco && this._ftAcceso(p.ent)).length;
+    // niente clima e niente misuratori: la colonna di sinistra resterebbe vuota,
+    // allora il nome va in una riga sola in alto e i comandi usano tutto lo schermo
+    const una = !pz.clima.length && !mis.length;
+    return `<div class="ft-sta${mod ? " ft-mod" : ""}${una ? " una" : ""}">
         <div class="ft-stsx">
-          <div class="ft-box ft-hero"><h1>${fhEsc((pg.title || "").trim())}</h1>
+          <div class="ft-box ft-hero"><div class="h"><h1>${fhEsc((pg.title || "").trim())}</h1><div class="ft-orina" data-ftora data-ftpin></div></div>
             <div class="r">${t != null ? `<span><b>${t.toFixed(1).replace(".", ",")}°</b></span>` : ""}
               ${um != null && !isNaN(um) ? `<span><b>${Math.round(um)}%</b> umidità</span>` : ""}
               ${w > 0 ? `<span class="w"><b>${Math.round(w)}</b> W</span>` : ""}</div></div>
           ${pz.clima.map(cl => this._ftClimaHTML(cl, pz.clima.length > 1)).join("")}
+          ${luciOn && !mod ? `<button type="button" class="ft-sp ft-lof" data-ftluciof><ha-icon icon="mdi:lightbulb-off-outline"></ha-icon>${luciOn === 1 ? "Spegni la luce" : `Spegni le ${luciOn} luci`}</button>` : ""}
+          ${mis.length ? `<div class="ft-box ft-chi"><div class="l">STA CONSUMANDO</div>
+            ${cons.length ? cons.map(m => `<div class="rg"><div class="n"><span>${fhEsc(m.nome)}</span><b>${Math.round(m.w)} W</b></div>
+              <div class="ft-barra"><i style="width:${Math.max(4, Math.round(m.w / maxW * 100))}%"></i></div></div>`).join("") : `<div class="nn">Adesso qui niente consuma.</div>`}</div>` : ""}
         </div>
         <div class="ft-stdx">
           ${sez("LUCI", pz.luci, "luci", "ft-g4")}
@@ -8590,9 +8631,9 @@ const FH_TABLET = {
         <button type="button" class="ft-box ft-ind" data-ftplancia><ha-icon icon="mdi:chevron-left"></ha-icon>Plancia</button>
         <div class="ft-tabs">${stanze.map(s => `<button type="button" class="ft-tab${s.id === pg.id ? " on" : ""}" data-fttab="${fhEsc(s.id)}">
           <ha-icon icon="${fhEsc(s.icon || "mdi:home")}"></ha-icon>${fhEsc((s.title || "").trim())}</button>`).join("")}</div>
-        <div class="ft-orina" data-ftora data-ftpin>${this._timeText()}</div>
       </div><div data-ftcorpo>${this._ftStanzaHTML(pg)}</div>`;
     this._ftImpStanza = this._ftStanzaHTML(pg);
+    this._ftMettiOra();
     const tab = v.querySelector(".ft-tab.on");
     if (tab) try { tab.scrollIntoView({ inline: "center", block: "nearest" }); } catch (e) { /* niente */ }
     this._ftAltro(pg);
@@ -8633,6 +8674,25 @@ const FH_TABLET = {
     else if (nuovo) this._ftAltro(pg);
     const sc2 = corpo.querySelector(".ft-stdx");
     if (sc2) sc2.scrollTop = su;
+    this._ftMettiOra();
+  },
+
+  // L'ora nella stanza sta nel riquadro col nome: si scrive dopo ogni disegno
+  // (non fa parte dell'impronta, se no la stanza si ridisegnerebbe ogni minuto).
+  _ftMettiOra() {
+    const o = this._timeText();
+    this.querySelectorAll("[data-ftora]").forEach(t => { if (t.textContent !== o) t.textContent = o; });
+  },
+
+  // Spegne tutte le luci accese della stanza aperta.
+  _ftSpegniLuci() {
+    const pg = (this._cfg.pages || []).find(p => p.id === this._ftStanzaId);
+    if (!pg || !this._hass) return;
+    const ids = this._ftPezzi(pg).luci.filter(p => !p.blocco && this._ftAcceso(p.ent)).map(p => p.ent);
+    if (!ids.length) return;
+    this._ftVibra(12);
+    this._hass.callService("homeassistant", "turn_off", { entity_id: ids });
+    this._ftAvviso(ids.length === 1 ? "Spengo la luce." : `Spengo ${ids.length} luci.`);
   },
 
   // =========================================================================
@@ -8739,6 +8799,7 @@ const FH_TABLET = {
       return;
     }
     if (el("[data-ftplancia]")) { this._ftPlancia(); this._ftVibra(8); return; }
+    if (el("[data-ftluciof]")) { this._ftSpegniLuci(); return; }
     if ((b = el("[data-fttab]"))) { this._ftApriStanza(b.dataset.fttab); this._ftVibra(8); return; }
     if ((b = el("[data-ftst]"))) { if (!this._ftMod) { this._ftApriStanza(b.dataset.ftst); this._ftVibra(8); } return; }
     if ((b = el("[data-ftcmd]"))) { this._ftComando(parseInt(b.dataset.ftcmd, 10)); return; }
