@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.153.1";
+const FH_VERSION = "0.154.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -16607,6 +16607,9 @@ const FH_CAMPI = {
     { k: "icona", t: "Icona", tipo: "testo", aiuto: "Nome di un'icona mdi, per esempio mdi:remote." },
     { k: "remote", t: "Telecomando (remote)", tipo: "entita", dom: ["remote."] },
     { k: "device", t: "Nome del dispositivo nel telecomando", tipo: "testo" },
+    { k: "presa", t: "Presa dell'apparecchio (facoltativa)", tipo: "entita", dom: ["switch."],
+      aiuto: "Mette in alto il tasto per accendere e staccare la presa. Staccarla chiede conferma." },
+    { k: "potenza", t: "Consumo della presa (facoltativo)", tipo: "entita", dom: ["sensor."] },
     { k: "colonne", t: "Tasti per riga", tipo: "numero", min: 1, max: 6 },
     { k: "tasti", t: "I tasti", tipo: "json",
       aiuto: 'Esempio: [{"t":"Accendi","c":"POWER","i":"mdi:power"}]' },
@@ -18112,6 +18115,14 @@ const FPU_CSS = `
   .fpu-t.vuoto{visibility:hidden}
   .fpu-t:active{transform:scale(.94)}
   .fpu-t.inviato{background:rgba(74,222,128,.25)}
+  .fpu-pow{margin-left:auto;display:flex;align-items:center;gap:6px;padding:7px 12px 7px 9px;border-radius:999px;
+    border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.07);color:inherit;font:inherit;font-size:11px;
+    font-weight:800;cursor:pointer;flex:0 0 auto;white-space:nowrap}
+  .fh-app.chiaro .fpu-pow{background:rgba(15,23,42,.05);border-color:rgba(15,23,42,.12)}
+  .fpu-pow ha-icon{--mdc-icon-size:18px}
+  .fpu-pow.on{color:#4ade80;border-color:rgba(74,222,128,.45);background:rgba(74,222,128,.12)}
+  .fpu-pow.giu{opacity:.5;cursor:default}
+  .fpu.staccata .fpu-grid{opacity:.45}
 `;
 class FaberPulsantiera extends HTMLElement {
   static getConfigElement() { return document.createElement("faber-pulsantiera-editor"); }
@@ -18126,13 +18137,17 @@ class FaberPulsantiera extends HTMLElement {
   getCardSize() { return 3; }
   set hass(h) {
     this._hass = h;
-    if (this._built) return;
+    if (this._built) { this._presaAgg(); return; }
     this._built = true;
     const c = this._cfg;
+    // presa: la spina dell'apparecchio (18/11/26, Stufa camera). Il tasto in alto
+    // la accende e la stacca; staccarla chiede conferma, perche a una stufa a
+    // pellet accesa togliere la corrente e la cosa da non fare.
     this.innerHTML = `<style>${FHT_CSS}${FPU_CSS}</style>
       <div class="fht fpu">
         <div class="fht-top" style="justify-content:flex-start;gap:10px"><div class="fht-ic"><ha-icon icon="${fhEsc(c.icona)}"></ha-icon></div>
-          <div class="fht-testo"><div class="fht-title">${fhEsc(c.name)}</div>${c.nota ? `<div class="fht-sub">${fhEsc(c.nota)}</div>` : ""}</div></div>
+          <div class="fht-testo"><div class="fht-title">${fhEsc(c.name)}</div>${c.nota || c.presa ? `<div class="fht-sub" data-nota>${fhEsc(c.nota || "")}</div>` : ""}</div>
+          ${c.presa ? `<button type="button" class="fpu-pow" data-presa title="Accendi o stacca la presa"><ha-icon icon="mdi:power-plug"></ha-icon><span data-presa-t>Presa</span></button>` : ""}</div>
         <div class="fpu-grid" style="--fpu-n:${Math.max(1, Math.min(6, +c.colonne || 3))}">
           ${(c.tasti || []).map((t, i) => t.vuoto ? `<span class="fpu-t vuoto"></span>`
             : `<button type="button" class="fpu-t${t.principale ? " principale" : ""}" data-i="${i}">
@@ -18154,6 +18169,51 @@ class FaberPulsantiera extends HTMLElement {
         chiaro: !!this.closest(".fh-app.chiaro"), onConfirm: fai });
       else fai();
     }));
+    const pb = this.querySelector("[data-presa]");
+    if (pb) pb.addEventListener("click", () => this._presaTocca());
+    this._presaFirma = null;
+    this._presaAgg();
+  }
+  _presaStato() {
+    const h = this._hass, c = this._cfg;
+    const st = c.presa && h && h.states[c.presa];
+    const stato = st ? st.state : "unavailable";
+    const ps = c.potenza && h && h.states[c.potenza];
+    const w = ps && !isNaN(parseFloat(ps.state)) ? Math.round(parseFloat(ps.state)) : null;
+    return { stato, on: stato === "on", giu: !["on", "off"].includes(stato), w };
+  }
+  _presaAgg() {
+    if (!this._cfg.presa) return;
+    const s = this._presaStato();
+    const firma = [s.stato, s.w].join("|");
+    if (firma === this._presaFirma) return;
+    this._presaFirma = firma;
+    const b = this.querySelector("[data-presa]");
+    if (!b) return;
+    b.classList.toggle("on", s.on);
+    b.classList.toggle("giu", s.giu);
+    b.querySelector("[data-presa-t]").textContent = s.giu ? "Presa ?" : s.on ? "Presa accesa" : "Presa spenta";
+    b.querySelector("ha-icon").setAttribute("icon", s.on ? "mdi:power-plug" : "mdi:power-plug-off");
+    const box = this.querySelector(".fpu");
+    if (box) box.classList.toggle("staccata", !s.on && !s.giu);
+    const nota = this.querySelector("[data-nota]");
+    if (nota) nota.textContent = s.giu ? "La presa non risponde"
+      : !s.on ? "Presa spenta: accendila per usare i tasti"
+      : (this._cfg.nota || "") + (s.w != null ? (this._cfg.nota ? " · " : "") + s.w + " W" : "");
+  }
+  _presaTocca() {
+    const s = this._presaStato(), c = this._cfg, h = this._hass;
+    if (s.giu) return;
+    const d = c.presa.split(".")[0];
+    if (!s.on) { fhVibra(12); h.callService(d, "turn_on", { entity_id: c.presa }); return; }
+    const stacca = () => { fhVibra(18); h.callService(d, "turn_off", { entity_id: c.presa }); };
+    const consuma = s.w != null && s.w > 5;
+    if (window.fhConfirmAction) window.fhConfirmAction({ title: `Staccare la presa di ${c.name}?`,
+      message: consuma ? `Sta consumando ${s.w} W: se la stufa è accesa, spegnila prima col tasto e aspetta che si raffreddi. Senza corrente non può finire lo spegnimento.`
+        : "Se la stufa è accesa, spegnila prima col tasto e aspetta che si raffreddi. Senza corrente non può finire lo spegnimento.",
+      icon: "mdi:power-plug-off", confirmText: "Stacca", cancelText: "Annulla",
+      chiaro: !!this.closest(".fh-app.chiaro"), onConfirm: stacca });
+    else stacca();
   }
   _manda(t) {
     const h = this._hass;
