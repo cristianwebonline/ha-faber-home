@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.154.0";
+const FH_VERSION = "0.154.1";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -18205,7 +18205,16 @@ class FaberPulsantiera extends HTMLElement {
     const s = this._presaStato(), c = this._cfg, h = this._hass;
     if (s.giu) return;
     const d = c.presa.split(".")[0];
-    if (!s.on) { fhVibra(12); h.callService(d, "turn_on", { entity_id: c.presa }); return; }
+    if (!s.on) {
+      // 18/11/26 Cristian: conferma anche per accendere, non solo per staccare.
+      const accendi = () => { fhVibra(12); h.callService(d, "turn_on", { entity_id: c.presa }); };
+      if (window.fhConfirmAction) window.fhConfirmAction({ title: `Accendere la presa di ${c.name}?`,
+        message: "Dà corrente alla stufa. Poi la accendi col tasto del telecomando.",
+        icon: "mdi:power-plug", confirmText: "Accendi", cancelText: "Annulla",
+        chiaro: !!this.closest(".fh-app.chiaro"), onConfirm: accendi });
+      else accendi();
+      return;
+    }
     const stacca = () => { fhVibra(18); h.callService(d, "turn_off", { entity_id: c.presa }); };
     const consuma = s.w != null && s.w > 5;
     if (window.fhConfirmAction) window.fhConfirmAction({ title: `Staccare la presa di ${c.name}?`,
