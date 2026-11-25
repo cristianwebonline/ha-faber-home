@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.154.2";
+const FH_VERSION = "0.155.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -15318,6 +15318,10 @@ const FHT_CSS = `
   .fhf-sw.on,.fhf-scrim.chiaro .fhf-sw.on,.fh-app.chiaro .fhf-sw.on{background:#ffb020}
   .fhf-sw.on::after{transform:translateX(19px)}
   .fhf-nota{font-size:11.5px;opacity:.65;line-height:1.4}
+  /* Foglio «Regola»: − valore + sulla stessa riga, tasti grandi per il dito. */
+  .fhr-num{display:flex;align-items:center;gap:6px;flex:0 0 auto;align-self:center}
+  .fhr-num .fhf-tasto{width:36px;height:34px;padding:0;font-size:17px;line-height:1}
+  .fhr-num .fhf-val{min-width:52px;text-align:center}
   /* I giorni della raccolta, scrivibili dentro la riga stessa. */
   .frf-in{width:100%;box-sizing:border-box;margin-top:3px;padding:7px 9px;border-radius:10px;font:inherit;font-size:13px;
     font-weight:800;color:inherit;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.06)}
@@ -15484,6 +15488,7 @@ class FaberAutomazioni extends HTMLElement {
     this._hass = h;
     this._update();
     if (this._foglio && this._foglio.aperto()) this._disegnaLista(this._foglio.corpo);
+    if (this._fogR && this._fogR.f.aperto()) this._disegnaRegola(this._fogR.f.corpo, this._fogR.v);
   }
 
   _voci() { return (this._cfg.gruppi || []).flatMap(g => g.voci || []); }
@@ -15494,13 +15499,23 @@ class FaberAutomazioni extends HTMLElement {
     const dom = String(v.entity || "").split(".")[0];
     const r = { dom, st, nome: v.nome || (st && st.attributes.friendly_name) || v.entity || "Azione",
       icona: v.icona || { automation: "mdi:robot-outline", script: "mdi:script-text-outline", button: "mdi:gesture-tap-button",
-        binary_sensor: "mdi:checkbox-marked-circle-outline", sensor: "mdi:gauge" }[dom] || "mdi:flash",
+        binary_sensor: "mdi:checkbox-marked-circle-outline", sensor: "mdi:gauge", input_number: "mdi:numeric",
+        input_boolean: "mdi:toggle-switch-outline" }[dom] || "mdi:flash",
       sub: v.nota || "", on: false, ok: true, valore: "" };
     if (!st && !v.azione) { r.sub = "Non trovata in Home Assistant"; r.ok = null; return r; }
     if (dom === "automation") {
       r.on = st.state === "on";
       const ult = fhQuando(st.attributes.last_triggered);
       r.sub = (r.on ? "Attiva" : "Spenta") + (v.nota ? " · " + v.nota : "") + (ult ? " · scattata " + ult : "");
+    } else if (dom === "input_number") {
+      // Un numero che regola un'automazione (secondi, lux, minuti): si legge
+      // il valore, e nel foglio «Regola» si cambia con − e +.
+      const n = parseFloat(st.state);
+      const u = st.attributes.unit_of_measurement || "";
+      r.valore = isNaN(n) ? st.state : (Math.round(n * 100) / 100).toLocaleString("it-IT") + (u ? " " + u : "");
+    } else if (dom === "input_boolean") {
+      r.on = st.state === "on";
+      r.valore = r.on ? (v.testi && v.testi.on || "Sì") : (v.testi && v.testi.off || "No");
     } else if (dom === "script") {
       r.on = st.state === "on";
       r.sub = r.on ? "In esecuzione…" : (v.nota || "Pronto");
@@ -15710,6 +15725,68 @@ class FaberAutomazioni extends HTMLElement {
       (o.sole ? fhScostamento(o.min) + " (verso le " + (fhOraSole(this._hass, o.sole, o.min) || "?") + ")" : o.ora)).join(" · ") };
   }
 
+  // IL FOGLIO «REGOLA» (25/11/26, Cristian: «ci sono troppe automazioni di
+  // quella luce, metti un popup che apre quelle della luce corridoio»).
+  // Voce con regola: [{entity, nome, icona, nota}] -> numeri (input_number)
+  // con − e +, si/no (input_boolean) e automazioni con l'interruttore.
+  _apriRegola(v) {
+    const chiaro = !!this.closest(".fh-app.chiaro");
+    const f = fhFoglio(v.nome || "Regola", chiaro);
+    this._fogR = { f, v };
+    const indietro = () => setTimeout(() => { if (!f.aperto()) { this._fogR = null; this._apri(); } }, 0);
+    f.scrim.addEventListener("click", e => { if (e.target === f.scrim) indietro(); });
+    f.scrim.querySelector("[data-x]").addEventListener("click", indietro);
+    this._disegnaRegola(f.corpo, v);
+  }
+
+  _disegnaRegola(corpo, v) {
+    const h = this._hass;
+    const voci = (v.regola || []).map(x => ({ x, r: this._leggi(x), st: h.states[x.entity] }));
+    const firma = JSON.stringify(voci.map(({ r, st }) => [r.on, r.valore, r.sub, st && st.state]));
+    if (corpo.__firma === firma) return;
+    corpo.__firma = firma;
+    corpo.innerHTML = `${v.nota_regola ? `<div class="fhf-nota">${fhEsc(v.nota_regola)}</div>` : ""}
+      <div class="fhf-sez">${voci.map(({ x, r, st }, i) => {
+        const dom = r.dom;
+        let ctrl = "";
+        if (!st) ctrl = `<span class="fhf-val">non trovata</span>`;
+        else if (dom === "input_number") ctrl = `<span class="fhr-num">
+            <button type="button" class="fhf-tasto" data-meno="${i}" aria-label="Meno">−</button>
+            <b class="fhf-val">${fhEsc(r.valore)}</b>
+            <button type="button" class="fhf-tasto" data-piu="${i}" aria-label="Più">+</button></span>`;
+        else if (dom === "input_boolean" || dom === "automation")
+          ctrl = `<button type="button" class="fhf-sw${r.on ? " on" : ""}" data-rsw="${i}" aria-label="Attiva o spegni"></button>`;
+        else if (r.valore) ctrl = `<span class="fhf-val">${fhEsc(r.valore)}</span>`;
+        const col = r.on ? "#ffb020" : dom === "input_number" ? "#47b5ff" : "#93a1b0";
+        const sub = dom === "automation" ? r.sub : (x.nota || "");
+        return `<div class="fhf-riga" style="--r-c:${col}">
+          <div class="fhf-rig-ic"><ha-icon icon="${fhEsc(r.icona)}"></ha-icon></div>
+          <div class="fhf-rig-t"><b>${fhEsc(r.nome)}</b>${sub ? `<small>${fhEsc(sub)}</small>` : ""}</div>${ctrl}</div>`;
+      }).join("")}</div>`;
+    const cambia = (i, verso) => {
+      const st = h.states[voci[i].x.entity];
+      if (!st) return;
+      const a = st.attributes;
+      const passo = parseFloat(a.step) || 1;
+      const min = a.min != null ? parseFloat(a.min) : -Infinity, max = a.max != null ? parseFloat(a.max) : Infinity;
+      const ora = parseFloat(st.state) || 0;
+      const nuovo = Math.min(max, Math.max(min, Math.round((ora + verso * passo) / passo) * passo));
+      if (nuovo === ora) return;
+      fhVibra(8);
+      this._hass.callService("input_number", "set_value", { entity_id: voci[i].x.entity, value: nuovo });
+    };
+    corpo.querySelectorAll("[data-meno]").forEach(b => b.onclick = e => { e.stopPropagation(); cambia(+b.dataset.meno, -1); });
+    corpo.querySelectorAll("[data-piu]").forEach(b => b.onclick = e => { e.stopPropagation(); cambia(+b.dataset.piu, +1); });
+    corpo.querySelectorAll("[data-rsw]").forEach(b => b.onclick = e => {
+      e.stopPropagation();
+      const x = voci[+b.dataset.rsw].x, st = h.states[x.entity];
+      if (!st) return;
+      fhVibra(10);
+      const dom = x.entity.split(".")[0];
+      this._hass.callService(dom, st.state === "on" ? "turn_off" : "turn_on", { entity_id: x.entity });
+    });
+  }
+
   // Si ridisegna solo se qualcosa di quello che si vede e cambiato: la card
   // riceve lo stato di tutta la casa molte volte al secondo.
   _disegnaLista(corpo) {
@@ -15724,7 +15801,11 @@ class FaberAutomazioni extends HTMLElement {
         const col = r.ok === false ? "#ff8a3d" : r.on ? "#ffb020" : r.dom === "binary_sensor" || r.dom === "sensor" ? "#4ade80" : "#93a1b0";
         let ctrl = "";
         const quando = o => o.sole ? "≈ " + (fhOraSole(this._hass, o.sole, o.min) || "—") : o.ora;
-        if (r.dom === "automation" && r.st) ctrl = `${ore.length ? `<button type="button" class="fhf-tasto" data-ore="${gi}.${vi}">${ore.length === 1 ? fhEsc(quando(ore[0])) : "Orari"}</button>` : ""}<button type="button" class="fhf-sw${r.on ? " on" : ""}" data-sw="${gi}.${vi}" aria-label="Attiva o spegni"></button>`;
+        // «Regola»: le impostazioni di quell'automazione (regola: [voci]) in un
+        // foglio a parte, cosi l'elenco resta di una riga per automazione.
+        const reg = Array.isArray(v.regola) && v.regola.length
+          ? `<button type="button" class="fhf-tasto" data-reg="${gi}.${vi}">Regola</button>` : "";
+        if (r.dom === "automation" && r.st) ctrl = `${reg}${ore.length ? `<button type="button" class="fhf-tasto" data-ore="${gi}.${vi}">${ore.length === 1 ? fhEsc(quando(ore[0])) : "Orari"}</button>` : ""}<button type="button" class="fhf-sw${r.on ? " on" : ""}" data-sw="${gi}.${vi}" aria-label="Attiva o spegni"></button>`;
         else if (v.azione) ctrl = `<button type="button" class="fhf-tasto" data-az="${gi}.${vi}">${fhEsc(v.tasto || "Esegui")}</button>`;
         else if (r.dom === "script" && r.st) ctrl = `<button type="button" class="fhf-tasto" data-az="${gi}.${vi}">${fhEsc(v.tasto || "Avvia")}</button>`;
         else if (r.dom === "button" && r.st) ctrl = `<button type="button" class="fhf-tasto" data-az="${gi}.${vi}">${fhEsc(v.tasto || "Premi")}</button>`;
@@ -15747,6 +15828,11 @@ class FaberAutomazioni extends HTMLElement {
       e.stopPropagation();
       fhVibra(8);
       this._apriOrari(voce(b.dataset.ore));
+    }));
+    corpo.querySelectorAll("[data-reg]").forEach(b => b.addEventListener("click", e => {
+      e.stopPropagation();
+      fhVibra(8);
+      this._apriRegola(voce(b.dataset.reg));
     }));
     corpo.querySelectorAll("[data-az]").forEach(b => b.addEventListener("click", e => {
       e.stopPropagation();
