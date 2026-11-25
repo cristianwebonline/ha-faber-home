@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.154.1";
+const FH_VERSION = "0.154.2";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -8177,6 +8177,12 @@ const FH_TABLET = {
           climi.add(cd.climate);
           out.clima.push({ climate: cd.climate, nome: cd.name || this._ftNome(cd.climate), presa });
         }
+        return;
+      }
+      // Mini Card «gruppo di luci» (luci: [...], dal 25/11/26): ogni luce del
+      // gruppo conta come una tessera a se, cosi il tablet le vede ancora.
+      if (tipo === "custom:mini-card" && Array.isArray(cd.luci) && cd.luci.length) {
+        cd.luci.forEach(x => x && x.entity && gira({ type: "custom:mini-card", switch: x.entity, name: x.nome || "", power: x.power || "" }));
         return;
       }
       if (tipo === "custom:mini-card") {
