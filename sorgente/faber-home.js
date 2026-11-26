@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.155.0";
+const FH_VERSION = "0.156.0";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -1129,6 +1129,7 @@ class FaberHome extends HTMLElement {
               <div class="fh-date" data-date>${this._dateText()}</div>
             </div>
             <div class="fh-headicons">
+            <button type="button" class="fh-ic" data-act="fc" title="Faber Control"${this._hass && this._hass.user && this._hass.user.is_admin === false ? " hidden" : ""}><ha-icon icon="mdi:lightning-bolt"></ha-icon></button>
             <button type="button" class="fh-ic" data-act="cfg" title="Impostazioni"><ha-icon icon="mdi:cog-outline"></ha-icon></button>
             <button type="button" class="fh-ic" data-act="edit" title="Modifica"><ha-icon icon="mdi:pencil"></ha-icon></button>
             <button type="button" class="fh-ic" data-act="tema" data-tema="${fhEsc(this._cfg.appearance.temaFisso || "auto")}"
@@ -1168,6 +1169,7 @@ class FaberHome extends HTMLElement {
     this._watchTheme();
     this.querySelectorAll(".fh-ic").forEach(b => b.addEventListener("click", () => {
       if (b.dataset.act === "cfg") this._openSettings();
+      else if (b.dataset.act === "fc") this._apriFC();
       else if (b.dataset.act === "edit") this._toggleEdit();
       else if (b.dataset.act === "tema") {
         // Gira fra tre: automatico -> il contrario di adesso -> l'altro ->
@@ -2409,6 +2411,7 @@ class FaberHome extends HTMLElement {
   // primo senza dare errore. Risultato: uscendo dal pannello il cielo animato
   // e l'orologio continuavano a girare in sottofondo.
   disconnectedCallback() {
+    this._chiudiFC && this._chiudiFC();
     this._fermaTutto();
     if (this._ascoltoHash) {
       window.removeEventListener("hashchange", this._ascoltoHash);
@@ -3137,6 +3140,7 @@ class FaberHome extends HTMLElement {
           <button type="button" class="fh-mi" data-act="cfg"><ha-icon icon="mdi:cog-outline"></ha-icon>Configura</button>
           <button type="button" class="fh-mi" data-act="pop"><ha-icon icon="mdi:dock-window"></ha-icon>Popup al tocco${haPop ? " \u2713" : ""}</button>
           <button type="button" class="fh-mi" data-act="dup"><ha-icon icon="mdi:content-copy"></ha-icon>Duplica</button>
+          <button type="button" class="fh-mi" data-act="fc"><ha-icon icon="mdi:lightning-bolt"></ha-icon>Chiedi a Faber Control</button>
           <div class="fh-misep"></div>
           <div class="fh-milab">Forma</div>
           <button type="button" class="fh-mi" data-forma="auto"><ha-icon icon="mdi:arrow-expand-vertical"></ha-icon>Auto${!hAtt ? " \u2713" : ""}</button>
@@ -3214,6 +3218,7 @@ class FaberHome extends HTMLElement {
       const cards = cols[ci].cards;
       if (a === "cfg") { this._openCardEditor(ri, ci, di); return; }
       if (a === "pop") { this._openPopupEditor(ri, ci, di); return; }
+      if (a === "fc") { this._apriFC({ ri, ci, di }); return; }
       if (a === "dup") cards.splice(di + 1, 0, JSON.parse(JSON.stringify(cards[di])));
       else if (a === "del") cards.splice(di, 1);
       else if (a === "left" && ci > 0) { const [c] = cards.splice(di, 1); cols[ci - 1].cards.push(c); this._puliscivuote(ri); }
@@ -5467,6 +5472,61 @@ class FaberHome extends HTMLElement {
       inp.addEventListener("input", riempi);
       inp.addEventListener("focus", riempi);
     });
+  }
+
+  // FABER CONTROL DA FABER HOME (26/11/26, Cristian: «metti l'icona di Faber Control in alto prima
+  // delle impostazioni, così lo richiamo anche da lì e interagisce da dove viene interpellato, se
+  // deve cambiare una card o un'altra cosa»). Il tasto ⚡ apre la chat di Faber Control in un velo
+  // agganciato al body (fuori dalla card, se no position:fixed resta chiuso dentro) e le passa il
+  // contesto: dashboard, pagina, e — dal menu «⋮» di una card in modifica — quale card.
+  _apriFC(card) {
+    const pg = (this._cfg.pages || [])[this._page] || {};
+    const dash = (location.pathname.split("/")[1] || "").trim();
+    const base = `views[0].cards[0].pages[${this._page}]`;
+    let dove = `Faber Home (dashboard «${dash}»), pagina «${pg.title || pg.id || this._page}» (id «${pg.id || ""}», ${base})`;
+    let titolo = pg.title || "Faber Home";
+    if (card) {
+      const c = (((pg.rows || [])[card.ri] || {}).cols || [])[card.ci];
+      const cc = c && c.cards ? c.cards[card.di] : null;
+      if (cc) {
+        const nome = cc.name || cc.title || cc.type || "card";
+        const ent = cc.switch || cc.entity || cc.climate || cc.foto || cc.power || cc.temp || "";
+        dove += `, card «${nome}» (tipo ${cc.type || "?"}${ent ? ", entità " + ent : ""}; posizione `
+          + `${base}.rows[${card.ri}].cols[${card.ci}].cards[${card.di}])`;
+        titolo = `${pg.title || ""} · ${nome}`;
+      }
+    }
+    this._chiudiFC();
+    const v = document.createElement("div");
+    v.className = "fh-fc-velo";
+    v.innerHTML = `<style>
+      .fh-fc-velo{position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.45);display:flex;justify-content:flex-end}
+      .fh-fc-box{width:min(560px,100vw);height:100%;display:flex;flex-direction:column;background:#111418;
+        box-shadow:-8px 0 30px rgba(0,0,0,.35);animation:fhFcIn .22s ease-out}
+      @keyframes fhFcIn{from{transform:translateX(40px);opacity:.4}to{transform:none;opacity:1}}
+      .fh-fc-bar{display:flex;align-items:center;gap:10px;padding:10px 12px;padding-top:max(10px,env(safe-area-inset-top));
+        color:#fff;font:600 14px/1.2 -apple-system,system-ui,sans-serif;border-bottom:1px solid rgba(255,255,255,.08)}
+      .fh-fc-bar b{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      .fh-fc-bar small{display:block;font-weight:500;opacity:.6;font-size:11px;margin-top:2px}
+      .fh-fc-x{width:36px;height:36px;border-radius:50%;border:0;background:rgba(255,255,255,.1);color:#fff;font-size:18px;cursor:pointer;flex:none}
+      .fh-fc-box iframe{flex:1;width:100%;border:0;background:#111418}
+    </style>
+    <div class="fh-fc-box" role="dialog" aria-label="Faber Control">
+      <div class="fh-fc-bar"><span style="font-size:18px">⚡</span>
+        <b>Faber Control<small>${fhEsc(titolo)}</small></b>
+        <button type="button" class="fh-fc-x" aria-label="Chiudi">✕</button></div>
+      <iframe src="/api/faber_control/chat?fh=${encodeURIComponent(dove)}" allow="clipboard-write"></iframe>
+    </div>`;
+    v.addEventListener("click", e => { if (e.target === v) this._chiudiFC(); });
+    v.querySelector(".fh-fc-x").addEventListener("click", () => this._chiudiFC());
+    this._fcEsc = e => { if (e.key === "Escape") this._chiudiFC(); };
+    document.addEventListener("keydown", this._fcEsc);
+    document.body.appendChild(v);
+    this._fcVelo = v;
+  }
+  _chiudiFC() {
+    if (this._fcVelo) { this._fcVelo.remove(); this._fcVelo = null; }
+    if (this._fcEsc) { document.removeEventListener("keydown", this._fcEsc); this._fcEsc = null; }
   }
 
   _openSettings() {
