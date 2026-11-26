@@ -8,7 +8,7 @@
  *  "panel" che contiene {"type":"custom:faber-home"} — voce propria nella
  *  barra laterale, nessuno YAML, nessun riavvio.
  */
-const FH_VERSION = "0.156.0";
+const FH_VERSION = "0.156.1";
 console.info(`%c FABER HOME %c v${FH_VERSION} `,
   "color:#1c1400;background:#ffb020;font-weight:700;border-radius:4px 0 0 4px",
   "color:var(--fh-c-soft,#ffe9c2);background:#1a1b21;border-radius:0 4px 4px 0");
@@ -5515,7 +5515,7 @@ class FaberHome extends HTMLElement {
       <div class="fh-fc-bar"><span style="font-size:18px">⚡</span>
         <b>Faber Control<small>${fhEsc(titolo)}</small></b>
         <button type="button" class="fh-fc-x" aria-label="Chiudi">✕</button></div>
-      <iframe src="/api/faber_control/chat?fh=${encodeURIComponent(dove)}" allow="clipboard-write"></iframe>
+      <iframe src="/api/faber_control/chat?fh=${encodeURIComponent(dove)}" allow="microphone; autoplay; clipboard-write"></iframe>
     </div>`;
     v.addEventListener("click", e => { if (e.target === v) this._chiudiFC(); });
     v.querySelector(".fh-fc-x").addEventListener("click", () => this._chiudiFC());
